@@ -20,12 +20,14 @@ final class PaceScreenWatchNoteCoordinator {
     private var hasReportedDelayedRecognition = false
     private let onDelayedRecognition: () -> Void
 
-    init(now: @escaping () -> Date = Date.init,
-         isEligible: @escaping (PaceScreenWatchObservation) -> Bool,
-         sourceRevision: @escaping () -> UInt64,
-         recognizeText: @escaping (PaceScreenWatchObservation) async throws -> [RecognizedTextBox],
-         persist: @escaping (PaceScreenWatchObservation, String) -> Void,
-         onDelayedRecognition: @escaping () -> Void = {}) {
+    init(
+        now: @escaping () -> Date = Date.init,
+        isEligible: @escaping (PaceScreenWatchObservation) -> Bool,
+        sourceRevision: @escaping () -> UInt64,
+        recognizeText: @escaping (PaceScreenWatchObservation) async throws -> [RecognizedTextBox],
+        persist: @escaping (PaceScreenWatchObservation, String) -> Void,
+        onDelayedRecognition: @escaping () -> Void = {}
+    ) {
         self.now = now
         self.isEligible = isEligible
         self.sourceRevision = sourceRevision
@@ -36,7 +38,8 @@ final class PaceScreenWatchNoteCoordinator {
 
     func observe(_ observation: PaceScreenWatchObservation) {
         if recognitionTask != nil, !hasReportedDelayedRecognition,
-           let lastAttemptAt, now().timeIntervalSince(lastAttemptAt) > 12 {
+            let lastAttemptAt, now().timeIntervalSince(lastAttemptAt) > 12
+        {
             hasReportedDelayedRecognition = true
             onDelayedRecognition()
         }
@@ -60,9 +63,10 @@ final class PaceScreenWatchNoteCoordinator {
 
     private func startPendingObservationIfDue() {
         guard recognitionTask == nil, let pendingObservation,
-              pendingObservation.sourceRevision == sourceRevision(),
-              isFresh(pendingObservation.observation), isEligible(pendingObservation.observation),
-              lastAttemptAt.map({ now().timeIntervalSince($0) >= 30 }) ?? true else { return }
+            pendingObservation.sourceRevision == sourceRevision(),
+            isFresh(pendingObservation.observation), isEligible(pendingObservation.observation),
+            lastAttemptAt.map({ now().timeIntervalSince($0) >= 30 }) ?? true
+        else { return }
         self.pendingObservation = nil
         lastAttemptAt = now()
         hasReportedDelayedRecognition = false
@@ -76,11 +80,13 @@ final class PaceScreenWatchNoteCoordinator {
             }
             do {
                 let boxes = try await recognizeText(observation)
-                let excerpt = PaceScreenWatchNoteText.excerpt(from: boxes,
+                let excerpt = PaceScreenWatchNoteText.excerpt(
+                    from: boxes,
                     screenshotHeightInPixels: observation.capture.screenshotHeightInPixels)
                 guard let excerpt, !Task.isCancelled,
-                      pendingObservation.sourceRevision == sourceRevision(),
-                      isFresh(observation), isEligible(observation), epoch == attemptEpoch else { return }
+                    pendingObservation.sourceRevision == sourceRevision(),
+                    isFresh(observation), isEligible(observation), epoch == attemptEpoch
+                else { return }
                 persist(observation, excerpt)
             } catch {
                 // A failure consumes the same global attempt budget as a success.
@@ -118,7 +124,8 @@ nonisolated enum PaceScreenWatchNoteText {
             let visibleText = $0.replacingOccurrences(of: "[redacted]", with: "")
             return visibleText.contains(where: { $0.isLetter || $0.isNumber })
         }
-        let collapsedText = meaningfulLines.joined(separator: " ").split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        let collapsedText = meaningfulLines.joined(separator: " ").split(whereSeparator: \.isWhitespace).joined(
+            separator: " ")
         guard collapsedText.count >= 12 else { return nil }
         return String(collapsedText.prefix(PaceScreenWatchJournal.maximumScreenDescriptionCharacterCount))
     }

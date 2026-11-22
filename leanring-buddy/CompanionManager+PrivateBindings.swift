@@ -156,8 +156,9 @@ extension CompanionManager {
     /// through the same capture pipeline as wake-word input.
     func handleBargeInDetected() {
         guard voiceState == .responding, isAlwaysListeningEnabled,
-              !buddyDictationManager.isDictationInProgress,
-              !globalPushToTalkShortcutMonitor.isShortcutCurrentlyPressed else { return }
+            !buddyDictationManager.isDictationInProgress,
+            !globalPushToTalkShortcutMonitor.isShortcutCurrentlyPressed
+        else { return }
         cancelActiveTurnTasks()
         streamingSentenceTTSPipeline.drainQueueAndStopForBargeIn()
         buddyDictationManager.openListeningWindow(
@@ -356,7 +357,8 @@ extension CompanionManager {
         liveSpeechDraft = ""
         currentTurnHUDState = .failed(message)
         revealRequestFeedback()
-        PaceAPIAuditLog.shared.record(subsystem: "dictation", operation: "capture_failed",
+        PaceAPIAuditLog.shared.record(
+            subsystem: "dictation", operation: "capture_failed",
             target: buddyDictationManager.transcriptionProvider.displayName, durationMilliseconds: 0, outcome: "failed")
         responseOverlayManager.setListeningForAudio(false)
         responseOverlayManager.updateStreamingText(message)
@@ -411,7 +413,8 @@ extension CompanionManager {
                     self.currentTurnHUDState = .listening
                     if !self.hasAnnouncedCurrentCaptureReady {
                         self.hasAnnouncedCurrentCaptureReady = true
-                        if !self.chatSession.isChatTTSMuted && !self.streamingSentenceTTSPipeline.isMutedForCurrentTurn {
+                        if !self.chatSession.isChatTTSMuted && !self.streamingSentenceTTSPipeline.isMutedForCurrentTurn
+                        {
                             self.playListeningReadyCue()
                         }
                     }
@@ -501,7 +504,8 @@ extension CompanionManager {
                 // use the partial as the transcript — better than
                 // dropping the whole turn as "no audio detected".
                 if let rescuedPartial = self.lastPartialTranscriptFromActiveDictation,
-                   !rescuedPartial.isEmpty {
+                    !rescuedPartial.isEmpty
+                {
                     print("🗣️ Final transcript timed out — rescuing partial: \(rescuedPartial)")
                     self.transcriptArrivedSinceRelease = true
                     self.lastTranscript = rescuedPartial
@@ -542,18 +546,25 @@ extension CompanionManager {
             guard !buddyDictationManager.isDictationInProgress else { return }
             currentRequestStartedAt = Date()
             hasAnnouncedCurrentCaptureReady = false
-            PaceAPIAuditLog.shared.record(subsystem: "dictation", operation: "input_pressed",
+            PaceAPIAuditLog.shared.record(
+                subsystem: "dictation", operation: "input_pressed",
                 target: String(describing: currentDictationTrigger), durationMilliseconds: 0, outcome: "received",
                 detail: "pid=\(ProcessInfo.processInfo.processIdentifier)")
             if buddyDictationManager.usesJapanesePracticeTranscription,
-                !buddyDictationManager.isJapanesePracticeTranscriptionReady {
+                !buddyDictationManager.isJapanesePracticeTranscriptionReady
+            {
                 ignoresRejectedPracticeShortcutRelease = true
                 let readiness = buddyDictationManager.japanesePracticeMicrophoneReadiness
                 buddyDictationManager.prepareJapanesePracticeTranscriptionIfNeeded()
-                let feedback = readiness.message.isEmpty ? buddyDictationManager.japanesePracticePreparationStatus : readiness.message
+                let feedback =
+                    readiness.message.isEmpty
+                    ? buddyDictationManager.japanesePracticePreparationStatus : readiness.message
                 if voiceState == .idle {
-                    if case .failed = readiness { currentTurnHUDState = .failed(feedback) }
-                    else { currentTurnHUDState = .understanding(feedback) }
+                    if case .failed = readiness {
+                        currentTurnHUDState = .failed(feedback)
+                    } else {
+                        currentTurnHUDState = .understanding(feedback)
+                    }
                     responseOverlayManager.showOverlayAndBeginStreaming()
                     responseOverlayManager.updateStreamingText(feedback)
                     responseOverlayManager.finishStreaming()
@@ -603,7 +614,6 @@ extension CompanionManager {
             voiceState = .idle
             currentTurnHUDState = .understanding("Starting microphone…")
             voiceState = .processing
-    
 
             PaceAnalytics.trackPushToTalkStarted()
 
@@ -684,7 +694,8 @@ extension CompanionManager {
             // must not extend this manager's lifetime past app teardown.
             shortcutPressOwnsCapture = true
             let captureMode = currentDictationTrigger.captureMode
-            let allowsSpeculativeAction = BuddyPushToTalkShortcut.currentShortcutOption != .rightOption
+            let allowsSpeculativeAction =
+                BuddyPushToTalkShortcut.currentShortcutOption != .rightOption
                 || currentDictationTrigger != .keyboard
             pendingKeyboardShortcutStartTask = Task { [weak self] in
                 guard let self else { return }
@@ -724,10 +735,12 @@ extension CompanionManager {
                         PaceAnalytics.trackUserMessageSent(transcript: finalTranscript)
                         self.currentTurnHUDState = .understanding("Heard you · Working…")
                         self.responseOverlayManager.updateStreamingText("Heard you")
-                        self.sendTranscriptToPlannerWithScreenshot(transcript: finalTranscript, allowsPermissionPrompt: true)
+                        self.sendTranscriptToPlannerWithScreenshot(
+                            transcript: finalTranscript, allowsPermissionPrompt: true)
                     },
-                    speculativeFastAction: allowsSpeculativeAction ? { [weak self] stablePartial in
-                        Task { @MainActor [weak self] in
+                    speculativeFastAction: allowsSpeculativeAction
+                        ? { [weak self] stablePartial in
+                            Task { @MainActor [weak self] in
                             guard let self else { return }
                             print("⚡️ Speculative fast-action triggered: \(stablePartial)")
                             // Mark STT complete early — the speculative
@@ -738,12 +751,13 @@ extension CompanionManager {
                             // the normal path uses, but before PTT release.
                             self.handleSpeculativeFastAction(transcript: stablePartial)
                         }
-                    } : nil
+                        } : nil
                 )
             }
         case .released:
             shortcutPressOwnsCapture = false
-            PaceAPIAuditLog.shared.record(subsystem: "dictation", operation: "input_released",
+            PaceAPIAuditLog.shared.record(
+                subsystem: "dictation", operation: "input_released",
                 target: String(describing: currentDictationTrigger), durationMilliseconds: 0, outcome: "received",
                 detail: "pid=\(ProcessInfo.processInfo.processIdentifier)")
             if ignoresRejectedPracticeShortcutRelease {

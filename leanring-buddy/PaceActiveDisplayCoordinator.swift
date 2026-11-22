@@ -11,8 +11,9 @@ nonisolated struct PaceDisplayGeometry: Equatable, Sendable {
     let frame: CGRect
 
     static func appKitFrame(from quartzFrame: CGRect, primaryScreenTop: CGFloat) -> CGRect {
-        CGRect(x: quartzFrame.minX, y: primaryScreenTop - quartzFrame.maxY,
-               width: quartzFrame.width, height: quartzFrame.height)
+        CGRect(
+            x: quartzFrame.minX, y: primaryScreenTop - quartzFrame.maxY,
+            width: quartzFrame.width, height: quartzFrame.height)
     }
 
     static func selectedDisplay(
@@ -83,7 +84,8 @@ final class PaceActiveDisplayCoordinator {
     private var notificationObservers: [(NotificationCenter, NSObjectProtocol)] = []
     private var mouseDownMonitor: Any?
     private var focusedWindowObservation: PaceFocusedWindowObserverBinding?
-    private let focusedWindowObservationFactory: (@Sendable (pid_t, @escaping @MainActor @Sendable () -> Void) async -> PaceFocusedWindowObserverBinding?)?
+    private let focusedWindowObservationFactory:
+        (@Sendable (pid_t, @escaping @MainActor @Sendable () -> Void) async -> PaceFocusedWindowObserverBinding?)?
     private var focusedWindowObservationGeneration: UInt64 = 0
     private var focusRefreshTask: Task<Void, Never>?
     private var focusRequestGeneration: UInt64 = 0
@@ -106,13 +108,16 @@ final class PaceActiveDisplayCoordinator {
             NSWorkspace.shared.frontmostApplication?.processIdentifier
         },
         ownProcessIdentifier: pid_t = ProcessInfo.processInfo.processIdentifier,
-        focusedWindowReader: @escaping @Sendable (pid_t, CGFloat) async -> CGRect? = { processIdentifier, primaryScreenTop in
+        focusedWindowReader: @escaping @Sendable (pid_t, CGFloat) async -> CGRect? = {
+            processIdentifier, primaryScreenTop in
             await Task.detached(priority: .utility) {
                 PaceFocusedWindowObservation.readFrame(
                     processIdentifier: processIdentifier, primaryScreenTop: primaryScreenTop)
             }.value
         },
-        focusedWindowObservationFactory: (@Sendable (pid_t, @escaping @MainActor @Sendable () -> Void) async -> PaceFocusedWindowObserverBinding?)? = nil
+        focusedWindowObservationFactory: (
+            @Sendable (pid_t, @escaping @MainActor @Sendable () -> Void) async -> PaceFocusedWindowObserverBinding?
+        )? = nil
     ) {
         self.screens = screens
         self.pointerLocation = pointerLocation
@@ -143,7 +148,10 @@ final class PaceActiveDisplayCoordinator {
     }
 
     func selectDisplay(containing anchorFrame: CGRect) {
-        guard let display = screens().first(where: { $0.frame.contains(CGPoint(x: anchorFrame.midX, y: anchorFrame.midY)) })
+        guard
+            let display = screens().first(where: {
+                $0.frame.contains(CGPoint(x: anchorFrame.midX, y: anchorFrame.midY))
+            })
         else { return }
         focusRequestGeneration &+= 1
         pendingFocusReason = nil
@@ -162,10 +170,12 @@ final class PaceActiveDisplayCoordinator {
     func handleSystemEvent(_ reason: PaceDisplayRouteReason) {
         focusRequestGeneration &+= 1
         if reason == .activeSpaceChanged || reason == .screensChanged || reason == .wake {
-            let selectedDisplayID = screens().contains { $0.displayID == route.displayID }
+            let selectedDisplayID =
+                screens().contains { $0.displayID == route.displayID }
                 ? route.displayID
                 : PaceDisplayGeometry.selectedDisplay(
-                    screens: screens(), focusedWindowFrame: nil, pointerLocation: pointerLocation(), previousDisplayID: nil)
+                    screens: screens(), focusedWindowFrame: nil, pointerLocation: pointerLocation(),
+                    previousDisplayID: nil)
             publish(displayID: selectedDisplayID, reason: reason)
         }
         guard frontmostProcessIdentifier() != ownProcessIdentifier else {
@@ -183,10 +193,12 @@ final class PaceActiveDisplayCoordinator {
     private func beginPendingFocusRefresh() {
         guard focusRefreshTask == nil, let reason = pendingFocusReason,
             let processIdentifier = frontmostProcessIdentifier(), processIdentifier != ownProcessIdentifier,
-            let primaryScreenTop = screens().first?.frame.maxY else { return }
+            let primaryScreenTop = screens().first?.frame.maxY
+        else { return }
         pendingFocusReason = nil
         let generation = focusRequestGeneration
-        let allowsFocusSelection = systemUptime() - lastPointerDownAt >= 0.25
+        let allowsFocusSelection =
+            systemUptime() - lastPointerDownAt >= 0.25
             || reason == .focusedWindowChanged || reason == .activeSpaceChanged
             || reason == .screensChanged || reason == .wake
         let focusedWindowReader = focusedWindowReader
@@ -213,7 +225,9 @@ final class PaceActiveDisplayCoordinator {
     }
 
     private func publish(displayID: PaceDisplayID?, reason: PaceDisplayRouteReason) {
-        guard displayID != route.displayID || reason == .activeSpaceChanged || reason == .screensChanged || reason == .wake
+        guard
+            displayID != route.displayID || reason == .activeSpaceChanged || reason == .screensChanged
+                || reason == .wake
         else { return }
         route = PaceActiveDisplayRoute(displayID: displayID, reason: reason, revision: route.revision &+ 1)
         routeChanges.send(route)
@@ -222,7 +236,10 @@ final class PaceActiveDisplayCoordinator {
     private func startObserving() {
         let workspaceCenter = NSWorkspace.shared.notificationCenter
         for (center, name, reason) in [
-            (workspaceCenter, NSWorkspace.didActivateApplicationNotification, PaceDisplayRouteReason.applicationActivated),
+            (
+                workspaceCenter, NSWorkspace.didActivateApplicationNotification,
+                PaceDisplayRouteReason.applicationActivated
+            ),
             (workspaceCenter, NSWorkspace.activeSpaceDidChangeNotification, .activeSpaceChanged),
             (workspaceCenter, NSWorkspace.didWakeNotification, .wake),
             (NotificationCenter.default, NSApplication.didChangeScreenParametersNotification, .screensChanged),
@@ -232,12 +249,15 @@ final class PaceActiveDisplayCoordinator {
             }
             notificationObservers.append((center, observer))
         }
-        mouseDownMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]) {
+        mouseDownMonitor = NSEvent.addGlobalMonitorForEvents(matching: [
+            .leftMouseDown, .rightMouseDown, .otherMouseDown,
+        ]) {
             [weak self] event in
             MainActor.assumeIsolated {
                 guard let self else { return }
                 let clickLocation: CGPoint
-                if let quartzLocation = event.cgEvent?.location, let primaryScreenTop = self.screens().first?.frame.maxY {
+                if let quartzLocation = event.cgEvent?.location, let primaryScreenTop = self.screens().first?.frame.maxY
+                {
                     clickLocation = CGPoint(x: quartzLocation.x, y: primaryScreenTop - quartzLocation.y)
                 } else {
                     clickLocation = NSEvent.mouseLocation
@@ -260,13 +280,16 @@ final class PaceActiveDisplayCoordinator {
             observation = await focusedWindowObservationFactory(processIdentifier, onChange)
         } else {
             observation = await Task.detached(priority: .utility) {
-                guard let observation = PaceFocusedWindowObservation(
-                    processIdentifier: processIdentifier, onChange: onChange) else { return nil as PaceFocusedWindowObserverBinding? }
+                guard
+                    let observation = PaceFocusedWindowObservation(
+                        processIdentifier: processIdentifier, onChange: onChange)
+                else { return nil as PaceFocusedWindowObserverBinding? }
                 return PaceFocusedWindowObserverBinding(start: { observation.start() }, stop: { observation.stop() })
             }.value
         }
         guard generation == focusedWindowObservationGeneration,
-            frontmostProcessIdentifier() == processIdentifier else { return }
+            frontmostProcessIdentifier() == processIdentifier
+        else { return }
         focusedWindowObservation?.stop()
         focusedWindowObservation = observation
         observation?.start()
@@ -283,7 +306,8 @@ nonisolated private final class PaceFocusedWindowObservation: @unchecked Sendabl
         guard AXUIElementSetMessagingTimeout(application, 0.02) == .success else { return nil }
         var createdObserver: AXObserver?
         guard AXObserverCreate(processIdentifier, Self.focusedWindowChanged, &createdObserver) == .success,
-            let createdObserver else { return nil }
+            let createdObserver
+        else { return nil }
         observer = createdObserver
         self.context = PaceFocusedWindowObservationContext(onChange: onChange)
         let context = Unmanaged.passUnretained(self.context).toOpaque()
@@ -326,15 +350,18 @@ nonisolated private final class PaceFocusedWindowObservation: @unchecked Sendabl
         guard AXValueGetValue(positionValue as! AXValue, .cgPoint, &position),
             AXValueGetValue(sizeValue as! AXValue, .cgSize, &size),
             position.x.isFinite, position.y.isFinite, size.width.isFinite, size.height.isFinite,
-            size.width > 0, size.height > 0 else { return nil }
+            size.width > 0, size.height > 0
+        else { return nil }
         return PaceDisplayGeometry.appKitFrame(
             from: CGRect(origin: position, size: size), primaryScreenTop: primaryScreenTop)
     }
 
     nonisolated private static func focusedWindow(application: AXUIElement) -> AXUIElement? {
         var windowValue: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(application, kAXFocusedWindowAttribute as CFString, &windowValue) == .success,
-            let windowValue, CFGetTypeID(windowValue) == AXUIElementGetTypeID() else { return nil }
+        guard
+            AXUIElementCopyAttributeValue(application, kAXFocusedWindowAttribute as CFString, &windowValue) == .success,
+            let windowValue, CFGetTypeID(windowValue) == AXUIElementGetTypeID()
+        else { return nil }
         let window = windowValue as! AXUIElement
         guard AXUIElementSetMessagingTimeout(window, 0.02) == .success else { return nil }
         return window

@@ -145,7 +145,8 @@ struct StreamingSentenceTTSPipelineDispatchTests {
 
         #expect(pipeline.firstSpokenWordCharacterCount == "Fresh response.".count)
         await pipeline.acceptStreamedText("Fresh response. Keep going.")
-        #expect(client.spokenTexts == ["An older explanation that must stay stopped.", "Fresh response.", "Keep going."])
+        #expect(
+            client.spokenTexts == ["An older explanation that must stay stopped.", "Fresh response.", "Keep going."])
         #expect(pipeline.inFlightStreamedText == "Fresh response. Keep going.")
     }
 
@@ -174,8 +175,9 @@ struct StreamingSentenceTTSPipelineDispatchTests {
         await pipeline.flushFinal(finalSpokenText: "The first complete sentence. The next complete sentence.")
 
         #expect(client.spokenTexts == ["The first complete sentence.", "The next complete sentence."])
-        #expect(pipeline.firstSpokenWordCharacterCount
-            == "The first complete sentence.".count + "The next complete sentence.".count)
+        #expect(
+            pipeline.firstSpokenWordCharacterCount
+                == "The first complete sentence.".count + "The next complete sentence.".count)
     }
 
     // MARK: - Wave 4: first-sentence 4-char threshold

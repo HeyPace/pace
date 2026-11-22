@@ -150,7 +150,8 @@ nonisolated enum PaceToolRegistry {
         let powerValidationIssues = PacePowerCatalog.preinstalled.validationIssues().map {
             PaceToolRegistryValidationIssue(message: "preinstalled power: \($0)")
         }
-        let allValidationIssues = validationIssues + automationValidationIssues + profileValidationIssues + powerValidationIssues
+        let allValidationIssues =
+            validationIssues + automationValidationIssues + profileValidationIssues + powerValidationIssues
         guard allValidationIssues.isEmpty else {
             let formattedIssues = allValidationIssues
                 .map { "- \($0.description)" }

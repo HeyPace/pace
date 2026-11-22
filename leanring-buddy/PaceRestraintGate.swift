@@ -144,7 +144,8 @@ nonisolated enum PaceRestraintGate {
         switch context.proactiveSource {
         case .userPushToTalk, .timerFire:
             return .speak
-        case .wakeWord, .watchNudge, .episodicRecall, .backgroundReminder, .calendarEvent, .morningTriage, .meetingNotesSynthesis, .companionEvent:
+        case .wakeWord, .watchNudge, .episodicRecall, .backgroundReminder, .calendarEvent, .morningTriage,
+            .meetingNotesSynthesis, .companionEvent:
             break
         }
 
@@ -199,8 +200,8 @@ nonisolated enum PaceRestraintGate {
         }
 
         if context.proactiveSource != .episodicRecall,
-           context.proactiveSource != .calendarEvent,
-           let lastProactiveUtteranceAt = context.lastProactiveUtteranceAt,
+            context.proactiveSource != .calendarEvent,
+            let lastProactiveUtteranceAt = context.lastProactiveUtteranceAt,
            context.now.timeIntervalSince(lastProactiveUtteranceAt) < cooldownSeconds(
                forProfile: context.profile,
                proactiveSource: context.proactiveSource

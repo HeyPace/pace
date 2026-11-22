@@ -6,13 +6,17 @@
 import CoreGraphics
 import Foundation
 import Testing
+
 @testable import Pace
 
 struct PaceActionApprovalTests {
     @MainActor
     @Test func exactScreenQuestionsAreObservationOnlyWithoutBlockingDescribeAndActRequests() {
         let classifier = PaceIntentClassifier()
-        for transcript in ["What's on my screen?", "What’s on the screen?", "Hey Pace, whats on screen?", "what's on my screen right now?", "What is on my screen now?", "What am I looking at?"] {
+        for transcript in [
+            "What's on my screen?", "What’s on the screen?", "Hey Pace, whats on screen?",
+            "what's on my screen right now?", "What is on my screen now?", "What am I looking at?",
+        ] {
             #expect(classifier.classify(transcript).intent == .screenDescription)
             #expect(PaceActionApprovalPolicy.requestsObservationOnly(transcript))
         }
@@ -35,31 +39,39 @@ struct PaceActionApprovalTests {
         ] {
             #expect(!PaceActionApprovalPolicy.permitsObservationOnly(.serial(actions: [action])))
         }
-        #expect(PaceActionApprovalPolicy.permitsObservationOnly(.serial(actions: [
-            .readClipboard,
-            .mcp(.init(serverName: "peekaboo", toolName: "see", arguments: ["web_focus": .bool(false)])),
-            .mcp(.init(serverName: "peekaboo", toolName: "window", arguments: ["action": .string("list")])),
-        ])))
-        let annotations = PaceActionTagParser.parseActions(from: #"{"spokenText":"Marked","intent":"action","payload":{"name":"draw_annotation","args":{"screen":1,"shapes":[{"kind":"rect","x":20,"y":40,"width":100,"height":20}]}}}"#)
+        #expect(
+            PaceActionApprovalPolicy.permitsObservationOnly(
+                .serial(actions: [
+                    .readClipboard,
+                    .mcp(.init(serverName: "peekaboo", toolName: "see", arguments: ["web_focus": .bool(false)])),
+                    .mcp(.init(serverName: "peekaboo", toolName: "window", arguments: ["action": .string("list")])),
+                ])))
+        let annotations = PaceActionTagParser.parseActions(
+            from:
+                #"{"spokenText":"Marked","intent":"action","payload":{"name":"draw_annotation","args":{"screen":1,"shapes":[{"kind":"rect","x":20,"y":40,"width":100,"height":20}]}}}"#
+        )
         #expect(annotations.actions.count == 1)
         #expect(PaceActionApprovalPolicy.permitsObservationOnly(annotations.executionPlan))
         #expect(PaceToolRegistry.definition(forToolName: "show_diagram")?.riskLevel == .readOnly)
     }
 
     @Test func observationOnlyRejectsSeeWhenItRequestsWebFocus() {
-        let focusedInspection = PaceParsedAction.mcp(.init(
-            serverName: "peekaboo", toolName: "see", arguments: ["app_target": .string("Safari"), "web_focus": .bool(true)]))
+        let focusedInspection = PaceParsedAction.mcp(
+            .init(
+                serverName: "peekaboo", toolName: "see",
+                arguments: ["app_target": .string("Safari"), "web_focus": .bool(true)]))
         #expect(!PaceActionApprovalPolicy.permitsObservationOnly(.serial(actions: [focusedInspection])))
         #expect(PaceActionApprovalPolicy.needsAnswerAfterInspection(.serial(actions: [focusedInspection])))
     }
 
     @Test func repeatedPartialInspectionKeepsBothExactRequestsAndReadEvidence() {
-        let request = #"{"spokenText":"","intent":"action","payload":{"name":"MCP.call","args":{"server":"peekaboo","name":"see","arguments":{"app_target":"Safari","window_id":84,"ocr":true}}}}"#
+        let request =
+            #"{"spokenText":"","intent":"action","payload":{"name":"MCP.call","args":{"server":"peekaboo","name":"see","arguments":{"app_target":"Safari","window_id":84,"ocr":true}}}}"#
         let partialEvidence = """
-        Warning: AX tree incomplete. Retry once with the same exact app_target and window_id.
-        Save at (1245, 340) size 39×13 [not actionable]
-        Engine temperature 81°C. Fuel remaining 37%.
-        """
+            Warning: AX tree incomplete. Retry once with the same exact app_target and window_id.
+            Save at (1245, 340) size 39×13 [not actionable]
+            Engine temperature 81°C. Fuel remaining 37%.
+            """
         let observation = PaceActionExecutionObservation(toolName: "mcp.peekaboo.see", summary: partialEvidence)
         var inspectionHistory = PaceAgentInspectionHistory()
         inspectionHistory.append(plannerRequest: request, observations: [observation])
@@ -83,7 +95,9 @@ struct PaceActionApprovalTests {
         let click = PaceActionTagParser.parseActions(from: "[CLICK:1264,347]")
         #expect(!PaceActionApprovalPolicy.permitsObservationOnly(click.executionPlan))
         let mcpClick = PaceActionTagParser.parseActions(
-            from: #"{"spokenText":"","intent":"action","payload":{"name":"MCP.call","args":{"server":"peekaboo","name":"click","arguments":{"coords":"1264,347","foreground":true}}}}"#)
+            from:
+                #"{"spokenText":"","intent":"action","payload":{"name":"MCP.call","args":{"server":"peekaboo","name":"click","arguments":{"coords":"1264,347","foreground":true}}}}"#
+        )
         #expect(!PaceActionApprovalPolicy.permitsObservationOnly(mcpClick.executionPlan))
     }
 
@@ -200,10 +214,11 @@ struct PaceActionApprovalTests {
     }
 
     @Test func approvalRequestBuildsPopupCopyWithRiskSummary() async throws {
-        let request = try #require(PaceActionApprovalRequest(
-            approvalSummary: "1: [input injection] Type text",
-            requiresActionApproval: true
-        ))
+        let request = try #require(
+            PaceActionApprovalRequest(
+                approvalSummary: "1: [input injection] Type text",
+                requiresActionApproval: true
+            ))
 
         #expect(request.messageText == "Approve Pace actions?")
         #expect(request.informativeText.contains("Pace wants to control your Mac:"))
@@ -212,10 +227,11 @@ struct PaceActionApprovalTests {
     }
 
     @Test func cancellationBlocksExecution() async throws {
-        let request = try #require(PaceActionApprovalRequest(
-            approvalSummary: "1: [system mutation] Open app Music",
-            requiresActionApproval: true
-        ))
+        let request = try #require(
+            PaceActionApprovalRequest(
+                approvalSummary: "1: [system mutation] Open app Music",
+                requiresActionApproval: true
+            ))
 
         let shouldExecute = PaceActionApprovalPolicy.shouldExecuteActions(
             request: request,
@@ -226,10 +242,11 @@ struct PaceActionApprovalTests {
     }
 
     @Test func allowOncePermitsExecution() async throws {
-        let request = try #require(PaceActionApprovalRequest(
-            approvalSummary: "1: [read-only] Read calendar",
-            requiresActionApproval: true
-        ))
+        let request = try #require(
+            PaceActionApprovalRequest(
+                approvalSummary: "1: [read-only] Read calendar",
+                requiresActionApproval: true
+            ))
 
         let shouldExecute = PaceActionApprovalPolicy.shouldExecuteActions(
             request: request,
@@ -240,10 +257,11 @@ struct PaceActionApprovalTests {
     }
 
     @Test func missingApprovalRequestPassesThrough() async throws {
-        #expect(PaceActionApprovalPolicy.shouldExecuteActions(
-            request: nil,
-            decision: .cancel
-        ))
+        #expect(
+            PaceActionApprovalPolicy.shouldExecuteActions(
+                request: nil,
+                decision: .cancel
+            ))
     }
 
     @Test func routineLocalActionsDoNotRequireExplicitApproval() async throws {
@@ -252,7 +270,7 @@ struct PaceActionApprovalTests {
             .openURL("https://example.com"),
             .snapWindow(PaceWindowSnapRequest(position: .left)),
             .readClipboard,
-            .undoLastMutation
+            .undoLastMutation,
         ])
 
         #expect(PaceActionApprovalPolicy.requiresExplicitApproval(for: actionPlan) == false)
@@ -263,62 +281,69 @@ struct PaceActionApprovalTests {
             .openApplication("Raycast"),
             .pressKey(name: "s", modifiers: [.command]),
             .snapWindow(PaceWindowSnapRequest(position: .left)),
-            .readClipboard
+            .readClipboard,
         ])
 
         #expect(PaceActionApprovalPolicy.suppressesInitialSpokenFeedback(for: actionPlan))
     }
 
     @Test func emptyOrRiskyPlansDoNotSuppressInitialSpokenFeedback() async throws {
-        #expect(PaceActionApprovalPolicy.suppressesInitialSpokenFeedback(
-            for: PaceActionExecutionPlan(steps: [])
-        ) == false)
+        #expect(
+            PaceActionApprovalPolicy.suppressesInitialSpokenFeedback(
+                for: PaceActionExecutionPlan(steps: [])
+            ) == false)
 
         let mailDraftPlan = PaceActionExecutionPlan.serial(actions: [
-            .composeMail(PaceMailDraft(
-                recipients: ["alex@example.com"],
-                subject: "Status",
-                body: "Draft body"
-            ))
+            .composeMail(
+                PaceMailDraft(
+                    recipients: ["alex@example.com"],
+                    subject: "Status",
+                    body: "Draft body"
+                ))
         ])
 
         #expect(PaceActionApprovalPolicy.suppressesInitialSpokenFeedback(for: mailDraftPlan) == false)
     }
 
     @Test func routinePlannerResponseTextSuppressesInitialSpokenFeedback() async throws {
-        #expect(PaceActionApprovalPolicy.suppressesInitialSpokenFeedback(
-            forPlannerResponseText: "clicking it. [CLICK:400,300]"
-        ))
+        #expect(
+            PaceActionApprovalPolicy.suppressesInitialSpokenFeedback(
+                forPlannerResponseText: "clicking it. [CLICK:400,300]"
+            ))
 
-        #expect(PaceActionApprovalPolicy.suppressesInitialSpokenFeedback(
-            forPlannerResponseText: """
-            {"spokenText":"Opening Safari.","intent":"action","payload":{"name":"App.launch","args":{"name":"Safari"}}}
-            """
-        ))
+        #expect(
+            PaceActionApprovalPolicy.suppressesInitialSpokenFeedback(
+                forPlannerResponseText: """
+                    {"spokenText":"Opening Safari.","intent":"action","payload":{"name":"App.launch","args":{"name":"Safari"}}}
+                    """
+            ))
     }
 
     @Test func answerAndRiskyPlannerResponseTextDoNotSuppressInitialSpokenFeedback() async throws {
-        #expect(PaceActionApprovalPolicy.suppressesInitialSpokenFeedback(
-            forPlannerResponseText: "html stands for hypertext markup language."
-        ) == false)
+        #expect(
+            PaceActionApprovalPolicy.suppressesInitialSpokenFeedback(
+                forPlannerResponseText: "html stands for hypertext markup language."
+            ) == false)
 
-        #expect(PaceActionApprovalPolicy.suppressesInitialSpokenFeedback(
-            forPlannerResponseText: """
-            {"spokenText":"Adding that.","intent":"action","payload":{"name":"Reminders.add","args":{"title":"send invoice"}}}
-            """
-        ) == false)
+        #expect(
+            PaceActionApprovalPolicy.suppressesInitialSpokenFeedback(
+                forPlannerResponseText: """
+                    {"spokenText":"Adding that.","intent":"action","payload":{"name":"Reminders.add","args":{"title":"send invoice"}}}
+                    """
+            ) == false)
     }
 
     @Test func nonUndoableAndExternalActionsRequireExplicitApproval() async throws {
         let actionPlan = PaceActionExecutionPlan.serial(actions: [
-            .composeMail(PaceMailDraft(
-                recipients: ["alex@example.com"],
-                subject: "Status",
-                body: "Draft body"
-            )),
+            .composeMail(
+                PaceMailDraft(
+                    recipients: ["alex@example.com"],
+                    subject: "Status",
+                    body: "Draft body"
+                )),
             .createNote(PaceNoteRequest(title: "Idea", body: "Ship it")),
             .runShortcut("Publish"),
-            .mcp(PaceMCPToolCall(serverName: "altic", toolName: "notes_create", arguments: [:]))
+            .mcp(PaceMCPToolCall(serverName: "altic", toolName: "notes_create", arguments: [:])),
         ])
 
         #expect(PaceActionApprovalPolicy.requiresExplicitApproval(for: actionPlan))
@@ -350,9 +375,10 @@ struct PaceActionApprovalTests {
             )
         ]
 
-        #expect(PaceActionApprovalPolicy.requiresExplicitApproval(
-            for: actionPlan,
-            preflightIssues: preflightIssues
-        ))
+        #expect(
+            PaceActionApprovalPolicy.requiresExplicitApproval(
+                for: actionPlan,
+                preflightIssues: preflightIssues
+            ))
     }
 }

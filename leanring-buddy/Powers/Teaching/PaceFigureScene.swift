@@ -2,7 +2,11 @@ import Foundation
 import simd
 
 nonisolated struct PaceFigureScene: Codable, Equatable, Sendable {
-    enum Template: String, Codable, Sendable { case airplane; case liftSystem = "lift_system"; case piCamera = "pi_camera" }
+    enum Template: String, Codable, Sendable {
+        case airplane
+        case liftSystem = "lift_system"
+        case piCamera = "pi_camera"
+    }
     enum Geometry: String, Codable, Sendable { case box, ellipsoid, cylinder, cone, mesh }
     enum Finish: String, Codable, Sendable { case shell, metal, glass, accent, dark }
 
@@ -57,10 +61,16 @@ nonisolated struct PaceFigureScene: Codable, Equatable, Sendable {
         }
         if let controlDeflection {
             guard controlDeflection.isFinite, (-1...1).contains(controlDeflection),
-                  template == .airplane || PaceTeachingTemplateCatalog.definition(for: template) != nil else {
+                template == .airplane || PaceTeachingTemplateCatalog.definition(for: template) != nil
+            else {
                 return "requires a finite control deflection from -1 to 1 on the airplane template"
             }
-            if controlDeflection != 0, !(template == .airplane ? Self.airplaneControlSurfaceNodeIDs : PaceTeachingTemplateCatalog.definition(for: template)?.controlNodeIDs ?? []).contains(focusNodeID ?? "") {
+            if controlDeflection != 0,
+                !(template == .airplane
+                    ? Self.airplaneControlSurfaceNodeIDs
+                    : PaceTeachingTemplateCatalog.definition(for: template)?.controlNodeIDs ?? []).contains(
+                        focusNodeID ?? "")
+            {
                 return "requires a selected aileron, elevator, rudder or flap assembly for nonzero deflection"
             }
         }

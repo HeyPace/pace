@@ -21,8 +21,10 @@ struct PaceDoctorSettingsTab: View {
                 Text("Pace diagnostics")
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundColor(DS.Colors.textSecondary)
-                Text("Checks the services used by your selected planner, voice and screen features. Optional memory services are reported separately from requirements.")
-                    .font(.system(size: 12))
+                Text(
+                    "Checks the services used by your selected planner, voice and screen features. Optional memory services are reported separately from requirements."
+                )
+                .font(.system(size: 12))
                     .foregroundColor(DS.Colors.textTertiary)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -155,7 +157,8 @@ struct PaceDoctorSettingsTab: View {
     private func runDoctorChecks() async {
         isRunning = true
         let doctor = PaceLocalStackDoctor()
-        checks = await doctor.runChecks(plannerTier: companionManager.activePlannerTier,
+        checks = await doctor.runChecks(
+            plannerTier: companionManager.activePlannerTier,
             cliUpstream: companionManager.activePlannerTierCLIDirectUpstream,
             readMyScreenEnabled: companionManager.useLocalVLMForScreenContext)
         isRunning = false

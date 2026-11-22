@@ -1,6 +1,7 @@
 import AppKit
 import Combine
 import XCTest
+
 @testable import Pace
 
 @MainActor
@@ -17,9 +18,11 @@ final class PaceActiveDisplayCoordinatorTests: XCTestCase {
         let supportsImageInput = false
         var callCount = 0
 
-        func generateResponseStreaming(images: [(data: Data, label: String)], systemPrompt: String,
+        func generateResponseStreaming(
+            images: [(data: Data, label: String)], systemPrompt: String,
             conversationHistory: [(userPlaceholder: String, assistantResponse: String)], userPrompt: String,
-            onTextChunk: @MainActor @Sendable (String) -> Void) async throws -> (text: String, duration: TimeInterval) {
+            onTextChunk: @MainActor @Sendable (String) -> Void
+        ) async throws -> (text: String, duration: TimeInterval) {
             callCount += 1
             onTextChunk("yes, i can hear you.")
             return ("yes, i can hear you.", 0)
@@ -38,44 +41,52 @@ final class PaceActiveDisplayCoordinatorTests: XCTestCase {
     }
 
     func testFocusedWindowWinsOverPointerAndPreviousNotchedDisplay() {
-        XCTAssertEqual(PaceDisplayGeometry.selectedDisplay(
-            screens: [laptop, leftDisplay, upperDisplay],
-            focusedWindowFrame: CGRect(x: -1800, y: 100, width: 1200, height: 700),
-            pointerLocation: CGPoint(x: 700, y: 700), previousDisplayID: laptop.displayID), leftDisplay.displayID)
+        XCTAssertEqual(
+            PaceDisplayGeometry.selectedDisplay(
+                screens: [laptop, leftDisplay, upperDisplay],
+                focusedWindowFrame: CGRect(x: -1800, y: 100, width: 1200, height: 700),
+                pointerLocation: CGPoint(x: 700, y: 700), previousDisplayID: laptop.displayID), leftDisplay.displayID)
     }
 
     func testLargestWindowIntersectionSelectsTheDisplayContainingMostOfTheWindow() {
-        XCTAssertEqual(PaceDisplayGeometry.selectedDisplay(
-            screens: [laptop, leftDisplay],
-            focusedWindowFrame: CGRect(x: -1000, y: 100, width: 1200, height: 700),
-            pointerLocation: CGPoint(x: 700, y: 700), previousDisplayID: laptop.displayID), leftDisplay.displayID)
+        XCTAssertEqual(
+            PaceDisplayGeometry.selectedDisplay(
+                screens: [laptop, leftDisplay],
+                focusedWindowFrame: CGRect(x: -1000, y: 100, width: 1200, height: 700),
+                pointerLocation: CGPoint(x: 700, y: 700), previousDisplayID: laptop.displayID), leftDisplay.displayID)
     }
 
     func testEqualWindowIntersectionKeepsThePreviouslySelectedDisplay() {
         let windowAcrossSeam = CGRect(x: -100, y: 200, width: 200, height: 500)
         for previousDisplayID in [laptop.displayID, leftDisplay.displayID] {
-            XCTAssertEqual(PaceDisplayGeometry.selectedDisplay(
-                screens: [laptop, leftDisplay], focusedWindowFrame: windowAcrossSeam,
-                pointerLocation: CGPoint(x: 500, y: 500), previousDisplayID: previousDisplayID), previousDisplayID)
+            XCTAssertEqual(
+                PaceDisplayGeometry.selectedDisplay(
+                    screens: [laptop, leftDisplay], focusedWindowFrame: windowAcrossSeam,
+                    pointerLocation: CGPoint(x: 500, y: 500), previousDisplayID: previousDisplayID), previousDisplayID)
         }
     }
 
     func testWindowOnlyTouchingADisplayEdgeDoesNotSelectThatDisplay() {
-        XCTAssertEqual(PaceDisplayGeometry.selectedDisplay(
-            screens: [laptop, leftDisplay],
-            focusedWindowFrame: CGRect(x: 1728, y: 100, width: 500, height: 500),
-            pointerLocation: CGPoint(x: -900, y: 400), previousDisplayID: laptop.displayID), leftDisplay.displayID)
+        XCTAssertEqual(
+            PaceDisplayGeometry.selectedDisplay(
+                screens: [laptop, leftDisplay],
+                focusedWindowFrame: CGRect(x: 1728, y: 100, width: 500, height: 500),
+                pointerLocation: CGPoint(x: -900, y: 400), previousDisplayID: laptop.displayID), leftDisplay.displayID)
     }
 
     func testMissingOrOffscreenFocusedWindowFallsBackToPointerThenExistingDisplay() {
         for focusedWindowFrame in [nil, CGRect.zero, CGRect(x: 8000, y: 8000, width: 300, height: 300)] {
-            XCTAssertEqual(PaceDisplayGeometry.selectedDisplay(
-                screens: [laptop, leftDisplay], focusedWindowFrame: focusedWindowFrame,
-                pointerLocation: CGPoint(x: -700, y: 500), previousDisplayID: laptop.displayID), leftDisplay.displayID)
+            XCTAssertEqual(
+                PaceDisplayGeometry.selectedDisplay(
+                    screens: [laptop, leftDisplay], focusedWindowFrame: focusedWindowFrame,
+                    pointerLocation: CGPoint(x: -700, y: 500), previousDisplayID: laptop.displayID),
+                leftDisplay.displayID)
         }
-        XCTAssertEqual(PaceDisplayGeometry.selectedDisplay(
-            screens: [laptop, leftDisplay], focusedWindowFrame: nil,
-            pointerLocation: CGPoint(x: 9000, y: 9000), previousDisplayID: leftDisplay.displayID), leftDisplay.displayID)
+        XCTAssertEqual(
+            PaceDisplayGeometry.selectedDisplay(
+                screens: [laptop, leftDisplay], focusedWindowFrame: nil,
+                pointerLocation: CGPoint(x: 9000, y: 9000), previousDisplayID: leftDisplay.displayID),
+            leftDisplay.displayID)
     }
 
     func testLateFocusedWindowReadCannotUndoAUserClickOnAnotherDisplay() async throws {
@@ -243,9 +254,10 @@ final class PaceActiveDisplayCoordinatorTests: XCTestCase {
         await manager.currentResponseTask?.value
         await drainTasks()
 
-        let window = try XCTUnwrap(NSApp.windows.first {
-            $0.identifier == PaceExplanationAutoClose.windowIdentifier && $0.isVisible
-        })
+        let window = try XCTUnwrap(
+            NSApp.windows.first {
+                $0.identifier == PaceExplanationAutoClose.windowIdentifier && $0.isVisible
+            })
         XCTAssertEqual(acceptedEvent.origin, .voice)
         XCTAssertEqual(panelManager.presentation, .preview)
         XCTAssertNil(panelManager.presentation.composerFocusRequestID)
@@ -275,8 +287,9 @@ final class PaceActiveDisplayCoordinatorTests: XCTestCase {
             let originalApplicationActivity = NSApp.isActive
 
             if isPacePadRequest {
-                XCTAssertTrue(manager.submitPacePadTranscript(
-                    transcript, turnIdentifier: "ipad-turn", physicalSceneContext: nil))
+                XCTAssertTrue(
+                    manager.submitPacePadTranscript(
+                        transcript, turnIdentifier: "ipad-turn", physicalSceneContext: nil))
             } else {
                 manager.submitChatTranscriptFromDeepLink(transcript)
             }
@@ -402,9 +415,10 @@ final class PaceActiveDisplayCoordinatorTests: XCTestCase {
         manager.beginConversationRequest("Can you hear me?")
         let turnLease = manager.turnLeaseRegistry.beginTurn()
         manager.presentVoiceConversationPreviewIfCurrentTurn(turnLease)
-        let window = try XCTUnwrap(NSApp.windows.first {
-            $0.identifier == PaceExplanationAutoClose.windowIdentifier && $0.isVisible
-        })
+        let window = try XCTUnwrap(
+            NSApp.windows.first {
+                $0.identifier == PaceExplanationAutoClose.windowIdentifier && $0.isVisible
+            })
         XCTAssertFalse(window.isKeyWindow)
         panelManager.handleExplanationVoiceStateChange(.idle)
         try await recorderFixture.waitForAutoCloseSleeps(1, gate: sleepGate)
@@ -435,9 +449,10 @@ final class PaceActiveDisplayCoordinatorTests: XCTestCase {
         manager.beginConversationRequest("Can you hear me?")
         let turnLease = manager.turnLeaseRegistry.beginTurn()
         manager.presentVoiceConversationPreviewIfCurrentTurn(turnLease)
-        let window = try XCTUnwrap(NSApp.windows.first {
-            $0.identifier == PaceExplanationAutoClose.windowIdentifier && $0.isVisible
-        })
+        let window = try XCTUnwrap(
+            NSApp.windows.first {
+                $0.identifier == PaceExplanationAutoClose.windowIdentifier && $0.isVisible
+            })
         window.makeKeyAndOrderFront(nil)
         XCTAssertTrue(window.isKeyWindow)
         manager.chatSession.draftMessageText = "Explain the next part"
@@ -474,7 +489,8 @@ final class PaceActiveDisplayCoordinatorTests: XCTestCase {
         panelManager.showPanelForSmokeTest()
         manager.chatSession.draftMessageText = "Keep this unfinished question"
         let presentation = panelManager.presentation
-        let window = try XCTUnwrap(NSApp.windows.first { $0.identifier == PaceExplanationAutoClose.windowIdentifier && $0.isVisible })
+        let window = try XCTUnwrap(
+            NSApp.windows.first { $0.identifier == PaceExplanationAutoClose.windowIdentifier && $0.isVisible })
         let session = manager.chatSession
         let hadUnreadScreenSuggestion = session.hasUnreadScreenSuggestion
         panelManager.handleExplanationVoiceStateChange(.idle)
@@ -527,9 +543,10 @@ final class PaceActiveDisplayCoordinatorTests: XCTestCase {
         defer { panelManager.hidePanelForSmokeTest() }
         panelManager.showPanelForSmokeTest()
         await drainTasks()
-        let window = try XCTUnwrap(NSApp.windows.first {
-            $0.identifier == PaceExplanationAutoClose.windowIdentifier && $0.isVisible
-        })
+        let window = try XCTUnwrap(
+            NSApp.windows.first {
+                $0.identifier == PaceExplanationAutoClose.windowIdentifier && $0.isVisible
+            })
         let oldFrame = window.frame
         let firstResponder = window.firstResponder
         let keyWindow = NSApp.keyWindow
@@ -586,8 +603,9 @@ final class PaceActiveDisplayCoordinatorTests: XCTestCase {
         let notchPlacement = PaceConversationPanelPlacement.resolve(
             notchGeometry: notchGeometry, anchorFrame: housingFrame, screenFrame: screen.frame,
             contentSize: CGSize(width: PaceQuickPanelMetrics.width, height: PaceQuickPanelMetrics.height))
-        let anchoredPlacement = PaceConversationPanelPlacement.anchored(CGRect(
-            x: screen.frame.midX - 260, y: screen.frame.midY - 270, width: 520, height: 540))
+        let anchoredPlacement = PaceConversationPanelPlacement.anchored(
+            CGRect(
+                x: screen.frame.midX - 260, y: screen.frame.midY - 270, width: 520, height: 540))
         let coordinator = PaceActiveDisplayCoordinator(
             screens: { [self.laptop, self.leftDisplay] }, pointerLocation: { CGPoint(x: 700, y: 500) },
             frontmostProcessIdentifier: { 42 }, ownProcessIdentifier: 42)
@@ -631,8 +649,9 @@ private actor FocusReadGate {
             if readCount >= expectedCount { return }
             try await Task.sleep(for: .milliseconds(1))
         }
-        throw NSError(domain: "PaceActiveDisplayCoordinatorTests", code: 1,
-                      userInfo: [NSLocalizedDescriptionKey: "Focused-window read did not start"])
+        throw NSError(
+            domain: "PaceActiveDisplayCoordinatorTests", code: 1,
+            userInfo: [NSLocalizedDescriptionKey: "Focused-window read did not start"])
     }
 }
 
@@ -662,7 +681,8 @@ private actor FocusObserverProbe {
             if observedProcessIdentifier == processIdentifier { return }
             await Task.yield()
         }
-        throw NSError(domain: "PaceActiveDisplayCoordinatorTests", code: 2,
-                      userInfo: [NSLocalizedDescriptionKey: "Focused-window observer did not bind to the frontmost app"])
+        throw NSError(
+            domain: "PaceActiveDisplayCoordinatorTests", code: 2,
+            userInfo: [NSLocalizedDescriptionKey: "Focused-window observer did not bind to the frontmost app"])
     }
 }

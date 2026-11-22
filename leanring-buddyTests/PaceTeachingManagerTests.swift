@@ -12,14 +12,17 @@ struct PaceTeachingManagerTests {
         let response: String
         init(document: PaceDiagramDocument) throws {
             let arguments = try JSONSerialization.jsonObject(with: JSONEncoder().encode(document))
-            response = String(decoding: try JSONSerialization.data(withJSONObject: [
-                "spokenText": "", "intent": "action",
-                "payload": ["name": "show_diagram", "args": arguments]
-            ]), as: UTF8.self)
+            response = String(
+                decoding: try JSONSerialization.data(withJSONObject: [
+                    "spokenText": "", "intent": "action",
+                    "payload": ["name": "show_diagram", "args": arguments],
+                ]), as: UTF8.self)
         }
-        func generateResponseStreaming(images: [(data: Data, label: String)], systemPrompt: String,
+        func generateResponseStreaming(
+            images: [(data: Data, label: String)], systemPrompt: String,
             conversationHistory: [(userPlaceholder: String, assistantResponse: String)], userPrompt: String,
-            onTextChunk: @MainActor @Sendable (String) -> Void) async throws -> (text: String, duration: TimeInterval) {
+            onTextChunk: @MainActor @Sendable (String) -> Void
+        ) async throws -> (text: String, duration: TimeInterval) {
             (response, 0)
         }
     }
@@ -29,9 +32,11 @@ struct PaceTeachingManagerTests {
         var completion: CheckedContinuation<String, Error>?
         var userPrompt = ""
         var provisionalText = "A provisional explanation must stay silent."
-        func generateResponseStreaming(images: [(data: Data, label: String)], systemPrompt: String,
+        func generateResponseStreaming(
+            images: [(data: Data, label: String)], systemPrompt: String,
             conversationHistory: [(userPlaceholder: String, assistantResponse: String)], userPrompt: String,
-            onTextChunk: @MainActor @Sendable (String) -> Void) async throws -> (text: String, duration: TimeInterval) {
+            onTextChunk: @MainActor @Sendable (String) -> Void
+        ) async throws -> (text: String, duration: TimeInterval) {
             self.userPrompt = userPrompt
             onTextChunk(provisionalText)
             let response = try await withCheckedThrowingContinuation { completion = $0 }
@@ -76,15 +81,19 @@ struct PaceTeachingManagerTests {
     private final class RemoteOutput: PacePadOutputDelegate {
         var responses: [(id: String, text: String)] = []
         func deliverAssistantResponse(turnIdentifier: String, spokenText: String, usesOffDevicePlanner: Bool) -> Bool {
-            responses.append((turnIdentifier, spokenText)); return true
+            responses.append((turnIdentifier, spokenText))
+            return true
         }
         func deliverProactiveMessage(_ utterance: PaceProactiveUtterance) -> Bool { false }
     }
-    private func fixture(derivedMemory: Bool = false, directSpawnAvailable: Bool? = nil) throws -> (CompanionManager, PaceConversationRecorderTests.FixturePersister, Speech) {
+    private func fixture(derivedMemory: Bool = false, directSpawnAvailable: Bool? = nil) throws -> (
+        CompanionManager, PaceConversationRecorderTests.FixturePersister, Speech
+    ) {
         let (persister, session, recorder) = PaceConversationRecorderTests().makeFixture()
         let preferences = UserDefaults(suiteName: "PaceTeachingManagerTests." + UUID().uuidString)!
         let availabilityOverride: (() -> Bool)? = directSpawnAvailable.map { available in { available } }
-        let manager = CompanionManager(watchModeDefaults: preferences, recordsDerivedConversationMemory: derivedMemory,
+        let manager = CompanionManager(
+            watchModeDefaults: preferences, recordsDerivedConversationMemory: derivedMemory,
             persistsDebugTraces: false, diagramOverlayController: PaceDiagramOverlayController(showsWindows: false),
             threadMemoryStore: PaceThreadMemoryStore(fileURL: nil),
             teachingPreviewDirectSpawnAvailability: availabilityOverride)
@@ -93,7 +102,8 @@ struct PaceTeachingManagerTests {
         manager.conversationRecorder = recorder
         let speech = Speech()
         manager.ttsClient = speech
-        manager.localRetriever = PaceLocalRetriever(store: PaceInMemoryRetrievalStore(), appliesPersistedSourcePreferences: false)
+        manager.localRetriever = PaceLocalRetriever(
+            store: PaceInMemoryRetrievalStore(), appliesPersistedSourcePreferences: false)
         manager.responseOverlayManager.setAnnotationsEnabled(false)
         manager.isWalkingAvatarEnabled = false
         manager.bindVisualExplanationCallbacks()
@@ -103,11 +113,17 @@ struct PaceTeachingManagerTests {
         return (manager, persister, speech)
     }
     private func waitUntil(_ predicate: () -> Bool) async throws {
-        for _ in 0..<3_000 { if predicate() { return }; await Task.yield() }
-        #expect(predicate()); throw CancellationError()
+        for _ in 0..<3_000 {
+            if predicate() { return }
+            await Task.yield()
+        }
+        #expect(predicate())
+        throw CancellationError()
     }
-    private func startTextTurn(_ manager: CompanionManager, muted: Bool, remoteID: String? = nil,
-                               transcript: String = "Explain next-token training") {
+    private func startTextTurn(
+        _ manager: CompanionManager, muted: Bool, remoteID: String? = nil,
+        transcript: String = "Explain next-token training"
+    ) {
         manager.streamingSentenceTTSPipeline.setMutedForCurrentTurn(muted)
         manager.activePacePadTurnIdentifier = remoteID
         manager.beginConversationRequest(transcript)
@@ -230,7 +246,8 @@ struct PaceTeachingManagerTests {
         let (manager, persister, _) = try fixture(derivedMemory: true)
         let now = Date()
         for index in 0..<4 {
-            _ = manager.threadMemory.record(userTurn: "Question \(index)", assistantTurn: "Answer \(index)",
+            _ = manager.threadMemory.record(
+                userTurn: "Question \(index)", assistantTurn: "Answer \(index)",
                 turnId: "existing-\(index)", now: now)
         }
         let before = manager.threadMemory.snapshot(now: now)
@@ -247,7 +264,8 @@ struct PaceTeachingManagerTests {
         speech.supportsUtteranceCompletion = false
         let now = Date()
         for index in 0..<3 {
-            _ = manager.threadMemory.record(userTurn: "Recent question \(index)", assistantTurn: "Recent answer \(index)",
+            _ = manager.threadMemory.record(
+                userTurn: "Recent question \(index)", assistantTurn: "Recent answer \(index)",
                 turnId: "recent-\(index)", now: now)
         }
         startTextTurn(manager, muted: true)
@@ -329,7 +347,8 @@ struct PaceTeachingManagerTests {
     private func prepareEarlyPreviewTurn(directSpawnAvailable: Bool = true, derivedMemory: Bool = false) throws -> (
         CompanionManager, PaceConversationRecorderTests.FixturePersister, Speech, SuspendedPlanner
     ) {
-        let (manager, persister, speech) = try fixture(derivedMemory: derivedMemory,
+        let (manager, persister, speech) = try fixture(
+            derivedMemory: derivedMemory,
             directSpawnAvailable: directSpawnAvailable)
         manager.activePlannerTier = .cliDirect
         manager.activePlannerTierCLIDirectUpstream = .codex
@@ -378,13 +397,16 @@ struct PaceTeachingManagerTests {
             completion?.resume()
         }
         await responseTask?.value
-        #expect(speech.exactTexts == Array(PaceTeachingTemplateCatalog.liftSystem.explanations.prefix(2).map { $0.detail }))
+        #expect(
+            speech.exactTexts == Array(PaceTeachingTemplateCatalog.liftSystem.explanations.prefix(2).map { $0.detail }))
         #expect(speech.spokenTexts.isEmpty)
         #expect(persister.events.values.filter { $0.role == .pace }.count == 2)
         #expect(persister.writes.filter { $0.eventID == user.eventID && $0.deliveryState == .completed }.count == 1)
         #expect(manager.conversationHistory.count == 1)
-        #expect(manager.conversationHistory.first?.assistantResponse ==
-            PaceTeachingTemplateCatalog.liftSystem.explanations.prefix(2).map { $0.label + "\n" + $0.detail }.joined(separator: "\n\n"))
+        #expect(
+            manager.conversationHistory.first?.assistantResponse
+                == PaceTeachingTemplateCatalog.liftSystem.explanations.prefix(2).map { $0.label + "\n" + $0.detail }
+                .joined(separator: "\n\n"))
     }
 
     @Test func mutedPreviewAndItsFinalLessonStayQuietAndKeepOneWrittenAnswer() async throws {
@@ -402,8 +424,10 @@ struct PaceTeachingManagerTests {
         #expect(speech.exactTexts.isEmpty && speech.spokenTexts.isEmpty)
         #expect(persister.events.values.filter { $0.role == .pace }.count == 2)
         #expect(manager.conversationHistory.count == 1)
-        #expect(manager.conversationHistory.first?.assistantResponse ==
-            PaceTeachingTemplateCatalog.piCamera.explanations.prefix(2).map { $0.label + "\n" + $0.detail }.joined(separator: "\n\n"))
+        #expect(
+            manager.conversationHistory.first?.assistantResponse
+                == PaceTeachingTemplateCatalog.piCamera.explanations.prefix(2).map { $0.label + "\n" + $0.detail }
+                .joined(separator: "\n\n"))
     }
 
     @Test func remoteTurnWaitsForAuthoredLessonAndNeverSpeaksOnMac() async throws {
@@ -424,32 +448,39 @@ struct PaceTeachingManagerTests {
 
     @Test func manualPreviewExplorationKeepsItsExactViewAndDeliversAuthoredAnswerOnce() async throws {
         for muted in [false, true] {
-            for interaction in ["selection", "orbit", "controls", "replacement", "outerSpeech", "outerAcknowledgement"] {
+            for interaction in ["selection", "orbit", "controls", "replacement", "outerSpeech", "outerAcknowledgement"]
+            {
                 let (manager, persister, speech, planner) = try prepareEarlyPreviewTurn(derivedMemory: true)
                 startTextTurn(manager, muted: muted, transcript: "Explain how the F-35B hovers")
                 let responseTask = manager.currentResponseTask
                 try await waitUntil { planner.completion != nil }
                 let user = try #require(manager.activeConversationUserEvent)
                 manager.extractedConversationUserEventIdentifiers.insert(user.eventID)
-                if interaction == "selection" { manager.diagramOverlayController.selectNode(id: "engine") }
-                else if interaction == "controls" { manager.diagramOverlayController.setControlDeflection(0.6) }
-                else if interaction == "replacement" {
+                if interaction == "selection" {
+                    manager.diagramOverlayController.selectNode(id: "engine")
+                } else if interaction == "controls" {
+                    manager.diagramOverlayController.setControlDeflection(0.6)
+                } else if interaction == "replacement" {
                     var replacement = try #require(PaceTeachingTemplateCatalog.lessonDocument(for: .piCamera))
                     replacement.lesson = nil
                     manager.diagramOverlayController.present(replacement)
-                } else { manager.diagramOverlayController.pauseLesson() }
+                } else {
+                    manager.diagramOverlayController.pauseLesson()
+                }
                 let preview = manager.diagramOverlayController.document
                 let selectedNodeID = manager.diagramOverlayController.selectedNodeID
                 let controlDeflection = manager.diagramOverlayController.controlDeflection
                 let playbackGeneration = manager.diagramOverlayController.lessonPlaybackGeneration
                 let revision = manager.diagramOverlayController.revision
                 var response = try twoStepResponse(template: .liftSystem)
-                var expectedAnswer = try #require(PaceActionTagParser.parseActions(from: response).actions.first.flatMap {
-                    if case .showDiagram(let document) = $0 { return document.lesson?.writtenExplanation }
-                    return nil
-                })
+                var expectedAnswer = try #require(
+                    PaceActionTagParser.parseActions(from: response).actions.first.flatMap {
+                        if case .showDiagram(let document) = $0 { return document.lesson?.writtenExplanation }
+                        return nil
+                    })
                 if interaction == "outerSpeech" || interaction == "outerAcknowledgement" {
-                    var envelope = try #require(JSONSerialization.jsonObject(with: Data(response.utf8)) as? [String: Any])
+                    var envelope = try #require(
+                        JSONSerialization.jsonObject(with: Data(response.utf8)) as? [String: Any])
                     if interaction == "outerSpeech" {
                         expectedAnswer = "The lift fan and rear nozzle balance the aircraft in hover."
                         var payload = try #require(envelope["payload"] as? [String: Any])
@@ -512,8 +543,11 @@ struct PaceTeachingManagerTests {
                 planner.fail()
                 await responseTask?.value
                 #expect(manager.pendingTeachingPreviewOwnership == nil)
-                #expect(manager.diagramOverlayController.document == (interaction == "untouched" ? nil : currentDocument))
-                if interaction != "untouched" { #expect(manager.diagramOverlayController.selectedNodeID == selectedNodeID) }
+                #expect(
+                    manager.diagramOverlayController.document == (interaction == "untouched" ? nil : currentDocument))
+                if interaction != "untouched" {
+                    #expect(manager.diagramOverlayController.selectedNodeID == selectedNodeID)
+                }
                 #expect(speech.exactTexts.isEmpty && speech.spokenTexts.isEmpty)
             }
         }
@@ -574,7 +608,8 @@ struct PaceTeachingManagerTests {
         newPlanner.resolve("The rear nozzle directs engine thrust downwards.")
         await newTask?.value
         #expect(manager.diagramOverlayController.document == preview)
-        #expect(manager.conversationHistory.last?.assistantResponse == "The rear nozzle directs engine thrust downwards.")
+        #expect(
+            manager.conversationHistory.last?.assistantResponse == "The rear nozzle directs engine thrust downwards.")
     }
 
     @Test func captureWithoutAFollowUpKeepsTheFigureAvailableWithoutLateNarration() async throws {
@@ -633,26 +668,38 @@ struct PaceTeachingManagerTests {
     }
 
     @Test func narrowPreviewMatcherRejectsContextAmbiguityAndShortFactualRequests() {
-        for transcript in ["Explain how the F-35B hovers, text only", "Explain the Pi5 camera in one sentence",
+        for transcript in [
+            "Explain how the F-35B hovers, text only", "Explain the Pi5 camera in one sentence",
             "Explain how this F-35B hovers", "Explain the F-35B on my screen", "Explain that Pi5 camera connector",
             "Explain F-35B hovering and the Pi5 camera", "What is the F-35B hover speed?", "Explain Pi camera",
-            "Explain F-35 hovering", "Explain the Pi4 camera connector", "Explain the Pi5 board", "Explain the Pi5 camera from earlier", "Explain the F-35B hover in two steps and open Safari",
-            "Explain the Pi5 camera briefly and take a screenshot", "Explain the F-35B hover in 13 steps"] {
+            "Explain F-35 hovering", "Explain the Pi4 camera connector", "Explain the Pi5 board",
+            "Explain the Pi5 camera from earlier", "Explain the F-35B hover in two steps and open Safari",
+            "Explain the Pi5 camera briefly and take a screenshot", "Explain the F-35B hover in 13 steps",
+        ] {
             #expect(PaceTeachingPower.earlyNativePreviewTemplate(for: transcript) == nil)
         }
         #expect(PaceTeachingPower.earlyNativePreviewTemplate(for: "Explain how the F-35B hovers") == .liftSystem)
         #expect(PaceTeachingPower.earlyNativePreviewTemplate(for: "How does the F35B hover?") == .liftSystem)
-        #expect(PaceTeachingPower.earlyNativePreviewTemplate(for: "Explain the F-35B vertical lift system") == .liftSystem)
-        #expect(PaceTeachingPower.earlyNativePreviewTemplate(for: "Explain the Raspberry Pi 5 camera connector") == .piCamera)
-        #expect(PaceTeachingPower.earlyNativePreviewTemplate(for: "Show me how to connect a camera to a Pi5") == .piCamera)
-        #expect(PaceTeachingPower.earlyNativePreviewTemplate(for: "Explain how the F-35B hovers in two steps") == .liftSystem)
-        #expect(PaceTeachingPower.earlyNativePreviewTemplate(for: "Explain the Pi5 camera in 2 brief steps") == .piCamera)
+        #expect(
+            PaceTeachingPower.earlyNativePreviewTemplate(for: "Explain the F-35B vertical lift system") == .liftSystem)
+        #expect(
+            PaceTeachingPower.earlyNativePreviewTemplate(for: "Explain the Raspberry Pi 5 camera connector")
+                == .piCamera)
+        #expect(
+            PaceTeachingPower.earlyNativePreviewTemplate(for: "Show me how to connect a camera to a Pi5") == .piCamera)
+        #expect(
+            PaceTeachingPower.earlyNativePreviewTemplate(for: "Explain how the F-35B hovers in two steps")
+                == .liftSystem)
+        #expect(
+            PaceTeachingPower.earlyNativePreviewTemplate(for: "Explain the Pi5 camera in 2 brief steps") == .piCamera)
         #expect(PaceTeachingPower.earlyNativePreviewTemplate(for: "Explain the Pi5 camera briefly") == .piCamera)
     }
 
     @Test func contextualTextOnlyAndSuggestionTurnsNeverReceiveEarlyPreview() async throws {
-        for transcript in ["Explain how the F-35B hovers, text only", "Explain the Pi5 camera in one sentence",
-                           "Explain this F-35B on screen", "Explain the F-35B hover and Pi5 camera"] {
+        for transcript in [
+            "Explain how the F-35B hovers, text only", "Explain the Pi5 camera in one sentence",
+            "Explain this F-35B on screen", "Explain the F-35B hover and Pi5 camera",
+        ] {
             let (manager, _, _, planner) = try prepareEarlyPreviewTurn()
             startTextTurn(manager, muted: true, transcript: transcript)
             let responseTask = manager.currentResponseTask
@@ -666,11 +713,14 @@ struct PaceTeachingManagerTests {
         startTextTurn(manager, muted: true, transcript: "Explain how the F-35B hovers")
         let responseTask = manager.currentResponseTask
         let now = Date()
-        manager.activeConversationScreenSuggestionContext = .followUp(.init(identifier: UUID(),
-            subject: "F-35B", evidence: "F-35B on a visible page", offer: "Explain the F-35B?",
-            sceneIdentity: .init(displayIdentifier: 1, applicationProcessIdentifier: 1,
-                                 applicationBundleIdentifier: "test.fixture"),
-            observedAt: now, expiresAt: now.addingTimeInterval(60)))
+        manager.activeConversationScreenSuggestionContext = .followUp(
+            .init(
+                identifier: UUID(),
+                subject: "F-35B", evidence: "F-35B on a visible page", offer: "Explain the F-35B?",
+                sceneIdentity: .init(
+                    displayIdentifier: 1, applicationProcessIdentifier: 1,
+                    applicationBundleIdentifier: "test.fixture"),
+                observedAt: now, expiresAt: now.addingTimeInterval(60)))
         try await waitUntil { planner.completion != nil }
         #expect(manager.diagramOverlayController.document == nil)
         manager.cancelCurrentTurnFromPanel()
@@ -686,7 +736,8 @@ struct PaceTeachingManagerTests {
         let user = try #require(manager.activeConversationUserEvent)
         var authoredDocument = try #require(PaceTeachingTemplateCatalog.lessonDocument(for: .liftSystem))
         authoredDocument.lesson = nil
-        var arguments = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(authoredDocument)) as? [String: Any])
+        var arguments = try #require(
+            JSONSerialization.jsonObject(with: JSONEncoder().encode(authoredDocument)) as? [String: Any])
         arguments["tool"] = "show_diagram"
         let data = try JSONSerialization.data(withJSONObject: [[arguments], [["tool": "dismiss_diagram"]]])
         let answer = "The nozzle turns engine thrust downward."
@@ -703,14 +754,23 @@ struct PaceTeachingManagerTests {
     }
 
     @Test func untouchedPreviewYieldsToUnmatchedAndCustomAuthoredVisuals() async throws {
-        let customDocument = PaceDiagramDocument(title: "Custom body", summary: "A custom replacement.",
-            nodes: [.init(id: "body", label: "Body", detail: "A custom solid.", x: 0, y: 0,
-                          width: 220, height: 130, shape: nil, role: nil, subtitle: nil)], connections: [],
-            figure: .init(parts: [.init(id: "body-solid", nodeID: "body", geometry: .box,
-                                       position: [0, 0, 0], size: [1, 1, 1])]))
+        let customDocument = PaceDiagramDocument(
+            title: "Custom body", summary: "A custom replacement.",
+            nodes: [
+                .init(
+                    id: "body", label: "Body", detail: "A custom solid.", x: 0, y: 0,
+                    width: 220, height: 130, shape: nil, role: nil, subtitle: nil)
+            ], connections: [],
+            figure: .init(parts: [
+                .init(
+                    id: "body-solid", nodeID: "body", geometry: .box,
+                    position: [0, 0, 0], size: [1, 1, 1])
+            ]))
         #expect(customDocument.validationIssue == nil)
-        for var authoredDocument in [try #require(PaceTeachingTemplateCatalog.lessonDocument(for: .piCamera)),
-                                    customDocument] {
+        for var authoredDocument in [
+            try #require(PaceTeachingTemplateCatalog.lessonDocument(for: .piCamera)),
+            customDocument,
+        ] {
             authoredDocument.lesson = nil
             let (manager, persister, speech, planner) = try prepareEarlyPreviewTurn(derivedMemory: true)
             startTextTurn(manager, muted: false, transcript: "Explain how the F-35B hovers")
@@ -719,7 +779,9 @@ struct PaceTeachingManagerTests {
             let user = try #require(manager.activeConversationUserEvent)
             manager.extractedConversationUserEventIdentifiers.insert(user.eventID)
             let initialDismissalGeneration = manager.diagramOverlayController.dismissalGeneration
-            var envelope = try #require(JSONSerialization.jsonObject(with: Data(Planner(document: authoredDocument).response.utf8)) as? [String: Any])
+            var envelope = try #require(
+                JSONSerialization.jsonObject(with: Data(Planner(document: authoredDocument).response.utf8))
+                    as? [String: Any])
             let answer = "Here is the authored explanation."
             envelope["spokenText"] = answer
             planner.resolve(String(decoding: try JSONSerialization.data(withJSONObject: envelope), as: UTF8.self))

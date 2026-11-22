@@ -78,12 +78,13 @@ enum CompanionSystemPrompt {
         usesIterativeComputerUse: Bool = false,
         includeInteractiveDiagrams: Bool = false
     ) -> String {
-        var assembledPrompt = PacePowerCatalog.preinstalled.prompt(for: .init(
-            turnKind: .screen,
-            includeAgentMode: includeAgentMode,
-            isTuitionModeEnabled: isTuitionModeEnabled,
-            includeInteractiveDiagrams: includeInteractiveDiagrams
-        ))
+        var assembledPrompt = PacePowerCatalog.preinstalled.prompt(
+            for: .init(
+                turnKind: .screen,
+                includeAgentMode: includeAgentMode,
+                isTuitionModeEnabled: isTuitionModeEnabled,
+                includeInteractiveDiagrams: includeInteractiveDiagrams
+            ))
         if includeAgentMode && usesIterativeComputerUse {
             assembledPrompt += """
 
@@ -119,9 +120,10 @@ enum CompanionSystemPrompt {
         ambientContextInjection: String? = nil,
         includeInteractiveDiagrams: Bool = false
     ) -> String {
-        var prompt = PacePowerCatalog.preinstalled.prompt(for: .init(
-            turnKind: .textOnly, includeInteractiveDiagrams: includeInteractiveDiagrams
-        ))
+        var prompt = PacePowerCatalog.preinstalled.prompt(
+            for: .init(
+                turnKind: .textOnly, includeInteractiveDiagrams: includeInteractiveDiagrams
+            ))
         if let ambient = ambientContextInjection, !ambient.isEmpty {
             prompt += "\n\n" + ambient
         }
@@ -157,9 +159,10 @@ enum CompanionSystemPrompt {
         threadSummaryInjection: String? = nil,
         includeInteractiveDiagrams: Bool = false
     ) -> String {
-        let assembledPrompt = PacePowerCatalog.preinstalled.prompt(for: .init(
-            turnKind: .research, includeInteractiveDiagrams: includeInteractiveDiagrams
-        ))
+        let assembledPrompt = PacePowerCatalog.preinstalled.prompt(
+            for: .init(
+                turnKind: .research, includeInteractiveDiagrams: includeInteractiveDiagrams
+            ))
         return prependingThreadSummaryInjection(
             threadSummaryInjection,
             to: assembledPrompt

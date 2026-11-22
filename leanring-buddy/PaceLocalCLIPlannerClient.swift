@@ -101,7 +101,8 @@ nonisolated enum PaceCLIRejectionCategory: String {
     static func classify(errorPayload: [String: Any]) -> Self? {
         // Inspect only failure fields, never agent-message text or arbitrary serialized payloads.
         for key in ["status", "status_code", "http_status", "code"] {
-            let statusCode = (errorPayload[key] as? Int)
+            let statusCode =
+                (errorPayload[key] as? Int)
                 ?? (errorPayload[key] as? String).flatMap(Int.init)
             if statusCode == 401 { return .authentication }
             if statusCode == 429 { return .quota }
@@ -241,14 +242,16 @@ nonisolated struct PaceCLITextDeliveryState {
                 .trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
             let isRetryNotice = message.hasPrefix("reconnecting") || message.hasPrefix("retrying")
             if !isRetryNotice {
-                pendingRejectionCategory = PaceCLIRejectionCategory.classify(errorPayload: payload)
+                pendingRejectionCategory =
+                    PaceCLIRejectionCategory.classify(errorPayload: payload)
                     ?? pendingRejectionCategory
             }
             return nil
         }
         if eventType == "turn.failed" || payload["error"] != nil {
             hasInvalidTurn = true
-            rejectionCategory = rejectionCategory ?? PaceCLIRejectionCategory.classify(errorPayload: payload)
+            rejectionCategory =
+                rejectionCategory ?? PaceCLIRejectionCategory.classify(errorPayload: payload)
                 ?? pendingRejectionCategory
         }
         guard !hasInvalidTurn else { return nil }
@@ -272,11 +275,13 @@ nonisolated struct PaceCLITextDeliveryState {
             return PaceLocalCLIPlannerError.rejected(rejectionCategory)
         }
         if !hasCompletedTurn || assembledOutput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-            let pendingRejectionCategory {
+            let pendingRejectionCategory
+        {
             return PaceLocalCLIPlannerError.rejected(pendingRejectionCategory)
         }
         if case PaceCLIProcessError.failed(_, let stderrExcerpt) = processError,
-            let category = PaceCLIRejectionCategory.classify(stderrExcerpt) {
+            let category = PaceCLIRejectionCategory.classify(stderrExcerpt)
+        {
             return PaceLocalCLIPlannerError.rejected(category)
         }
         return processError
@@ -285,7 +290,8 @@ nonisolated struct PaceCLITextDeliveryState {
     func finishedOutput() throws -> String {
         if let rejectionCategory { throw PaceLocalCLIPlannerError.rejected(rejectionCategory) }
         if !hasCompletedTurn || assembledOutput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-            let pendingRejectionCategory {
+            let pendingRejectionCategory
+        {
             throw PaceLocalCLIPlannerError.rejected(pendingRejectionCategory)
         }
         if codexTextDelivery == .completedTurn && (!hasCompletedTurn || hasInvalidTurn) {
@@ -438,7 +444,8 @@ final class PaceLocalCLIPlannerClient: BuddyPlannerClient {
             // Fail-loud path still logs the off-device attempt: bytes left
             // the Mac (or tried to) even on error, and the dashboard must
             // reflect that. Failure metadata remains content-free.
-            let deliveredCompletedTurn = codexTextDelivery == .completedTurn
+            let deliveredCompletedTurn =
+                codexTextDelivery == .completedTurn
                 && (outputDelivery.characterCount ?? 0) > 0
             recordAuditEntry(
                 durationMilliseconds: Int(Date().timeIntervalSince(startedAt) * 1000),
@@ -557,7 +564,8 @@ final class PaceLocalCLIPlannerClient: BuddyPlannerClient {
             at: workingDirectoryURL, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         defer { try? FileManager.default.removeItem(at: workingDirectoryURL) }
 
-        var arguments = Self.codexArguments(modelIdentifier: modelIdentifier, isResearchTurn: isResearchTurn, reasoningEffort: codexReasoningEffort)
+        var arguments = Self.codexArguments(
+            modelIdentifier: modelIdentifier, isResearchTurn: isResearchTurn, reasoningEffort: codexReasoningEffort)
         if supportsImageInput {
             for (imageIndex, image) in images.enumerated() {
                 let imageURL = workingDirectoryURL.appendingPathComponent("screen-\(imageIndex).jpg")
@@ -646,7 +654,8 @@ final class PaceLocalCLIPlannerClient: BuddyPlannerClient {
                 if capturedSessionId == nil { capturedSessionId = captureSessionIdFromLine(line) }
                 if upstream == .codex, codexCompletionPolicy == .completedTurn,
                     completedTurnProof.consume(chunk: chunk, fromLine: line) != nil,
-                    let completedOutput = try? completedTurnProof.finishedOutput() {
+                    let completedOutput = try? completedTurnProof.finishedOutput()
+                {
                     sealedOutput = completedOutput
                     processControl.stop()
                 }

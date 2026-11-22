@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+
 @testable import Pace
 
 @MainActor @Suite(.serialized)
@@ -30,13 +31,19 @@ struct PaceDialogueReplayTests {
             completion = nil
             pendingCompletion?.resume()
         }
-        func stopPlayback() { stopCount += 1; finishPlayback() }
+        func stopPlayback() {
+            stopCount += 1
+            finishPlayback()
+        }
         func recordExpectedStopReason(_ reason: PaceTTSStopReason) { lastStopReason = reason }
     }
 
     @Test func englishReplayStaysRespondingUntilCompletionAndStopAfterOnsetPreservesHistoryAndDraft() async throws {
         let (root, manager, persister, _) = try PacePowerManagerTests().fixture()
-        defer { manager.cancelActiveTurnTasks(); try? FileManager.default.removeItem(at: root) }
+        defer {
+            manager.cancelActiveTurnTasks()
+            try? FileManager.default.removeItem(at: root)
+        }
         let speech = ControlledEnglishSpeech()
         manager.ttsClient = speech
         PacePowerManagerTests().begin("A question", manager: manager)
@@ -76,11 +83,16 @@ struct PaceDialogueReplayTests {
     @Test func closingMessageAndNotchReplayPreservesCompletedCanonicalEventsIncludingSpeechMetadata() async throws {
         let (root, manager, persister, _) = try PacePowerManagerTests().fixture()
         let speech = ControlledEnglishSpeech()
-        defer { speech.stopPlayback(); manager.cancelActiveTurnTasks(); try? FileManager.default.removeItem(at: root) }
+        defer {
+            speech.stopPlayback()
+            manager.cancelActiveTurnTasks()
+            try? FileManager.default.removeItem(at: root)
+        }
         manager.ttsClient = speech
         manager.streamingSentenceTTSPipeline = StreamingSentenceTTSPipeline(ttsClient: speech)
         manager.conversationLanguageMode = .japanesePractice
-        let reply = try PaceBilingualReply.parse(#"{"spokenText":"こんにちは。","intent":"answer","payload":{"englishSubtitle":"Hello."}}"#)
+        let reply = try PaceBilingualReply.parse(
+            #"{"spokenText":"こんにちは。","intent":"answer","payload":{"englishSubtitle":"Hello."}}"#)
         for (usesNotchDelegate, usesStop) in [(false, false), (true, false), (false, true), (true, true)] {
             PacePowerManagerTests().begin("Greet me", manager: manager)
             manager.activeBilingualReply = reply
@@ -95,8 +107,11 @@ struct PaceDialogueReplayTests {
             let originalMessages = manager.chatSession.messages
             manager.chatSession.draftMessageText = "Keep my next question"
             manager.lastSpokenReplyRequest = reply.speechRequest
-            if usesNotchDelegate { manager.replayLastSpokenReply() }
-            else { manager.replayChatSpeech(reply.speechRequest) }
+            if usesNotchDelegate {
+                manager.replayLastSpokenReply()
+            } else {
+                manager.replayChatSpeech(reply.speechRequest)
+            }
             for _ in 0..<1000 {
                 if speech.completion != nil { break }
                 await Task.yield()
@@ -104,8 +119,11 @@ struct PaceDialogueReplayTests {
             #expect(speech.completion != nil && speech.isPlaying && manager.voiceState == .responding)
             let replayTask = manager.currentResponseTask
             #expect(manager.activeConversationUserEvent?.eventID == completedUser.eventID)
-            if usesStop { manager.cancelCurrentTurnFromPanel() }
-            else { manager.handleExplanationDismissal(.userInitiated) }
+            if usesStop {
+                manager.cancelCurrentTurnFromPanel()
+            } else {
+                manager.handleExplanationDismissal(.userInitiated)
+            }
             await replayTask?.value
             #expect(!speech.isPlaying && manager.voiceState == .idle)
             #expect(speech.requests.last == reply.speechRequest)
@@ -118,11 +136,17 @@ struct PaceDialogueReplayTests {
         for closesReplay in [true, false] {
             let (root, manager, persister, _) = try PacePowerManagerTests().fixture()
             let speech = ControlledEnglishSpeech()
-            defer { speech.stopPlayback(); manager.cancelActiveTurnTasks(); try? FileManager.default.removeItem(at: root) }
+            defer {
+                speech.stopPlayback()
+                manager.cancelActiveTurnTasks()
+                try? FileManager.default.removeItem(at: root)
+            }
             PacePowerManagerTests().begin("Perform the task", manager: manager)
             let originalUser = try #require(manager.activeConversationUserEvent)
-            #expect(await manager.deliverPostActionFeedbackIfCurrentTurn("The local task finished.",
-                turnLease: manager.turnLeaseRegistry.currentLease))
+            #expect(
+                await manager.deliverPostActionFeedbackIfCurrentTurn(
+                    "The local task finished.",
+                    turnLease: manager.turnLeaseRegistry.currentLease))
             manager.voiceState = .idle
             let feedbackIdentifier = try #require(manager.lastConversationAssistantEventIdentifier)
             #expect(persister.events[originalUser.eventID]?.deliveryState == .accepted)
@@ -152,7 +176,10 @@ struct PaceDialogueReplayTests {
             manager.voiceState = .responding
             manager.handleExplanationDismissal(.userInitiated)
             #expect(persister.events[nextUser.eventID]?.deliveryState == .cancelled)
-            #expect(persister.events.values.contains { $0.text == "The next answer has started." && $0.deliveryState == .interrupted })
+            #expect(
+                persister.events.values.contains {
+                    $0.text == "The next answer has started." && $0.deliveryState == .interrupted
+                })
             #expect(originalEvents.allSatisfy { persister.events[$0.key] == $0.value })
             #expect(manager.chatSession.draftMessageText == "Keep this next question")
         }
@@ -160,7 +187,10 @@ struct PaceDialogueReplayTests {
 
     @Test func restoredHistoryReplayClearsProtectionEvenWithoutAnActiveRequest() async throws {
         let (root, manager, _, _) = try PacePowerManagerTests().fixture()
-        defer { manager.cancelActiveTurnTasks(); try? FileManager.default.removeItem(at: root) }
+        defer {
+            manager.cancelActiveTurnTasks()
+            try? FileManager.default.removeItem(at: root)
+        }
         manager.replayChatSpeech(.init(text: "A restored reply."))
         let replayTask = manager.currentResponseTask
         #expect(manager.activeConversationUserEvent == nil && manager.replayPreservesOriginalConversationHistory)
@@ -174,11 +204,16 @@ struct PaceDialogueReplayTests {
 
     @Test func selectedReplyReplaysItsOwnSpeechWithoutAddingHistoryOrChangingDraft() async throws {
         let (root, manager, persister, speech) = try PacePowerManagerTests().fixture()
-        defer { manager.cancelActiveTurnTasks(); try? FileManager.default.removeItem(at: root) }
+        defer {
+            manager.cancelActiveTurnTasks()
+            try? FileManager.default.removeItem(at: root)
+        }
         PacePowerManagerTests().begin("Greet me", manager: manager)
         let request = PaceSpeechRequest(text: "こんにちは。", profile: .japaneseFemale, englishSubtitle: "Hello.")
-        manager.conversationRecorder.record(ConversationEvent(eventID: "selected-reply", turnID: manager.activeConversationUserEvent?.eventID,
-            role: .pace, origin: .assistant, text: "Hello.", speechRequest: request))
+        manager.conversationRecorder.record(
+            ConversationEvent(
+                eventID: "selected-reply", turnID: manager.activeConversationUserEvent?.eventID,
+                role: .pace, origin: .assistant, text: "Hello.", speechRequest: request))
         let selectedMessage = try #require(manager.chatSession.messages.first { $0.id == "selected-reply" })
         let selectedSpeech = try #require(selectedMessage.speechRequest)
         #expect(selectedMessage.turnIdentifier == manager.activeConversationUserEvent?.eventID)
@@ -197,7 +232,10 @@ struct PaceDialogueReplayTests {
 
     @Test func notchReplayCannotReplaceARunningTurnOrBreakStopCancellation() async throws {
         let (root, manager, persister, speech) = try PacePowerManagerTests().fixture()
-        defer { manager.cancelActiveTurnTasks(); try? FileManager.default.removeItem(at: root) }
+        defer {
+            manager.cancelActiveTurnTasks()
+            try? FileManager.default.removeItem(at: root)
+        }
         PacePowerManagerTests().begin("Keep working", manager: manager)
         let originalEvents = persister.events.count
         manager.lastSpokenReplyText = "An earlier reply."
@@ -215,7 +253,10 @@ struct PaceDialogueReplayTests {
 
     @Test func sessionMuteAndBusyTurnPreventReplayWhileAutomaticMuteAllowsExplicitReplay() async throws {
         let (root, manager, persister, speech) = try PacePowerManagerTests().fixture()
-        defer { manager.cancelActiveTurnTasks(); try? FileManager.default.removeItem(at: root) }
+        defer {
+            manager.cancelActiveTurnTasks()
+            try? FileManager.default.removeItem(at: root)
+        }
         PacePowerManagerTests().begin("A question", manager: manager)
         let originalMessages = manager.chatSession.messages
         let originalEvents = persister.events.count
@@ -240,7 +281,10 @@ struct PaceDialogueReplayTests {
 
     @Test func mutingImmediatelyAfterReplayClickPreventsItsScheduledAudio() async throws {
         let (root, manager, persister, speech) = try PacePowerManagerTests().fixture()
-        defer { manager.cancelActiveTurnTasks(); try? FileManager.default.removeItem(at: root) }
+        defer {
+            manager.cancelActiveTurnTasks()
+            try? FileManager.default.removeItem(at: root)
+        }
         PacePowerManagerTests().begin("A question", manager: manager)
         let eventCount = persister.events.count
         manager.replayChatSpeech(.init(text: "こんにちは。", profile: .japaneseFemale))
@@ -252,7 +296,10 @@ struct PaceDialogueReplayTests {
 
     @Test func stopCancelsScheduledReplayBeforeAudioAndDoesNotAppendMessages() async throws {
         let (root, manager, persister, speech) = try PacePowerManagerTests().fixture()
-        defer { manager.cancelActiveTurnTasks(); try? FileManager.default.removeItem(at: root) }
+        defer {
+            manager.cancelActiveTurnTasks()
+            try? FileManager.default.removeItem(at: root)
+        }
         PacePowerManagerTests().begin("A question", manager: manager)
         let originalMessages = manager.chatSession.messages
         let originalEvents = persister.events.count

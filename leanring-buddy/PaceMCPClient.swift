@@ -22,7 +22,8 @@ enum PaceMCPClientError: Error, LocalizedError, CustomStringConvertible {
 
     static func classifyToolError(_ error: Error, toolCall: PaceMCPToolCall) -> Error {
         guard toolCall.serverName == "peekaboo", let mcpError = error as? PaceMCPClientError,
-              case .rpcError(let message) = mcpError else { return error }
+            case .rpcError(let message) = mcpError
+        else { return error }
         let applicationField: String
         switch toolCall.toolName {
         case "window": applicationField = "app"
@@ -30,9 +31,12 @@ enum PaceMCPClientError: Error, LocalizedError, CustomStringConvertible {
         default: return error
         }
         guard case .string(let applicationTarget) = toolCall.arguments[applicationField] else { return error }
-        let diagnosticPattern = "^(?:MCP tool reported an error:\\s*)?(?:Failed to [^:\\r\\n]+:\\s*)?Multiple apps match '"
+        let diagnosticPattern =
+            "^(?:MCP tool reported an error:\\s*)?(?:Failed to [^:\\r\\n]+:\\s*)?Multiple apps match '"
             + NSRegularExpression.escapedPattern(for: applicationTarget) + "'\\.\\s*Did you mean:"
-        guard message.range(of: diagnosticPattern, options: [.regularExpression, .caseInsensitive]) != nil else { return error }
+        guard message.range(of: diagnosticPattern, options: [.regularExpression, .caseInsensitive]) != nil else {
+            return error
+        }
         return PaceMCPClientError.ambiguousApplicationTarget(message)
     }
 
@@ -137,7 +141,8 @@ nonisolated struct PaceMCPToolCall: Equatable, Sendable {
 
     var createsAppleReminder: Bool {
         guard serverName.lowercased() == "apple", toolName.lowercased() == "reminders",
-              case .string(let operation)? = arguments["operation"] else { return false }
+            case .string(let operation)? = arguments["operation"]
+        else { return false }
         return operation.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "create"
     }
 

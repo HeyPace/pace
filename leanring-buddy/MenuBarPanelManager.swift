@@ -68,7 +68,8 @@ private struct PaceConversationPanelSurface: View {
                         isOffDeviceTurn: companionManager.isOffDeviceTurnInFlight,
                         isExpanded: true,
                         isCameraActive: companionControlCenter.activeSources.contains(.camera),
-                        isScreenActive: companionManager.isWatchModeEnabled || companionControlCenter.activeSources.contains(.screen),
+                        isScreenActive: companionManager.isWatchModeEnabled
+                            || companionControlCenter.activeSources.contains(.screen),
                         hasUnreadScreenSuggestion: chatSession.hasUnreadScreenSuggestion,
                         persistentStatus: companionControlCenter.runtimeStatusText,
                         companionStatusColor: companionStatusColor,
@@ -76,7 +77,8 @@ private struct PaceConversationPanelSurface: View {
                             companionManager.handleMicrophoneButtonTapped()
                         },
                         onChatTap: {
-                            NotificationCenter.default.post(name: .paceDismissPanel, object: PaceExplanationDismissalIntent.userInitiated)
+                            NotificationCenter.default.post(
+                                name: .paceDismissPanel, object: PaceExplanationDismissalIntent.userInitiated)
                         }
                     )
                     .accessibilityValue(headerAccessibilityValue)
@@ -104,7 +106,8 @@ private struct PaceConversationPanelSurface: View {
             .clipped()
         }
         .onExitCommand {
-            NotificationCenter.default.post(name: .paceDismissPanel, object: PaceExplanationDismissalIntent.userInitiated)
+            NotificationCenter.default.post(
+                name: .paceDismissPanel, object: PaceExplanationDismissalIntent.userInitiated)
         }
     }
 
@@ -148,7 +151,8 @@ private struct PaceConversationPanelChromeClip: Shape {
     func path(in rect: CGRect) -> Path {
         if isEmbeddedInNotch {
             return UnevenRoundedRectangle(
-                bottomLeadingRadius: 24, bottomTrailingRadius: 24, style: .continuous).path(in: rect)
+                bottomLeadingRadius: 24, bottomTrailingRadius: 24, style: .continuous
+            ).path(in: rect)
         }
         // Anchored chat owns its rounding and shadow, so leave its surrounding drawing unmasked.
         return Rectangle().path(in: rect.insetBy(dx: -rect.width, dy: -rect.height))
@@ -214,8 +218,10 @@ final class MenuBarPanelManager: NSObject {
             try await Task.sleep(for: $0)
         }
     ) {
-        let shouldUseChatPanelAsPrimarySurface = usesChatPanelAsPrimarySurface ?? PaceUserPreferencesStore.bool(
-            for: .useChatPanelAsPrimarySurface
+        let shouldUseChatPanelAsPrimarySurface =
+            usesChatPanelAsPrimarySurface
+            ?? PaceUserPreferencesStore.bool(
+                for: .useChatPanelAsPrimarySurface
         )
         self.companionManager = companionManager
         self.activeDisplayCoordinator = activeDisplayCoordinator
@@ -242,7 +248,8 @@ final class MenuBarPanelManager: NSObject {
         displayRouteObservation = activeDisplayCoordinator.routeChanges.sink { [weak self] _ in
             self?.repositionVisiblePanel(reassertPresentation: true)
         }
-        conversationPanelPresentationObservation = companionManager.conversationPanelPresentationRequests.sink { [weak self] intent in
+        conversationPanelPresentationObservation = companionManager.conversationPanelPresentationRequests.sink {
+            [weak self] intent in
             self?.showPanel(intent: intent)
         }
         explanationVoiceStateObservation = companionManager.$voiceState
@@ -517,8 +524,10 @@ final class MenuBarPanelManager: NSObject {
                     companionManager.currentTurnHUDState.status != .failed
                 else { return }
                 let isEditingConversation = presentation.composerFocusRequestID != nil || panel?.isKeyWindow == true
-                let hasProtectedDraft = isEditingConversation
-                    && !companionManager.chatSession.draftMessageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                let hasProtectedDraft =
+                    isEditingConversation
+                    && !companionManager.chatSession.draftMessageText.trimmingCharacters(in: .whitespacesAndNewlines)
+                        .isEmpty
                 if companionManager.ttsClient.isPlaying
                     || hasProtectedDraft
                     || NSApp.modalWindow != nil

@@ -199,7 +199,8 @@ nonisolated enum PaceActionTagParser {
             self.expectStateChange = try? container.decodeIfPresent(Bool.self, forKey: .expectStateChange)
             self.extraArguments = Self.decodeExtraArguments(from: rawContainer)
             if container.contains(.arguments),
-               (try? container.decode([String: PaceMCPJSONValue].self, forKey: .arguments)) == nil {
+                (try? container.decode([String: PaceMCPJSONValue].self, forKey: .arguments)) == nil
+            {
                 self.strictArguments = nil
             } else {
                 var strictArguments = self.arguments
@@ -807,8 +808,9 @@ nonisolated enum PaceActionTagParser {
             guard let serverName, !serverName.isEmpty,
                   let toolName, !toolName.isEmpty else { return nil }
             let mcpArguments = objectValue(for: "arguments", in: arguments) ?? arguments
-            return action(for: PaceMCPToolCall(
-                serverName: serverName,
+            return action(
+                for: PaceMCPToolCall(
+                    serverName: serverName,
                 toolName: toolName,
                 arguments: mcpArguments
             ))
@@ -876,7 +878,9 @@ nonisolated enum PaceActionTagParser {
             }
         case "present.media":
             if PaceMediaPresentationRequest.parse(arguments: arguments) == nil {
-                issues.append("requires either a catalog assetID with optional supported motion or a validated generated svg, and durationSeconds from one to thirty")
+                issues.append(
+                    "requires either a catalog assetID with optional supported motion or a validated generated svg, and durationSeconds from one to thirty"
+                )
             }
         case "meeting":
             if parseMeetingArguments(arguments) == nil { issues.append("requires action start, stop, or status") }
@@ -1465,7 +1469,9 @@ nonisolated enum PaceActionTagParser {
         case .downloadFile:
             return parseDownloadFileToolCall(toolCall)
         case .presentMedia:
-            return toolCall.strictArguments.flatMap(PaceMediaPresentationRequest.parse(arguments:)).map { .presentMedia($0) }
+            return toolCall.strictArguments.flatMap(PaceMediaPresentationRequest.parse(arguments:)).map {
+                .presentMedia($0)
+            }
         case .speak:
             return toolCall.strictArguments.flatMap(PaceSpeechRequest.parse(arguments:)).map { .speak($0) }
         case .startTimer:
@@ -1655,7 +1661,9 @@ nonisolated enum PaceActionTagParser {
             }
         case .presentMedia:
             if toolCall.strictArguments.flatMap(PaceMediaPresentationRequest.parse(arguments:)) == nil {
-                issues.append("requires either a catalog assetID with optional supported motion or a validated generated svg, and durationSeconds from one to thirty")
+                issues.append(
+                    "requires either a catalog assetID with optional supported motion or a validated generated svg, and durationSeconds from one to thirty"
+                )
             }
         case .speak:
             if toolCall.strictArguments.flatMap(PaceSpeechRequest.parse(arguments:)) == nil {
@@ -1688,7 +1696,9 @@ nonisolated enum PaceActionTagParser {
                 issues.append("requires at least one valid shape")
             }
         case .codingSession:
-            if PaceCodingSessionCommand.parse(mergedArguments) == nil { issues.append("requires a strict coding start/resume/status/cancel command") }
+            if PaceCodingSessionCommand.parse(mergedArguments) == nil {
+                issues.append("requires a strict coding start/resume/status/cancel command")
+            }
         case .codexSession:
             if parseCodexSessionArguments(mergedArguments) == nil { issues.append("requires directory path") }
         case .screenCapture:
@@ -2302,7 +2312,9 @@ nonisolated enum PaceActionTagParser {
     }
 
     static func parseAppleReminderCreation(_ mcpToolCall: PaceMCPToolCall) -> PaceReminderRequest? {
-        let supportedArguments: Set<String> = ["operation", "title", "text", "name", "notes", "due", "dueDate", "dueAt", "listName"]
+        let supportedArguments: Set<String> = [
+            "operation", "title", "text", "name", "notes", "due", "dueDate", "dueAt", "listName",
+        ]
         guard Set(mcpToolCall.arguments.keys).isSubset(of: supportedArguments) else { return nil }
         return parseReminderRequest(from: mcpToolCall.arguments)
     }

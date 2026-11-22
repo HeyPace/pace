@@ -23,8 +23,10 @@ struct PaceScreenWatchObservation {
     let observedAt: Date
     let applicationDisplayName: String?
 
-    init(capture: CompanionScreenCapture, sceneIdentity: PaceScreenSceneIdentity,
-         observedAt: Date, applicationDisplayName: String? = nil) {
+    init(
+        capture: CompanionScreenCapture, sceneIdentity: PaceScreenSceneIdentity,
+        observedAt: Date, applicationDisplayName: String? = nil
+    ) {
         self.capture = capture
         self.sceneIdentity = sceneIdentity
         self.observedAt = observedAt
@@ -192,17 +194,23 @@ final class PaceScreenWatchModeController {
                     }
                     let sceneGenerationBeforeCapture = sceneGeneration
                     let applicationBeforeCapture = NSWorkspace.shared.frontmostApplication
-                    let captures = try await CompanionScreenCaptureUtility.captureAllScreensAsJPEG(watchOnly: onSample != nil)
+                    let captures = try await CompanionScreenCaptureUtility.captureAllScreensAsJPEG(
+                        watchOnly: onSample != nil)
                     guard !Task.isCancelled, self.watchGeneration == generationForWatch,
-                          self.sceneGeneration == sceneGenerationBeforeCapture, shouldCapture(),
-                          applicationBeforeCapture?.processIdentifier == NSWorkspace.shared.frontmostApplication?.processIdentifier else { continue }
+                        self.sceneGeneration == sceneGenerationBeforeCapture, shouldCapture(),
+                        applicationBeforeCapture?.processIdentifier
+                            == NSWorkspace.shared.frontmostApplication?.processIdentifier
+                    else { continue }
                     if let applicationBeforeCapture, let bundleIdentifier = applicationBeforeCapture.bundleIdentifier {
                         for capture in captures {
-                            onSample?(PaceScreenWatchObservation(capture: capture,
-                                sceneIdentity: PaceScreenSceneIdentity(displayIdentifier: capture.displayIdentifier,
-                                    applicationProcessIdentifier: applicationBeforeCapture.processIdentifier,
-                                    applicationBundleIdentifier: bundleIdentifier), observedAt: Date(),
-                                applicationDisplayName: applicationBeforeCapture.localizedName))
+                            onSample?(
+                                PaceScreenWatchObservation(
+                                    capture: capture,
+                                    sceneIdentity: PaceScreenSceneIdentity(
+                                        displayIdentifier: capture.displayIdentifier,
+                                        applicationProcessIdentifier: applicationBeforeCapture.processIdentifier,
+                                        applicationBundleIdentifier: bundleIdentifier), observedAt: Date(),
+                                    applicationDisplayName: applicationBeforeCapture.localizedName))
                         }
                     }
                     let events = self.changeDetector.meaningfulChanges(in: captures)
@@ -210,7 +218,8 @@ final class PaceScreenWatchModeController {
                         self.eventPublisher.send(event)
                         await onMeaningfulChange(event)
                         guard !Task.isCancelled, self.watchGeneration == generationForWatch,
-                              self.sceneGeneration == sceneGenerationBeforeCapture, shouldCapture() else { break }
+                            self.sceneGeneration == sceneGenerationBeforeCapture, shouldCapture()
+                        else { break }
                     }
                 } catch {
                     print("⚠️ Pace watch mode capture failed: \(error.localizedDescription)")

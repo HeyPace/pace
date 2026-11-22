@@ -98,7 +98,8 @@ struct PaceChatAppearanceEditor: View {
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(draft.controlAccent == .blue ? DS.Colors.textPrimary : draft.controlForeground)
                     .frame(width: 28, height: 28)
-                    .background(draft.controlColor(existing: DS.Colors.surfaceRaised), in: RoundedRectangle(cornerRadius: 6))
+                    .background(
+                        draft.controlColor(existing: DS.Colors.surfaceRaised), in: RoundedRectangle(cornerRadius: 6))
             }
             .padding(12)
             .overlay {
@@ -115,7 +116,9 @@ struct PaceChatAppearanceEditor: View {
         .accessibilityLabel("Chat appearance preview")
     }
 
-    private func slider(_ title: String, value: Binding<Double>, range: ClosedRange<Double>, suffix: String) -> some View {
+    private func slider(_ title: String, value: Binding<Double>, range: ClosedRange<Double>, suffix: String)
+        -> some View
+    {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Text(title)

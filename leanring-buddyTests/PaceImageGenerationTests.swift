@@ -38,16 +38,20 @@ struct PaceImageGenerationTests {
     }
 
     @Test func onlyAnExistingImageAnimationRequestNeedsAnImageToVideoCapability() {
-        for phrase in ["animate this image", "turn the original illustration into a video", "can you animate my artwork?"] {
+        for phrase in [
+            "animate this image", "turn the original illustration into a video", "can you animate my artwork?",
+        ] {
             #expect(PaceImageGenerationRequest.requestsAnimationOfExistingImage(phrase, hasActiveImage: false))
         }
         for phrase in ["animate it", "make it move", "i want an animation"] {
             #expect(PaceImageGenerationRequest.requestsAnimationOfExistingImage(phrase, hasActiveImage: true))
             #expect(!PaceImageGenerationRequest.requestsAnimationOfExistingImage(phrase, hasActiveImage: false))
         }
-        for phrase in ["draw a new SVG animation of a person juggling", "animate the chart",
-                       "Add a Power that shows a bouncing ball", "make the image brighter",
-                       "i want an animation of an astronaut"] {
+        for phrase in [
+            "draw a new SVG animation of a person juggling", "animate the chart",
+            "Add a Power that shows a bouncing ball", "make the image brighter",
+            "i want an animation of an astronaut",
+        ] {
             #expect(!PaceImageGenerationRequest.requestsAnimationOfExistingImage(phrase, hasActiveImage: true))
         }
     }
@@ -153,7 +157,8 @@ struct PaceImageGenerationTests {
         let workingImage = root.appendingPathComponent("result.png")
         let previews = root.appendingPathComponent("previews", isDirectory: true)
         try Self.writePNG(to: workingImage)
-        let artifact = PaceGeneratedImageArtifact(id: UUID(), fileURL: workingImage, width: 2, height: 2, request: Self.request)
+        let artifact = PaceGeneratedImageArtifact(
+            id: UUID(), fileURL: workingImage, width: 2, height: 2, request: Self.request)
 
         let previewData = try PaceGeneratedImageStore.makeChatPreview(of: artifact)
         try PaceGeneratedImageStore.saveChatPreview(previewData, identifier: artifact.id, in: previews)
@@ -620,7 +625,11 @@ struct PaceImageGenerationTests {
 
     @Test @MainActor func visualReplacementDoesNotInvokeTheUserDismissalCallback() async {
         var userDismissals = 0
-        let controller = PaceImageOverlayController(showsWindows: false, discardArtifact: { _ in }) { _, _ in Self.artifact() }
+        let controller = PaceImageOverlayController(
+            showsWindows: false,
+            discardArtifact: { _ in },
+            generateImage: { _, _ in Self.artifact() }
+        )
         controller.authorizationCheck = { true }
         controller.onUserDismissed = { userDismissals += 1 }
         _ = await controller.generate(Self.request, expectedDismissalGeneration: 0)
@@ -701,7 +710,8 @@ struct PaceImageGenerationTests {
         Self.wireVisualReplacement(
             diagramOverlayController: diagramOverlayController, imageOverlayController: imageOverlayController)
         let diagram = Self.diagram("Water cycle")
-        let actions: [PaceParsedAction] = imageFirst
+        let actions: [PaceParsedAction] =
+            imageFirst
             ? [.generateImage(Self.request), .showDiagram(diagram)]
             : [.showDiagram(diagram), .generateImage(Self.request)]
         let parsed = PaceActionTagParseResult(

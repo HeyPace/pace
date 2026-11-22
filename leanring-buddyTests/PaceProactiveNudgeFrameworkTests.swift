@@ -370,11 +370,15 @@ final class PaceCalendarPreMeetingNudgeGeneratorTests: XCTestCase {
         let now = Date()
         let generator = PaceCalendarPreMeetingNudgeGenerator(
             restraintContextProvider: { self.calendarRestraintContext(now: now) },
-            upcomingEventSnapshotsProvider: { _ in [PaceCalendarRetrievalEventSnapshot(
-                stableIdentifier: "birthday", title: "Birthday",
-                startDate: now.addingTimeInterval(120), endDate: now.addingTimeInterval(86400),
-                isAllDay: true
-            )] },
+            upcomingEventSnapshotsProvider: { _ in
+                [
+                    PaceCalendarRetrievalEventSnapshot(
+                        stableIdentifier: "birthday", title: "Birthday",
+                        startDate: now.addingTimeInterval(120), endDate: now.addingTimeInterval(86400),
+                        isAllDay: true
+                    )
+                ]
+            },
             nowProvider: { now }
         )
         var utterances: [PaceProactiveUtterance] = []
@@ -396,7 +400,8 @@ final class PaceCalendarPreMeetingNudgeGeneratorTests: XCTestCase {
                 nowProvider: { now }
             )
             var emitted: [PaceProactiveUtterance] = []
-            generator.evaluateNow(emit: { emitted.append($0) }, queueForLater: { _ in XCTFail("Idle event should announce.") })
+            generator.evaluateNow(
+                emit: { emitted.append($0) }, queueForLater: { _ in XCTFail("Idle event should announce.") })
             let expectedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Untitled event" : title
             XCTAssertEqual(emitted.map(\.spokenText), ["\(expectedTitle) is in 3 minutes."])
         }
@@ -433,10 +438,14 @@ final class PaceCalendarPreMeetingNudgeGeneratorTests: XCTestCase {
         let now = Date()
         let generator = PaceCalendarPreMeetingNudgeGenerator(
             restraintContextProvider: { self.calendarRestraintContext(now: now, isOnActiveCall: true) },
-            upcomingEventSnapshotsProvider: { _ in [PaceCalendarRetrievalEventSnapshot(
-                stableIdentifier: "dentist", title: "Dentist",
-                startDate: now.addingTimeInterval(180), endDate: now.addingTimeInterval(1800)
-            )] },
+            upcomingEventSnapshotsProvider: { _ in
+                [
+                    PaceCalendarRetrievalEventSnapshot(
+                        stableIdentifier: "dentist", title: "Dentist",
+                        startDate: now.addingTimeInterval(180), endDate: now.addingTimeInterval(1800)
+                    )
+                ]
+            },
             nowProvider: { now }
         )
         var emitted: [PaceProactiveUtterance] = []
@@ -457,7 +466,9 @@ final class PaceCalendarPreMeetingNudgeGeneratorTests: XCTestCase {
             )
         }
         let generator = PaceCalendarPreMeetingNudgeGenerator(
-            restraintContextProvider: { self.calendarRestraintContext(now: now, lastProactiveUtteranceAt: now.addingTimeInterval(-30)) },
+            restraintContextProvider: {
+                self.calendarRestraintContext(now: now, lastProactiveUtteranceAt: now.addingTimeInterval(-30))
+            },
             upcomingEventSnapshotsProvider: { _ in events }, nowProvider: { now }
         )
         var emitted: [PaceProactiveUtterance] = []

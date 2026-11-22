@@ -25,7 +25,7 @@ struct GlobalPushToTalkShortcutMonitorTests {
         _ = monitor.handleGlobalEventTap(eventType: .flagsChanged, event: event)
         #expect(monitor.isShortcutCurrentlyPressed && monitor.isSimulatedPressActive && transitions == 3)
         monitor.simulateShortcutReleased()
-        withExtendedLifetime(observation) { }
+        withExtendedLifetime(observation) {}
     }
     @Test func rightOptionAloneTriggersListeningAndOtherInputCancels() async throws {
         #expect(BuddyPushToTalkShortcut.currentShortcutOption == .rightOption)
@@ -66,7 +66,7 @@ struct GlobalPushToTalkShortcutMonitorTests {
         #expect(monitor.isShortcutCurrentlyPressed)
         monitor.recoverMissedModifierRelease(modifierFlagsRawValue: leftOption.rawValue)
         #expect(transitions == [.pressed, .cancelled, .pressed, .released, .pressed, .released])
-        withExtendedLifetime(observation) { }
+        withExtendedLifetime(observation) {}
     }
 
     @Test func functionPConsumesOnlyItsOwnKeyPairAndReleasesInEitherOrder() {
@@ -104,7 +104,7 @@ struct GlobalPushToTalkShortcutMonitorTests {
         monitor.handleFunctionPTransition(.released)
         #expect(transitions == [.pressed, .released])
         #expect(!monitor.isShortcutCurrentlyPressed && !monitor.isSimulatedPressActive)
-        withExtendedLifetime(observation) { }
+        withExtendedLifetime(observation) {}
     }
 
     @Test

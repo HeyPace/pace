@@ -91,14 +91,17 @@ nonisolated struct PaceImageGenerationRequest: Codable, Equatable, Sendable {
     static func requestsAnimationOfExistingImage(_ transcript: String, hasActiveImage: Bool) -> Bool {
         let normalized = transcript.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
         let introduction = #"^(?:please\s+)?(?:(?:can|could|would)\s+you\s+)?"#
-        let existingImage = #"(?:this|that|the|the original|the generated|my)\s+(?:image|illustration|picture|photo|artwork)"#
-        let explicitPattern = introduction + #"(?:animate\s+"# + existingImage
+        let existingImage =
+            #"(?:this|that|the|the original|the generated|my)\s+(?:image|illustration|picture|photo|artwork)"#
+        let explicitPattern =
+            introduction + #"(?:animate\s+"# + existingImage
             + #"\b|(?:turn|make)\s+"# + existingImage
             + #"\s+(?:(?:in)?to|as)\s+(?:an?\s+)?(?:animation|video|gif|loop)\b)"#
         if normalized.range(of: explicitPattern, options: .regularExpression) != nil { return true }
 
         guard hasActiveImage else { return false }
-        let contextualPattern = introduction
+        let contextualPattern =
+            introduction
             + #"(?:animate\s+(?:it|this|that)|make\s+(?:it|this|that)\s+move|(?:i\s+want\s+|make\s+(?:me\s+)?|create\s+(?:me\s+)?)an?\s+animation)[.!?]*$"#
         return normalized.range(of: contextualPattern, options: .regularExpression) != nil
     }
@@ -169,13 +172,15 @@ nonisolated enum PaceGeneratedImageStore {
     static func makeChatPreview(of artifact: PaceGeneratedImageArtifact) throws -> Data {
         let verifiedImage = try validatedImageData(at: artifact.fileURL)
         guard let source = CGImageSourceCreateWithData(verifiedImage.data as CFData, nil),
-              let thumbnail = CGImageSourceCreateThumbnailAtIndex(source, 0, [
-                kCGImageSourceCreateThumbnailFromImageAlways: true,
-                kCGImageSourceCreateThumbnailWithTransform: true,
-                kCGImageSourceThumbnailMaxPixelSize: 640,
-              ] as CFDictionary),
-              let data = CFDataCreateMutable(nil, 0),
-              let destination = CGImageDestinationCreateWithData(data, UTType.png.identifier as CFString, 1, nil)
+            let thumbnail = CGImageSourceCreateThumbnailAtIndex(
+                source, 0,
+                [
+                    kCGImageSourceCreateThumbnailFromImageAlways: true,
+                    kCGImageSourceCreateThumbnailWithTransform: true,
+                    kCGImageSourceThumbnailMaxPixelSize: 640,
+                ] as CFDictionary),
+            let data = CFDataCreateMutable(nil, 0),
+            let destination = CGImageDestinationCreateWithData(data, UTType.png.identifier as CFString, 1, nil)
         else { throw PaceImageGenerationError.invalidArtifact }
         CGImageDestinationAddImage(destination, thumbnail, nil)
         guard CGImageDestinationFinalize(destination) else { throw PaceImageGenerationError.invalidArtifact }
@@ -306,7 +311,8 @@ nonisolated enum PaceGeneratedImageStore {
     }
 
     private static func writePrivateImage(_ data: Data, to destination: URL, in directory: URL) throws {
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true,
+        try FileManager.default.createDirectory(
+            at: directory, withIntermediateDirectories: true,
             attributes: [.posixPermissions: 0o700])
         let directoryDescriptor = openWithoutSymlinkParents(directory, isDirectory: true)
         guard directoryDescriptor >= 0 else { throw PaceImageGenerationError.invalidArtifact }

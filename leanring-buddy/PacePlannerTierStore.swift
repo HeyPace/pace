@@ -133,7 +133,6 @@ enum PacePlannerTierStore {
         defaults.set(enabled, forKey: "pace.planner.fastEverydayAnswersEnabled")
     }
 
-
     // MARK: First-launch detection
 
     /// True iff NONE of the planner tier UserDefaults keys are set. Used

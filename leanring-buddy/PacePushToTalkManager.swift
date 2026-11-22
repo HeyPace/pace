@@ -7,8 +7,8 @@
 //  and hands the final draft back to `CompanionManager`.
 //
 
-import AppKit
 import AVFoundation
+import AppKit
 import Combine
 import Foundation
 import Speech
@@ -68,7 +68,7 @@ enum BuddyPushToTalkShortcut {
     }
 
     static let currentShortcutOption: ShortcutOption = .rightOption
-    nonisolated static let functionPKeyCode: UInt16 = 35 // ANSI P
+    nonisolated static let functionPKeyCode: UInt16 = 35  // ANSI P
 
     static func shortcutTransition(
         for eventType: CGEventType,
@@ -130,19 +130,21 @@ enum BuddyPushToTalkShortcut {
         }
 
         guard option != .functionP else { return .none }
-        let pushToTalkKeyCode: UInt16 = 49 // Space
+        let pushToTalkKeyCode: UInt16 = 49  // Space
         let matchesModifierFlags = modifierFlags.isSuperset(of: pushToTalkModifierFlags)
 
         if shortcutEventType == .keyDown
             && keyCode == pushToTalkKeyCode
             && matchesModifierFlags
-            && !wasShortcutPreviouslyPressed {
+            && !wasShortcutPreviouslyPressed
+        {
             return .pressed
         }
 
         if shortcutEventType == .keyUp
             && keyCode == pushToTalkKeyCode
-            && wasShortcutPreviouslyPressed {
+            && wasShortcutPreviouslyPressed
+        {
             return .released
         }
 
@@ -229,7 +231,8 @@ final class PacePushToTalkManager: NSObject, ObservableObject {
     @Published private(set) var currentPermissionProblem: BuddyDictationPermissionProblem?
 
     var isDictationInProgress: Bool {
-        isPreparingToRecord || isRecordingFromMicrophoneButton || isRecordingFromKeyboardShortcut || isFinalizingTranscript
+        isPreparingToRecord || isRecordingFromMicrophoneButton || isRecordingFromKeyboardShortcut
+            || isFinalizingTranscript
     }
 
     var needsInitialPermissionPrompt: Bool {
@@ -243,7 +246,8 @@ final class PacePushToTalkManager: NSObject, ObservableObject {
 
     let transcriptionProvider: any BuddyTranscriptionProvider
     enum JapanesePracticeMicrophoneReadiness: Equatable {
-        case inactive, preparing, ready, failed(String)
+        case inactive, preparing, ready
+        case failed(String)
 
         var message: String {
             switch self {
@@ -275,7 +279,8 @@ final class PacePushToTalkManager: NSObject, ObservableObject {
 
     func prepareJapanesePracticeTranscriptionIfNeeded() {
         guard usesJapanesePracticeTranscription, !isJapanesePracticeTranscriptionReady,
-              japanesePracticePreparationTask == nil else { return }
+            japanesePracticePreparationTask == nil
+        else { return }
         japanesePracticeMicrophoneReadiness = .preparing
         let generation = japanesePracticePreparationGeneration
         japanesePracticePreparationTask = Task { @MainActor [weak self] in
@@ -284,20 +289,26 @@ final class PacePushToTalkManager: NSObject, ObservableObject {
                 if generation == japanesePracticePreparationGeneration { japanesePracticePreparationTask = nil }
             }
             do {
-                if let prepareJapanesePracticeOverride { try await prepareJapanesePracticeOverride() }
-                else { try await japanesePracticeTranscriptionProvider.prepare() }
+                if let prepareJapanesePracticeOverride {
+                    try await prepareJapanesePracticeOverride()
+                } else {
+                    try await japanesePracticeTranscriptionProvider.prepare()
+                }
                 guard !Task.isCancelled, usesJapanesePracticeTranscription,
-                      generation == japanesePracticePreparationGeneration else { return }
+                    generation == japanesePracticePreparationGeneration
+                else { return }
                 japanesePracticeMicrophoneReadiness = .ready
             } catch {
                 guard !Task.isCancelled, usesJapanesePracticeTranscription,
-                      generation == japanesePracticePreparationGeneration else { return }
+                    generation == japanesePracticePreparationGeneration
+                else { return }
                 japanesePracticeMicrophoneReadiness = .failed(error.localizedDescription)
                 lastErrorMessage = error.localizedDescription
             }
         }
     }
-    private let japanesePracticeTranscriptionProvider = WhisperKitTranscriptionProvider(languageMode: .automaticJapaneseEnglish)
+    private let japanesePracticeTranscriptionProvider = WhisperKitTranscriptionProvider(
+        languageMode: .automaticJapaneseEnglish)
     var selectedTranscriptionProvider: any BuddyTranscriptionProvider {
         usesJapanesePracticeTranscription ? japanesePracticeTranscriptionProvider : transcriptionProvider
     }
@@ -405,7 +416,8 @@ final class PacePushToTalkManager: NSObject, ObservableObject {
             currentDraftText: currentDraftText,
             updateDraftText: updateDraftText,
             submitDraftText: submitDraftText,
-            shouldAutomaticallySubmitFinalDraftOnStop: currentDraftText
+            shouldAutomaticallySubmitFinalDraftOnStop:
+                currentDraftText
                 .trimmingCharacters(in: .whitespacesAndNewlines)
                 .isEmpty,
             speculativeFastAction: speculativeFastAction
@@ -434,8 +446,9 @@ final class PacePushToTalkManager: NSObject, ObservableObject {
         // any non-PTT trigger is a redundant signal — ignore it so we
         // don't reset the existing window's auto-close clock.
         if let activeListeningWindowTrigger,
-           activeListeningWindowTrigger == .userPushToTalk,
-           trigger != .userPushToTalk {
+            activeListeningWindowTrigger == .userPushToTalk,
+            trigger != .userPushToTalk
+        {
             return
         }
 
@@ -535,7 +548,8 @@ final class PacePushToTalkManager: NSObject, ObservableObject {
             return
         }
         guard hasPermissions else {
-            reportCaptureFailure(lastErrorMessage ?? "Microphone or speech recognition permission is required. Open voice setup.")
+            reportCaptureFailure(
+                lastErrorMessage ?? "Microphone or speech recognition permission is required. Open voice setup.")
             isPreparingToRecord = false
             return
         }
@@ -621,11 +635,14 @@ final class PacePushToTalkManager: NSObject, ObservableObject {
         } catch {
             guard activeCaptureSessionIdentifier == captureSessionIdentifier else { return }
             isPreparingToRecord = false
-            reportCaptureFailure(userFacingErrorMessage(
-                from: error,
-                fallback: "couldn't start voice input. try again."
-            ))
-            print("❌ PacePushToTalkManager: failed to start recognition session (\(transcriptionProvider.displayName)): \(error)")
+            reportCaptureFailure(
+                userFacingErrorMessage(
+                    from: error,
+                    fallback: "couldn't start voice input. try again."
+                ))
+            print(
+                "❌ PacePushToTalkManager: failed to start recognition session (\(transcriptionProvider.displayName)): \(error)"
+            )
             resetSessionState()
         }
     }
@@ -648,7 +665,8 @@ final class PacePushToTalkManager: NSObject, ObservableObject {
         handsFreeCaptureEndpoint?.cancel()
         handsFreeCaptureEndpoint = nil
 
-        let finalTranscriptFallbackDelaySeconds = activeTranscriptionSession?.finalTranscriptFallbackDelaySeconds
+        let finalTranscriptFallbackDelaySeconds =
+            activeTranscriptionSession?.finalTranscriptFallbackDelaySeconds
             ?? Self.defaultFinalTranscriptFallbackDelaySeconds
 
         // Lazy stream close: remove the tap and request the final
@@ -774,7 +792,8 @@ final class PacePushToTalkManager: NSObject, ObservableObject {
         PaceAPIAuditLog.shared.record(
             subsystem: "dictation", operation: "capture_ready", target: transcriptionProvider.displayName,
             durationMilliseconds: Int(Date().timeIntervalSince(recognitionStartedAt) * 1000), outcome: "started",
-            detail: "capture_id=\(captureSessionIdentifier.uuidString); sample_rate=\(inputFormat.sampleRate); channels=\(inputFormat.channelCount)"
+            detail:
+                "capture_id=\(captureSessionIdentifier.uuidString); sample_rate=\(inputFormat.sampleRate); channels=\(inputFormat.channelCount)"
         )
     }
 
@@ -870,12 +889,15 @@ final class PacePushToTalkManager: NSObject, ObservableObject {
         guard let startedAt = sessionAudioStartedAt else { return }
         let elapsedSeconds = Date().timeIntervalSince(startedAt)
         let elapsedMs = Int(elapsedSeconds * 1000)
-        print("📊 Audio session \(reason): \(sessionBufferAppendedCount) buffers / peak RMS \(String(format: "%.4f", sessionPeakAudioRMS)) / elapsed \(elapsedMs)ms")
+        print(
+            "📊 Audio session \(reason): \(sessionBufferAppendedCount) buffers / peak RMS \(String(format: "%.4f", sessionPeakAudioRMS)) / elapsed \(elapsedMs)ms"
+        )
         PaceAPIAuditLog.shared.record(
             subsystem: "dictation", operation: "capture_summary", target: transcriptionProvider.displayName,
             durationMilliseconds: elapsedMs,
             outcome: sessionBufferAppendedCount > 0 ? "samples_received" : "no_samples",
-            detail: "capture_id=\(activeCaptureSessionIdentifier.uuidString); buffers=\(sessionBufferAppendedCount); peak_rms=\(String(format: "%.6f", sessionPeakAudioRMS)); reason=\(reason)"
+            detail:
+                "capture_id=\(activeCaptureSessionIdentifier.uuidString); buffers=\(sessionBufferAppendedCount); peak_rms=\(String(format: "%.6f", sessionPeakAudioRMS)); reason=\(reason)"
         )
         sessionAudioStartedAt = nil
     }
@@ -891,10 +913,11 @@ final class PacePushToTalkManager: NSObject, ObservableObject {
             )
         } else {
             print("❌ Buddy dictation error (\(transcriptionProvider.displayName)): \(error)")
-            reportCaptureFailure(userFacingErrorMessage(
-                from: error,
-                fallback: "couldn't transcribe that. try again."
-            ))
+            reportCaptureFailure(
+                userFacingErrorMessage(
+                    from: error,
+                    fallback: "couldn't transcribe that. try again."
+                ))
             cancelCurrentDictation(preserveDraftText: false)
         }
     }
@@ -955,8 +978,9 @@ final class PacePushToTalkManager: NSObject, ObservableObject {
         // Music." vs "open music") — an exact match would defeat the
         // dedup and re-execute the action.
         if let speculative = speculativeTranscriptExecutedThisSession,
-           Self.normalizedForSpeculativeComparison(finalTranscriptText)
-               == Self.normalizedForSpeculativeComparison(speculative) {
+            Self.normalizedForSpeculativeComparison(finalTranscriptText)
+                == Self.normalizedForSpeculativeComparison(speculative)
+        {
             print("⚡️ Speculative fast-action confirmed — skipping normal submit (action already executed)")
             return
         }
@@ -976,7 +1000,8 @@ final class PacePushToTalkManager: NSObject, ObservableObject {
             return draftTextBeforeCurrentDictation
         }
 
-        let trimmedExistingDraftText = draftTextBeforeCurrentDictation
+        let trimmedExistingDraftText =
+            draftTextBeforeCurrentDictation
             .trimmingCharacters(in: .whitespacesAndNewlines)
 
         guard !trimmedExistingDraftText.isEmpty else {
@@ -1104,7 +1129,8 @@ final class PacePushToTalkManager: NSObject, ObservableObject {
 
             let now = Date()
             if now.timeIntervalSince(self.lastRecordedAudioPowerSampleDate)
-                >= Self.recordedAudioPowerHistorySampleIntervalSeconds {
+                >= Self.recordedAudioPowerHistorySampleIntervalSeconds
+            {
                 self.lastRecordedAudioPowerSampleDate = now
                 self.appendRecordedAudioPowerSample(
                     max(CGFloat(boostedLevel), Self.recordedAudioPowerHistoryBaselineLevel)
@@ -1188,7 +1214,8 @@ final class PacePushToTalkManager: NSObject, ObservableObject {
         // macOS can briefly report .notDetermined even after the user tapped Allow,
         // so we trust the cached result for a short window.
         if let lastPermissionRequestCompletedAt,
-           Date().timeIntervalSince(lastPermissionRequestCompletedAt) < 1.0 {
+            Date().timeIntervalSince(lastPermissionRequestCompletedAt) < 1.0
+        {
             return AVCaptureDevice.authorizationStatus(for: .audio) != .denied
                 && AVCaptureDevice.authorizationStatus(for: .audio) != .restricted
         }
@@ -1251,15 +1278,17 @@ final class PacePushToTalkManager: NSObject, ObservableObject {
 
     private func userFacingErrorMessage(from error: Error, fallback: String) -> String {
         if let localizedError = error as? LocalizedError,
-           let errorDescription = localizedError.errorDescription?
-            .trimmingCharacters(in: .whitespacesAndNewlines),
-           !errorDescription.isEmpty {
+            let errorDescription = localizedError.errorDescription?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+            !errorDescription.isEmpty
+        {
             return errorDescription
         }
 
         let errorDescription = error.localizedDescription.trimmingCharacters(in: .whitespacesAndNewlines)
         if !errorDescription.isEmpty,
-           errorDescription != "The operation couldn’t be completed." {
+            errorDescription != "The operation couldn’t be completed."
+        {
             return errorDescription
         }
 

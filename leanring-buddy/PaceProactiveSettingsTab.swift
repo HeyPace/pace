@@ -57,8 +57,10 @@ struct PaceProactiveSettingsTab: View {
                 Text("Ambient awareness")
                     .font(DS.Typography.captionStrong)
                     .foregroundStyle(DS.Colors.textSecondary)
-                Text("Watch mode sends redacted screen text to your selected planner. Local planners keep it on this Mac. Modes remain off until enabled.")
-                    .font(DS.Typography.caption)
+                Text(
+                    "Watch mode sends redacted screen text to your selected planner. Local planners keep it on this Mac. Modes remain off until enabled."
+                )
+                .font(DS.Typography.caption)
                     .foregroundStyle(DS.Colors.textTertiary)
 
                 if showsWatchModeControl {
@@ -127,8 +129,10 @@ struct PaceProactiveSettingsTab: View {
                         set: { companionManager.setWatchObservationNudgesEnabled($0) }
                     )
                 )
-                Text("Watch mode shows suggestions quietly. Enable this to also hear them when interruption rules allow.")
-                    .font(.system(size: 11))
+                Text(
+                    "Watch mode shows suggestions quietly. Enable this to also hear them when interruption rules allow."
+                )
+                .font(.system(size: 11))
                     .foregroundColor(DS.Colors.textTertiary)
                     .fixedSize(horizontal: false, vertical: true)
 

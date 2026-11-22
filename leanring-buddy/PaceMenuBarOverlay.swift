@@ -178,9 +178,10 @@ final class PaceMenuBarOverlayManager {
                 self.isNotchConversationVisible = isVisible
                 self.isHovering = false
                 let restingFrame = PaceLivingNotchScreenGeometryResolver.ambientTargetScreen(
-                    preferredScreen: self.activeDisplayCoordinator.targetScreen).flatMap {
-                        PaceLivingNotchScreenGeometryResolver.geometry(for: $0, displayMode: .resting)
-                    }?.presentationFrame
+                    preferredScreen: self.activeDisplayCoordinator.targetScreen
+                ).flatMap {
+                    PaceLivingNotchScreenGeometryResolver.geometry(for: $0, displayMode: .resting)
+                }?.presentationFrame
                 self.canOpenConversationOnHover = !isVisible && restingFrame?.contains(NSEvent.mouseLocation) != true
                 self.refreshPresentation(animated: false)
             }
@@ -303,14 +304,16 @@ final class PaceMenuBarOverlayManager {
         )
 
         let geometry = PaceLivingNotchScreenGeometryResolver.ambientTargetScreen(
-            preferredScreen: activeDisplayCoordinator.targetScreen).flatMap {
+            preferredScreen: activeDisplayCoordinator.targetScreen
+        ).flatMap {
             PaceLivingNotchScreenGeometryResolver.geometry(for: $0, displayMode: displayMode)
         }
         let ambientHomePresentation = PaceAmbientHomePresentation.resolve(
             hasReliablePhysicalNotchGeometry: geometry != nil
         )
-        if let geometry, PaceMenuBarOccupancyMonitor.shared.occupancy.overlaps(
-            geometry.presentationFrame, housingFrame: geometry.physicalHousingFrame)
+        if let geometry,
+            PaceMenuBarOccupancyMonitor.shared.occupancy.overlaps(
+                geometry.presentationFrame, housingFrame: geometry.physicalHousingFrame)
         {
             hoverOpenTask?.cancel()
             isHovering = false
@@ -369,12 +372,15 @@ final class PaceMenuBarOverlayManager {
         for ambientHomePresentation: PaceAmbientHomePresentation,
         connectedDisplaysNeedFallback: Bool? = nil
     ) {
-        let needsFallbackOnConnectedDisplay = connectedDisplaysNeedFallback ?? NSScreen.screens.contains {
-            PaceLivingNotchScreenGeometryResolver.geometry(for: $0, displayMode: .resting) == nil
-        }
+        let needsFallbackOnConnectedDisplay =
+            connectedDisplaysNeedFallback
+            ?? NSScreen.screens.contains {
+                PaceLivingNotchScreenGeometryResolver.geometry(for: $0, displayMode: .resting) == nil
+            }
         // Keep the native entry point stable once needed; changing apps, Spaces,
         // or opening chat must not repeatedly remove and reinsert its icon.
-        let shouldShowStatusItem = fallbackMenuBarStatusItem != nil
+        let shouldShowStatusItem =
+            fallbackMenuBarStatusItem != nil
             || needsFallbackOnConnectedDisplay || ambientHomePresentation == .menuBarItem
         if shouldShowStatusItem { createFallbackMenuBarStatusItemIfNeeded() }
         fallbackMenuBarStatusItem?.isVisible = shouldShowStatusItem
@@ -419,8 +425,11 @@ final class PaceMenuBarOverlayManager {
             PaceLivingNotchScreenGeometryResolver.geometry(displayMode: .active)?.presentationFrame
             ?? overlayPanel.frame
         activeDisplayCoordinator.selectDisplay(containing: conversationAnchor)
-        if PaceNotchTapAction.resolve(point: point, surfaceWidth: overlayPanel.frame.width,
-            housingWidth: surfaceModel.physicalHousingWidth, housingHeight: surfaceModel.physicalHousingHeight) == .microphone {
+        if PaceNotchTapAction.resolve(
+            point: point, surfaceWidth: overlayPanel.frame.width,
+            housingWidth: surfaceModel.physicalHousingWidth, housingHeight: surfaceModel.physicalHousingHeight)
+            == .microphone
+        {
             companionManager?.handleMicrophoneButtonTapped()
         } else {
             onTap(conversationAnchor)
@@ -497,7 +506,8 @@ private struct PaceMenuBarOverlayView: View {
             audioPowerLevel: companionManager.currentAudioPowerLevel,
             colorRoleOverride: companionManager.nativeEffectiveSignalColorRoleOverride,
             isCameraActive: companionControlCenter.activeSources.contains(.camera),
-            isScreenActive: companionManager.isWatchModeEnabled || companionControlCenter.activeSources.contains(.screen),
+            isScreenActive: companionManager.isWatchModeEnabled
+                || companionControlCenter.activeSources.contains(.screen),
             hasUnreadScreenSuggestion: chatSession.hasUnreadScreenSuggestion,
             persistentStatus: companionControlCenter.preferences.isCompanionModeEnabled
                 ? companionControlCenter.runtimeStatusText : nil,

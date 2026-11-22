@@ -15,7 +15,10 @@ nonisolated enum PaceCodingSessionCommand: Equatable, Sendable {
     case cancel(sessionID: PaceCodingSessionID?)
 
     var requiresExecutionConsent: Bool {
-        switch self { case .start, .resume: return true; case .status, .cancel: return false }
+        switch self {
+        case .start, .resume: return true
+        case .status, .cancel: return false
+        }
     }
 
     var summary: String {
@@ -29,7 +32,9 @@ nonisolated enum PaceCodingSessionCommand: Equatable, Sendable {
 
     static func parse(_ arguments: [String: PaceMCPJSONValue]) -> Self? {
         func string(_ key: String) -> String? {
-            guard case .string(let value) = arguments[key], !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+            guard case .string(let value) = arguments[key],
+                !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            else { return nil }
             return value
         }
         func identifier() -> PaceCodingSessionID? {
@@ -39,13 +44,16 @@ nonisolated enum PaceCodingSessionCommand: Equatable, Sendable {
         switch string("operation") {
         case "start":
             guard keys == ["operation", "directory", "task"], let directory = string("directory"),
-                  directory.hasPrefix("/") || directory.hasPrefix("~/"), let task = string("task") else { return nil }
+                directory.hasPrefix("/") || directory.hasPrefix("~/"), let task = string("task")
+            else { return nil }
             return .start(directory: directory, task: task)
         case "resume":
-            guard keys == ["operation", "sessionID", "task"], let identifier = identifier(), let task = string("task") else { return nil }
+            guard keys == ["operation", "sessionID", "task"], let identifier = identifier(), let task = string("task")
+            else { return nil }
             return .resume(sessionID: identifier, task: task)
         case "status":
-            guard keys.isSubset(of: ["operation", "sessionID"]), arguments["sessionID"] == nil || identifier() != nil else { return nil }
+            guard keys.isSubset(of: ["operation", "sessionID"]), arguments["sessionID"] == nil || identifier() != nil
+            else { return nil }
             return .status(sessionID: identifier())
         case "cancel":
             guard keys == ["operation", "sessionID"], let identifier = identifier() else { return nil }
@@ -55,14 +63,23 @@ nonisolated enum PaceCodingSessionCommand: Equatable, Sendable {
     }
 
     static func localControl(_ transcript: String) -> Self? {
-        let normalized = transcript.lowercased().trimmingCharacters(in: .whitespacesAndNewlines.union(.punctuationCharacters))
-        if ["coding status", "coding session status", "how is the coding task going", "list coding sessions", "status of coding task"].contains(normalized) {
+        let normalized = transcript.lowercased().trimmingCharacters(
+            in: .whitespacesAndNewlines.union(.punctuationCharacters))
+        if [
+            "coding status", "coding session status", "how is the coding task going", "list coding sessions",
+            "status of coding task",
+        ].contains(normalized) {
             return .status(sessionID: nil)
         }
-        if ["cancel coding", "cancel coding task", "cancel that coding task", "stop coding", "stop coding task"].contains(normalized) {
+        if ["cancel coding", "cancel coding task", "cancel that coding task", "stop coding", "stop coding task"]
+            .contains(normalized)
+        {
             return .cancel(sessionID: nil)
         }
-        for (prefix, cancel) in [("cancel coding session ", true), ("stop coding session ", true), ("coding status ", false), ("status coding session ", false)] {
+        for (prefix, cancel) in [
+            ("cancel coding session ", true), ("stop coding session ", true), ("coding status ", false),
+            ("status coding session ", false),
+        ] {
             if normalized.hasPrefix(prefix), let uuid = UUID(uuidString: String(normalized.dropFirst(prefix.count))) {
                 return cancel ? .cancel(sessionID: .init(uuid)) : .status(sessionID: .init(uuid))
             }
@@ -98,9 +115,11 @@ nonisolated struct PaceCodingApprovalScope: Equatable, Sendable {
 
     var approvalRequest: PaceActionApprovalRequest {
         let stateDescription = state?.rawValue ?? "idle workspace, new session"
-        return PaceActionApprovalRequest(approvalSummary: command.summary + "\nWorkspace: " + directory.path
-            + "\nCurrent state: " + stateDescription,
-            preflightSummary: "Only this canonical workspace is writable. Network remains disabled. No session-wide permission is granted.",
+        return PaceActionApprovalRequest(
+            approvalSummary: command.summary + "\nWorkspace: " + directory.path
+                + "\nCurrent state: " + stateDescription,
+            preflightSummary:
+                "Only this canonical workspace is writable. Network remains disabled. No session-wide permission is granted.",
             requiresActionApproval: true)!
     }
 }
@@ -111,7 +130,9 @@ nonisolated enum PaceCodingSessionEvent: Sendable {
 }
 
 nonisolated enum PaceCodingError: Error, LocalizedError {
-    case unavailable, invalidWorkspace, workspaceChanged, busy, missingSession, ambiguousSession, invalidProtocol, unsafePolicy, disconnected, timedOut, permissionDenied, persistence, catalogCapacity, workspaceCapacity, workspaceClosing, approvalChanged
+    case unavailable, invalidWorkspace, workspaceChanged, busy, missingSession, ambiguousSession, invalidProtocol,
+        unsafePolicy, disconnected, timedOut, permissionDenied, persistence, catalogCapacity, workspaceCapacity,
+        workspaceClosing, approvalChanged
     var errorDescription: String? {
         switch self {
         case .unavailable: return "Codex is not available on PATH."
@@ -121,21 +142,40 @@ nonisolated enum PaceCodingError: Error, LocalizedError {
         case .missingSession: return "No matching retained coding session exists."
         case .ambiguousSession: return "More than one coding session matches. Specify its session ID."
         case .invalidProtocol: return "Codex returned an invalid coding protocol response."
-        case .unsafePolicy: return "Codex did not confirm the required workspace-only, offline, user-reviewed policy. No task was started."
-        case .disconnected: return "The owned Codex process disconnected. Explicitly resume to reconcile the retained thread."
+        case .unsafePolicy:
+            return
+                "Codex did not confirm the required workspace-only, offline, user-reviewed policy. No task was started."
+        case .disconnected:
+            return "The owned Codex process disconnected. Explicitly resume to reconcile the retained thread."
         case .timedOut: return "Codex did not confirm completion in time. Check status before resuming."
         case .permissionDenied: return "Coding requires EnableActions and current Codex off-device consent."
-        case .catalogCapacity: return "The 200-session coding catalog is full. Resume an existing session; saved history has been preserved."
-        case .workspaceClosing: return "The previous coding process for this workspace is still shutting down. Try again when teardown finishes."
-        case .approvalChanged: return "The coding workspace or session state changed during approval. Ask again to review its current scope."
-        case .workspaceCapacity: return "Four coding workspaces are already active. Wait for one to finish or explicitly cancel it."
+        case .catalogCapacity:
+            return
+                "The 200-session coding catalog is full. Resume an existing session; saved history has been preserved."
+        case .workspaceClosing:
+            return
+                "The previous coding process for this workspace is still shutting down. Try again when teardown finishes."
+        case .approvalChanged:
+            return
+                "The coding workspace or session state changed during approval. Ask again to review its current scope."
+        case .workspaceCapacity:
+            return "Four coding workspaces are already active. Wait for one to finish or explicitly cancel it."
         case .persistence: return "Coding session state could not be saved safely. No further task was started."
         }
     }
 }
 
 nonisolated extension PaceMCPJSONValue {
-    var codingObject: [String: Self]? { if case .object(let object) = self { return object }; return nil }
-    var codingString: String? { if case .string(let string) = self { return string }; return nil }
-    var codingArray: [Self]? { if case .array(let array) = self { return array }; return nil }
+    var codingObject: [String: Self]? {
+        if case .object(let object) = self { return object }
+        return nil
+    }
+    var codingString: String? {
+        if case .string(let string) = self { return string }
+        return nil
+    }
+    var codingArray: [Self]? {
+        if case .array(let array) = self { return array }
+        return nil
+    }
 }

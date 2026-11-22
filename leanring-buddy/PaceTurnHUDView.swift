@@ -57,7 +57,8 @@ struct PaceTurnHUDView: View {
                             HStack(spacing: 6) {
                                 ForEach(companionManager.currentTurnHUDState.options, id: \.self) { option in
                                     Button(action: {
-                                        companionManager.resolveClarification(option: option,
+                                        companionManager.resolveClarification(
+                                            option: option,
                                             powerClarificationIdentifier: powerClarificationIdentifier)
                                     }) {
                                         Text(option)

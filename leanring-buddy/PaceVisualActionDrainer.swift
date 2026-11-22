@@ -19,13 +19,15 @@ enum PaceVisualActionDrainer {
         for step in parseResult.executionPlan.steps {
             var remainingActions: [PaceParsedAction] = []
             for action in step.actions {
-                let permitsVisualOutput = !Task.isCancelled && isCurrentTurn()
+                let permitsVisualOutput =
+                    !Task.isCancelled && isCurrentTurn()
                     && expectedDiagramDismissalGeneration == diagramOverlayController.dismissalGeneration
                     && expectedImageDismissalGeneration == imageOverlayController.dismissalGeneration
                 switch action {
                 case .showDiagram, .dismissDiagram:
                     guard permitsVisualOutput else {
-                        spokenText = diagramOverlayController.document == nil
+                        spokenText =
+                            diagramOverlayController.document == nil
                             ? "I kept the diagram closed." : "I kept the current diagram unchanged."
                         continue
                     }
@@ -36,12 +38,14 @@ enum PaceVisualActionDrainer {
                         expectedDismissalGeneration: &expectedDiagramDismissalGeneration)
                     spokenText = diagramResult.spokenText
                     if case .showDiagram(let document) = action, document.lesson != nil,
-                       diagramOverlayController.document?.lesson == document.lesson,
-                       diagramOverlayController.lessonNeedsInitialPlayback, let runLesson {
+                        diagramOverlayController.document?.lesson == document.lesson,
+                        diagramOverlayController.lessonNeedsInitialPlayback, let runLesson
+                    {
                         let handlesSpeech = await runLesson(document)
                         teachingDelivery = .init(handlesSpeech: handlesSpeech)
                         spokenText = [spokenText, document.lesson?.writtenExplanation ?? ""]
-                            .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }.joined(separator: "\n\n")
+                            .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }.joined(
+                                separator: "\n\n")
                     }
                 case .generateImage(let request):
                     guard permitsVisualOutput else {
@@ -77,7 +81,8 @@ enum PaceVisualActionDrainer {
         return .init(
             spokenText: imageMessages.isEmpty
                 ? spokenText
-                : ((remainingActions.isEmpty && !includesDiagram ? [] : [spokenText]) + imageMessages).joined(separator: " "),
+                : ((remainingActions.isEmpty && !includesDiagram ? [] : [spokenText]) + imageMessages).joined(
+                    separator: " "),
             actions: remainingActions,
             executionPlan: .init(steps: remainingSteps),
             firstClickVisualisationLocation: parseResult.firstClickVisualisationLocation,

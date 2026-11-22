@@ -80,7 +80,8 @@ final class WhisperKitTranscriptionProvider: BuddyTranscriptionProvider {
         return WhisperKitStreamingSession(
             pipeline: pipeline,
             languageMode: languageMode,
-            contextualPromptTokens: Self.contextualPromptTokens(contextualPhrases,
+            contextualPromptTokens: Self.contextualPromptTokens(
+                contextualPhrases,
                 encode: pipeline.tokenizer.map { tokenizer in { tokenizer.encode(text: $0) } },
                 specialTokenBegin: pipeline.tokenizer?.specialTokens.specialTokenBegin ?? 0),
             onTranscriptUpdate: onTranscriptUpdate,
@@ -89,14 +90,20 @@ final class WhisperKitTranscriptionProvider: BuddyTranscriptionProvider {
         )
     }
 
-    nonisolated static func contextualPromptTokens(_ phrases: [String], encode: ((String) -> [Int])?, specialTokenBegin: Int) -> [Int] {
+    nonisolated static func contextualPromptTokens(
+        _ phrases: [String], encode: ((String) -> [Int])?, specialTokenBegin: Int
+    ) -> [Int] {
         guard let encode else { return [] }
         let vocabulary = phrases.prefix(80).map { String($0.prefix(80)) }.joined(separator: ", ")
         guard !vocabulary.isEmpty else { return [] }
-        return Array(encode(" " + vocabulary).filter { $0 >= 0 && $0 < specialTokenBegin }.prefix(max(0, (Constants.maxTokenContext / 2) - 1)))
+        return Array(
+            encode(" " + vocabulary).filter { $0 >= 0 && $0 < specialTokenBegin }.prefix(
+                max(0, (Constants.maxTokenContext / 2) - 1)))
     }
 
-    nonisolated static func decodingOptions(languageMode: LanguageMode, contextualPromptTokens: [Int] = []) -> DecodingOptions {
+    nonisolated static func decodingOptions(languageMode: LanguageMode, contextualPromptTokens: [Int] = [])
+        -> DecodingOptions
+    {
         var options = DecodingOptions()
         options.language = languageMode.decodingLanguage
         options.detectLanguage = languageMode.detectsLanguage
@@ -248,14 +255,17 @@ private final class WhisperKitStreamingSession: BuddyStreamingTranscriptionSessi
     private var isTranscribing = false
     private var lastPartialAt = Date.distantPast
 
-    init(pipeline: WhisperKit,
-         languageMode: WhisperKitTranscriptionProvider.LanguageMode,
-         contextualPromptTokens: [Int],
-         onTranscriptUpdate: @escaping (String) -> Void,
-         onFinalTranscriptReady: @escaping (String) -> Void,
-         onError: @escaping (Error) -> Void) {
+    init(
+        pipeline: WhisperKit,
+        languageMode: WhisperKitTranscriptionProvider.LanguageMode,
+        contextualPromptTokens: [Int],
+        onTranscriptUpdate: @escaping (String) -> Void,
+        onFinalTranscriptReady: @escaping (String) -> Void,
+        onError: @escaping (Error) -> Void
+    ) {
         self.pipeline = pipeline
-        self.decodingOptions = WhisperKitTranscriptionProvider.decodingOptions(languageMode: languageMode,
+        self.decodingOptions = WhisperKitTranscriptionProvider.decodingOptions(
+            languageMode: languageMode,
             contextualPromptTokens: contextualPromptTokens)
         self.onTranscriptUpdate = onTranscriptUpdate
         self.onFinalTranscriptReady = onFinalTranscriptReady
@@ -263,18 +273,23 @@ private final class WhisperKitStreamingSession: BuddyStreamingTranscriptionSessi
     }
 
     func appendAudioBuffer(_ audioBuffer: AVAudioPCMBuffer) {
-        guard let resampled = AudioProcessor.resampleAudio(
-            fromBuffer: audioBuffer,
-            toSampleRate: Self.targetSampleRate,
-            channelCount: 1
-        ), let channel = resampled.floatChannelData else {
+        guard
+            let resampled = AudioProcessor.resampleAudio(
+                fromBuffer: audioBuffer,
+                toSampleRate: Self.targetSampleRate,
+                channelCount: 1
+            ), let channel = resampled.floatChannelData
+        else {
             return  // drop unconvertible buffers; next buffer recovers
         }
         let frameCount = Int(resampled.frameLength)
         let incoming = Array(UnsafeBufferPointer(start: channel[0], count: frameCount))
 
         sampleLock.lock()
-        guard !finalRequested else { sampleLock.unlock(); return }
+        guard !finalRequested else {
+            sampleLock.unlock()
+            return
+        }
         samples.append(contentsOf: incoming)
         sampleLock.unlock()
 
@@ -283,7 +298,10 @@ private final class WhisperKitStreamingSession: BuddyStreamingTranscriptionSessi
 
     func requestFinalTranscript() {
         sampleLock.lock()
-        guard !finalRequested else { sampleLock.unlock(); return }
+        guard !finalRequested else {
+            sampleLock.unlock()
+            return
+        }
         finalRequested = true
         let snapshot = samples
         sampleLock.unlock()
@@ -312,7 +330,8 @@ private final class WhisperKitStreamingSession: BuddyStreamingTranscriptionSessi
 
     private func schedulePartialIfDue() {
         guard Date().timeIntervalSince(lastPartialAt) >= Self.partialCadenceSeconds,
-              !isTranscribing else { return }
+            !isTranscribing
+        else { return }
         lastPartialAt = Date()
         isTranscribing = true
 
@@ -320,7 +339,10 @@ private final class WhisperKitStreamingSession: BuddyStreamingTranscriptionSessi
         let snapshot = samples
         let cancelled = finalRequested
         sampleLock.unlock()
-        guard !cancelled, !snapshot.isEmpty else { isTranscribing = false; return }
+        guard !cancelled, !snapshot.isEmpty else {
+            isTranscribing = false
+            return
+        }
 
         partialTask = Task { [weak self] in
             guard let self else { return }
@@ -342,14 +364,17 @@ private final class WhisperKitStreamingSession: BuddyStreamingTranscriptionSessi
             audio, options: decodingOptions,
             containsSpeech: { try PaceSileroSpeechDetector.containsSpeech(in: $0) },
             confirmsAmplifiedSpeech: {
-                try PaceSileroSpeechDetector.containsSpeech(in: $0, minimumProbability: 0.6,
+                try PaceSileroSpeechDetector.containsSpeech(
+                    in: $0, minimumProbability: 0.6,
                     minimumConsecutiveFrames: 3)
+            },
+            decode: { [pipeline] acceptedAudio, options in
+                try await Self.decode(acceptedAudio, pipeline: pipeline, options: options)
             }
-        ) { [pipeline] acceptedAudio, options in
-            try await Self.decode(acceptedAudio, pipeline: pipeline, options: options)
-        }
+        )
         if !Task.isCancelled {
-            PaceAPIAuditLog.shared.record(subsystem: "dictation", operation: "whisper_final_decode",
+            PaceAPIAuditLog.shared.record(
+                subsystem: "dictation", operation: "whisper_final_decode",
                 target: "WhisperKit", durationMilliseconds: Int(Date().timeIntervalSince(startedAt) * 1000),
                 outcome: transcript.isEmpty ? "empty" : "recognized")
         }
@@ -360,19 +385,25 @@ private final class WhisperKitStreamingSession: BuddyStreamingTranscriptionSessi
         try await Self.transcribe(audio, pipeline: pipeline, decodingOptions: decodingOptions)
     }
 
-    static func transcribe(_ audio: [Float], pipeline: WhisperKit,
-                           languageMode: WhisperKitTranscriptionProvider.LanguageMode) async throws -> String {
-        try await transcribe(audio, pipeline: pipeline,
+    static func transcribe(
+        _ audio: [Float], pipeline: WhisperKit,
+        languageMode: WhisperKitTranscriptionProvider.LanguageMode
+    ) async throws -> String {
+        try await transcribe(
+            audio, pipeline: pipeline,
             decodingOptions: WhisperKitTranscriptionProvider.decodingOptions(languageMode: languageMode))
     }
 
-    private static func transcribe(_ audio: [Float], pipeline: WhisperKit, decodingOptions: DecodingOptions) async throws -> String {
+    private static func transcribe(_ audio: [Float], pipeline: WhisperKit, decodingOptions: DecodingOptions)
+        async throws -> String
+    {
         guard !audio.isEmpty else { return "" }
         guard try PaceSileroSpeechDetector.containsSpeech(in: audio) else { return "" }
         return try await decode(audio, pipeline: pipeline, options: decodingOptions)
     }
 
-    private static func decode(_ audio: [Float], pipeline: WhisperKit, options: DecodingOptions) async throws -> String {
+    private static func decode(_ audio: [Float], pipeline: WhisperKit, options: DecodingOptions) async throws -> String
+    {
         let results = try await pipeline.transcribe(audioArray: audio, decodeOptions: options)
         return results.map(\.text)
             .joined(separator: " ")

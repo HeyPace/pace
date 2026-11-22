@@ -766,7 +766,8 @@ final class PaceActionExecutor {
         generation: UUID
     ) {
         guard generation == applicationTargetGeneration, !Task.isCancelled else { return }
-        let target = LaunchedApplicationTarget(processIdentifier: processIdentifier, bundleURL: bundleURL.standardizedFileURL)
+        let target = LaunchedApplicationTarget(
+            processIdentifier: processIdentifier, bundleURL: bundleURL.standardizedFileURL)
         for name in [applicationName, bundleURL.deletingPathExtension().lastPathComponent] {
             launchedApplicationTargets[Self.applicationTargetKey(name)] = target
         }
@@ -797,8 +798,9 @@ final class PaceActionExecutor {
         default: return toolCall
         }
         guard case .string(let applicationName) = toolCall.arguments[applicationField],
-              !applicationName.trimmingCharacters(in: .whitespacesAndNewlines).lowercased().hasPrefix("pid:"),
-              let target = launchedApplicationTargets[Self.applicationTargetKey(applicationName)] else { return toolCall }
+            !applicationName.trimmingCharacters(in: .whitespacesAndNewlines).lowercased().hasPrefix("pid:"),
+            let target = launchedApplicationTargets[Self.applicationTargetKey(applicationName)]
+        else { return toolCall }
         guard runningApplicationBundleURL(target.processIdentifier)?.standardizedFileURL == target.bundleURL else {
             throw PaceMCPClientError.staleApplicationTarget(applicationName)
         }
@@ -846,7 +848,9 @@ final class PaceActionExecutor {
                 .useLocalVLMForScreenContext, infoPlistKey: "UseLocalVLMForScreenContext")
         },
         runningApplicationBundleURL: @escaping (Int32) -> URL? = { processIdentifier in
-            guard let application = NSRunningApplication(processIdentifier: processIdentifier), !application.isTerminated else { return nil }
+            guard let application = NSRunningApplication(processIdentifier: processIdentifier),
+                !application.isTerminated
+            else { return nil }
             return application.bundleURL
         },
         preferredInspectionProcessIdentifiers: @escaping @MainActor () -> [Int32] = {

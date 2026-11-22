@@ -165,7 +165,8 @@ struct PaceConversationsView: View {
                                 messageRow(messageRowModel)
                             case .activity(let activity):
                                 PaceDialogueActivityView(activity: activity) {
-                                    PaceSettingsWindowManager.shared.show(companionManager: companionManager, destination: .doctor)
+                                    PaceSettingsWindowManager.shared.show(
+                                        companionManager: companionManager, destination: .doctor)
                                 }
                             }
                         }
@@ -266,10 +267,12 @@ struct PaceConversationsView: View {
         if PaceDialogueTranscriptModel.shouldShowStreamingReply(
             text: streamingText,
             assistantEventIdentifier: companionManager.activeConversationAssistantEventIdentifier,
-            committedMessages: chatSession.messages) {
-            PaceDialogueMessageView(message: PaceChatTranscriptMessageRowModel(
-                id: "streaming-reply", author: .assistant,
-                bodyText: streamingText, createdAt: .distantFuture), appearance: appearance)
+            committedMessages: chatSession.messages)
+        {
+            PaceDialogueMessageView(
+                message: PaceChatTranscriptMessageRowModel(
+                    id: "streaming-reply", author: .assistant,
+                    bodyText: streamingText, createdAt: .distantFuture), appearance: appearance)
         }
     }
 

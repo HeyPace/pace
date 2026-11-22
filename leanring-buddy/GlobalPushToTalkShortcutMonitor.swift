@@ -76,7 +76,8 @@ final class GlobalPushToTalkShortcutMonitor: ObservableObject {
             if !CGEvent.tapIsEnabled(tap: globalEventTap) {
                 CGEvent.tapEnable(tap: globalEventTap, enable: true)
             }
-            recoverMissedModifierRelease(modifierFlagsRawValue: CGEventSource.flagsState(.combinedSessionState).rawValue)
+            recoverMissedModifierRelease(
+                modifierFlagsRawValue: CGEventSource.flagsState(.combinedSessionState).rawValue)
             return
         }
 
@@ -164,7 +165,8 @@ final class GlobalPushToTalkShortcutMonitor: ObservableObject {
 
         guard !isSimulatedPressActive else { return Unmanaged.passUnretained(event) }
         if shortcutOption == .rightOption {
-            handleRightOptionEvent(eventType, keyCode: UInt16(event.getIntegerValueField(.keyboardEventKeycode)),
+            handleRightOptionEvent(
+                eventType, keyCode: UInt16(event.getIntegerValueField(.keyboardEventKeycode)),
                 flags: event.flags)
             return Unmanaged.passUnretained(event)
         }
@@ -189,8 +191,9 @@ final class GlobalPushToTalkShortcutMonitor: ObservableObject {
 
     func handleRightOptionEvent(_ type: CGEventType, keyCode: UInt16, flags: CGEventFlags) {
         let isShortcutKeyEvent = type == .flagsChanged && keyCode == Self.rightOptionKeyCode
-        if !flags.intersection(Self.excludedModifiers).isEmpty ||
-            [.keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown, .scrollWheel].contains(type) {
+        if !flags.intersection(Self.excludedModifiers).isEmpty
+            || [.keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown, .scrollWheel].contains(type)
+        {
             cancelPendingRightOptionHold()
             publishHardwareTransition(.cancelled)
             return
@@ -272,7 +275,8 @@ final class GlobalPushToTalkShortcutMonitor: ObservableObject {
     private func recordHardwareTransition(_ operation: String) {
         // Never perform file I/O inside the event tap; keep keyboard dispatch fast.
         Task { @MainActor in
-            PaceAPIAuditLog.shared.record(subsystem: "dictation", operation: operation,
+            PaceAPIAuditLog.shared.record(
+                subsystem: "dictation", operation: operation,
                 target: "push-to-talk", durationMilliseconds: 0, outcome: "received",
                 detail: "pid=\(ProcessInfo.processInfo.processIdentifier)")
         }
@@ -287,8 +291,11 @@ final class GlobalPushToTalkShortcutMonitor: ObservableObject {
             return
         }
         guard isShortcutCurrentlyPressed, !isSimulatedPressActive,
-              BuddyPushToTalkShortcut.shortcutTransition(for: .flagsChanged, keyCode: 0,
-                modifierFlagsRawValue: modifierFlagsRawValue, wasShortcutPreviouslyPressed: true, option: shortcutOption) == .released else { return }
+            BuddyPushToTalkShortcut.shortcutTransition(
+                for: .flagsChanged, keyCode: 0,
+                modifierFlagsRawValue: modifierFlagsRawValue, wasShortcutPreviouslyPressed: true, option: shortcutOption
+            ) == .released
+        else { return }
         isShortcutCurrentlyPressed = false
         shortcutTransitionPublisher.send(.released)
         recordHardwareTransition("keyboard_recovered_release")

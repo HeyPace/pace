@@ -26,7 +26,8 @@ extension PaceActionExecutor {
         guard await requestCalendarAccessIfNeeded() else {
             return PaceActionExecutionObservation(
                 toolName: "calendar",
-                summary: "Calendar access not granted. Open System Settings → Privacy & Security → Calendars and toggle Pace on."
+                summary:
+                    "Calendar access not granted. Open System Settings → Privacy & Security → Calendars and toggle Pace on."
             )
         }
 
@@ -58,7 +59,8 @@ extension PaceActionExecutor {
             let safeTitle = title?.isEmpty == false ? title! : "Untitled event"
             let locationSuffix: String = {
                 guard let location = event.location?.trimmingCharacters(in: .whitespacesAndNewlines),
-                      !location.isEmpty else {
+                    !location.isEmpty
+                else {
                     return ""
                 }
                 return " at \(location)"
@@ -68,7 +70,8 @@ extension PaceActionExecutor {
 
         return PaceActionExecutionObservation(
             toolName: "calendar",
-            summary: "Calendar events for \(calendarQuery.range.displayName):\n" + eventSummaries.joined(separator: "\n")
+            summary: "Calendar events for \(calendarQuery.range.displayName):\n"
+                + eventSummaries.joined(separator: "\n")
         )
     }
 
@@ -86,7 +89,8 @@ extension PaceActionExecutor {
         guard await requestCalendarAccessIfNeeded() else {
             return PaceActionExecutionObservation(
                 toolName: "calendar_create",
-                summary: "Calendar access not granted. Open System Settings → Privacy & Security → Calendars and toggle Pace on."
+                summary:
+                    "Calendar access not granted. Open System Settings → Privacy & Security → Calendars and toggle Pace on."
             )
         }
 
@@ -121,13 +125,16 @@ extension PaceActionExecutor {
     }
 
     func calendarForNewEvent(matching requestedCalendarTitle: String?) -> EKCalendar? {
-        guard let requestedCalendarTitle = requestedCalendarTitle?
-            .trimmingCharacters(in: .whitespacesAndNewlines),
-              !requestedCalendarTitle.isEmpty else {
+        guard
+            let requestedCalendarTitle = requestedCalendarTitle?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+            !requestedCalendarTitle.isEmpty
+        else {
             return eventStore.defaultCalendarForNewEvents
         }
 
-        let matchingCalendar = eventStore
+        let matchingCalendar =
+            eventStore
             .calendars(for: .event)
             .first { calendar in
                 calendar.allowsContentModifications
@@ -140,7 +147,9 @@ extension PaceActionExecutor {
         return matchingCalendar ?? eventStore.defaultCalendarForNewEvents
     }
 
-    func createReminder(_ reminderRequest: PaceReminderRequest, maySave: () -> Bool = { true }) async -> PaceActionExecutionObservation {
+    func createReminder(_ reminderRequest: PaceReminderRequest, maySave: () -> Bool = { true }) async
+        -> PaceActionExecutionObservation
+    {
         print("🧰 Create reminder \"\(reminderRequest.title)\" (enabled: \(actionsAreEnabled))")
         guard actionsAreEnabled else {
             return PaceActionExecutionObservation(
@@ -153,7 +162,8 @@ extension PaceActionExecutor {
         guard await requestReminderAccessIfNeeded() else {
             return PaceActionExecutionObservation(
                 toolName: "reminder",
-                summary: "Reminders access not granted. Open System Settings → Privacy & Security → Reminders and toggle Pace on."
+                summary:
+                    "Reminders access not granted. Open System Settings → Privacy & Security → Reminders and toggle Pace on."
             )
         }
 
@@ -166,7 +176,8 @@ extension PaceActionExecutor {
                 list.allowsContentModifications && list.title.caseInsensitiveCompare(listName) == .orderedSame
             }
             guard matchingLists.count == 1, let matchingList = matchingLists.first else {
-                let reason = matchingLists.isEmpty
+                let reason =
+                    matchingLists.isEmpty
                     ? "Could not find a writable Reminders list called \(listName)."
                     : "More than one Reminders list is called \(listName)."
                 return PaceActionExecutionObservation(toolName: "reminder", summary: reason)
@@ -174,7 +185,8 @@ extension PaceActionExecutor {
             reminderCalendar = matchingList
         } else {
             guard let defaultList = eventStore.defaultCalendarForNewReminders() else {
-                return PaceActionExecutionObservation(toolName: "reminder", summary: "Could not find a default reminders list.")
+                return PaceActionExecutionObservation(
+                    toolName: "reminder", summary: "Could not find a default reminders list.")
             }
             reminderCalendar = defaultList
         }
@@ -243,7 +255,8 @@ extension PaceReminderRequest {
         var calendar = Calendar(identifier: .gregorian)
         let localTimeZone = TimeZone.current
         calendar.timeZone = TimeZone(secondsFromGMT: localTimeZone.secondsFromGMT(for: schedule.date)) ?? localTimeZone
-        let fields: Set<Calendar.Component> = schedule.isDateOnly
+        let fields: Set<Calendar.Component> =
+            schedule.isDateOnly
             ? [.year, .month, .day]
             : [.year, .month, .day, .hour, .minute]
         var components = calendar.dateComponents(fields, from: schedule.date)

@@ -241,7 +241,8 @@ struct PaceEssentialsSettingsView: View {
     private var voiceSubtitle: String {
         let voiceSummary = companionManager.activeTTSVoiceSummary
         let qualitySuffix = "(\(voiceSummary.qualityName))"
-        let voiceLabel = voiceSummary.voiceName.localizedCaseInsensitiveContains(qualitySuffix)
+        let voiceLabel =
+            voiceSummary.voiceName.localizedCaseInsensitiveContains(qualitySuffix)
             ? voiceSummary.voiceName : "\(voiceSummary.voiceName) \(qualitySuffix)"
         return "\(voiceLabel) · speech stays on this Mac."
     }
@@ -264,7 +265,8 @@ struct PaceEssentialsSettingsView: View {
     }
 
     private var watchModeSubtitle: String {
-        let plannerDisclosure = selectedPlannerUsesOffDeviceTier
+        let plannerDisclosure =
+            selectedPlannerUsesOffDeviceTier
             ? "Sends redacted screen text to \(selectedPlannerTitle)."
             : "Observations use your local planner."
         if companionManager.isWatchModeEnabled, let summary = companionManager.latestWatchModeSummary {
@@ -366,7 +368,9 @@ struct PaceEssentialsSettingsView: View {
         _ title: String,
         destination: PaceCommandCenterDestination
     ) -> some View {
-        Button { onSelectDestination(destination) } label: {
+        Button {
+            onSelectDestination(destination)
+        } label: {
             Text(title)
                 .font(.system(size: 12))
                 .foregroundStyle(Appearance.link)
@@ -400,7 +404,9 @@ struct PaceEssentialsSettingsView: View {
         destinations: [PaceCommandCenterDestination]
     ) -> some View {
         VStack(spacing: 0) {
-            Button { isExpanded.wrappedValue.toggle() } label: {
+            Button {
+                isExpanded.wrappedValue.toggle()
+            } label: {
                 HStack(spacing: 12) {
                     Text(title)
                         .font(.system(size: 12, weight: .medium))
@@ -430,7 +436,9 @@ struct PaceEssentialsSettingsView: View {
                     spacing: 0
                 ) {
                     ForEach(destinations) { destination in
-                        Button { onSelectDestination(destination) } label: {
+                        Button {
+                            onSelectDestination(destination)
+                        } label: {
                             HStack(spacing: 8) {
                                 Text(destinationTitle(destination))
                                     .font(.system(size: 12))

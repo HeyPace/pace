@@ -34,7 +34,8 @@ struct PacePowerCatalogTests {
         )
         let catalog = PacePowerCatalog(powers: [additionalPower])
         #expect(catalog.prompt(for: .init(turnKind: .screen)).isEmpty)
-        #expect(catalog.prompt(for: .init(turnKind: .screen, isTuitionModeEnabled: true)) == "Explain the current step.")
+        #expect(
+            catalog.prompt(for: .init(turnKind: .screen, isTuitionModeEnabled: true)) == "Explain the current step.")
         #expect(catalog.tools.isEmpty)
     }
 
@@ -143,8 +144,9 @@ struct PacePowerCatalogTests {
 
     @MainActor @Test func omittingAnImageProviderOmitsItsToolAndInstructions() {
         let catalog = PacePowerCatalog(powers: [PaceComputerUsePower.definition, PaceTeachingPower.definition])
-        let prompt = catalog.prompt(for: .init(
-            turnKind: .screen, includeAgentMode: true, includeInteractiveDiagrams: true))
+        let prompt = catalog.prompt(
+            for: .init(
+                turnKind: .screen, includeAgentMode: true, includeInteractiveDiagrams: true))
         #expect(prompt.contains("show_diagram"))
         #expect(prompt.contains("- {\"tool\":\"click\""))
         #expect(!prompt.contains("generate_image"))
@@ -162,7 +164,8 @@ struct PacePowerCatalogTests {
         #expect(!PaceImagesPower.imageRules.contains("For a physical object"))
         #expect(!PaceImagesPower.imageRules.contains("Never speak JSON"))
         let readOnlyPrompt = CompanionSystemPrompt.build(includeAgentMode: false, includeInteractiveDiagrams: true)
-        #expect(readOnlyPrompt.contains("generate_image remains available when desktop actions and screen reading are off"))
+        #expect(
+            readOnlyPrompt.contains("generate_image remains available when desktop actions and screen reading are off"))
         #expect(readOnlyPrompt.contains("the existing Codex consent requirement still applies"))
         let combinedPrompt = CompanionSystemPrompt.build(includeAgentMode: true, includeInteractiveDiagrams: true)
         #expect(combinedPrompt.components(separatedBy: "Never speak JSON or claim a figure is visible").count == 2)

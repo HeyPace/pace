@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+
 @testable import Pace
 
 struct PaceUtilityCommandTests {
@@ -50,7 +51,8 @@ struct PaceAutoUpdateControllerTests {
         #expect(PaceAutoUpdateController.isLocalDevelopmentBuild(infoDictionary: ["PaceLocalDevelopmentBuild": true]))
         #expect(!PaceAutoUpdateController.isLocalDevelopmentBuild(infoDictionary: ["PaceLocalDevelopmentBuild": false]))
         #expect(!PaceAutoUpdateController.isLocalDevelopmentBuild(infoDictionary: [:]))
-        #expect(!PaceAutoUpdateController.isLocalDevelopmentBuild(infoDictionary: ["PaceLocalDevelopmentBuild": "true"]))
+        #expect(
+            !PaceAutoUpdateController.isLocalDevelopmentBuild(infoDictionary: ["PaceLocalDevelopmentBuild": "true"]))
     }
 
     @Test @MainActor func localDevelopmentBuildDeclinesManualUpdates() {

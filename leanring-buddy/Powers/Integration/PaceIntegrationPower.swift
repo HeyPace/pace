@@ -16,7 +16,8 @@ nonisolated enum PaceIntegrationPower {
             canonicalName: "download_file",
             aliases: ["download", "save_file"],
             schemaExample: #"{"tool":"download_file","url":"https://example.com/report.pdf","name":"report.pdf"}"#,
-            description: "download a user-named http(s) URL into ~/Downloads. The product's only network action; always user-commanded.",
+            description:
+                "download a user-named http(s) URL into ~/Downloads. The product's only network action; always user-commanded.",
             riskLevel: .externalIntegration,
             executionSummary: "Downloads the URL into ~/Downloads with a sanitized, collision-free filename.",
             observationSummary: "Reports the saved filename and byte count, or the failure reason.",

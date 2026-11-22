@@ -27,7 +27,8 @@ nonisolated enum PaceAutomationPower {
             canonicalName: "record_flow",
             aliases: ["record_this", "remember_flow"],
             schemaExample: #"{"tool":"record_flow","name":"morning standup setup"}"#,
-            description: "start recording a user-demonstrated local flow by name. Recording stores AX/key steps, not pixels.",
+            description:
+                "start recording a user-demonstrated local flow by name. Recording stores AX/key steps, not pixels.",
             riskLevel: .inputInjection,
             executionSummary: "Starts or stops a local demonstration-recording session.",
             observationSummary: "Reports recording state or missing flow name.",
@@ -43,6 +44,6 @@ nonisolated enum PaceAutomationPower {
             executionSummary: "Replays saved AX/key steps through the local executor.",
             observationSummary: "Reports replay start or missing flow.",
             exampleUtterance: "run my standup setup flow"
-        )
+        ),
     ]
 }

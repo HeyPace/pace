@@ -47,7 +47,8 @@ enum CompanionScreenCaptureUtility {
         let ownBundleIdentifier = Bundle.main.bundleIdentifier
         let ownAppWindows = content.windows.filter { window in
             window.owningApplication?.bundleIdentifier == ownBundleIdentifier
-                || (watchOnly && PaceScreenSuggestionPrivacy.isSensitiveApplication(window.owningApplication?.bundleIdentifier))
+                || (watchOnly
+                    && PaceScreenSuggestionPrivacy.isSensitiveApplication(window.owningApplication?.bundleIdentifier))
         }
 
         // Build a lookup from display ID to NSScreen so we can use AppKit-coordinate
@@ -132,8 +133,8 @@ enum CompanionScreenCaptureUtility {
             }
 
             capturedScreens.append(CompanionScreenCapture(
-                displayIdentifier: display.displayID,
-                imageData: jpegData,
+                    displayIdentifier: display.displayID,
+                    imageData: jpegData,
                 label: screenLabel,
                 isCursorScreen: isCursorScreen,
                 displayWidthInPoints: Int(displayFrame.width),

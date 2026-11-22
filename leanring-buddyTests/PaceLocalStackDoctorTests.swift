@@ -33,10 +33,14 @@ struct PaceLocalStackDoctorTests {
         let session = URLSession(configuration: configuration)
         defer { session.invalidateAndCancel() }
         for upstream in [PaceLocalCLIUpstream.codex, .claude] {
-            let checks = await PaceLocalStackDoctor().runChecks(plannerTier: .cliDirect,
+            let checks = await PaceLocalStackDoctor().runChecks(
+                plannerTier: .cliDirect,
                 cliUpstream: upstream, readMyScreenEnabled: true, urlSession: session)
             #expect(checks.contains { $0.title == "\(upstream.displayLabel) planner" })
-            #expect(!checks.contains { ["LM Studio server", "Planner model loaded", "VLM loaded (Read My Screen)"].contains($0.title) })
+            #expect(
+                !checks.contains {
+                    ["LM Studio server", "Planner model loaded", "VLM loaded (Read My Screen)"].contains($0.title)
+                })
             #expect(checks.contains { $0.title == "Screen reading" && $0.status == .info })
             let screenDetail = checks.first { $0.title == "Screen reading" }?.detail ?? ""
             if upstream == .codex {
@@ -64,7 +68,8 @@ struct PaceLocalStackDoctorTests {
         configuration.protocolClasses = [OfflineServiceProtocol.self]
         let session = URLSession(configuration: configuration)
         defer { session.invalidateAndCancel() }
-        let checks = await PaceLocalStackDoctor().runChecks(plannerTier: .cliDirect,
+        let checks = await PaceLocalStackDoctor().runChecks(
+            plannerTier: .cliDirect,
             cliUpstream: .codex, readMyScreenEnabled: false, urlSession: session)
         #expect(!checks.contains { $0.title == "Screen reading" || $0.title.hasPrefix("VLM loaded") })
     }

@@ -30,7 +30,10 @@ struct PaceServerSpeechLifecycleTests {
     }
 
     private func waitUntil(_ predicate: () -> Bool) async throws {
-        for _ in 0..<200 { if predicate() { return }; try await Task.sleep(for: .milliseconds(10)) }
+        for _ in 0..<200 {
+            if predicate() { return }
+            try await Task.sleep(for: .milliseconds(10))
+        }
         #expect(predicate())
         throw CancellationError()
     }
@@ -38,22 +41,29 @@ struct PaceServerSpeechLifecycleTests {
     private func withFixture(_ body: (LocalServerTTSClient, Fallback) async throws -> Void) async throws {
         let script = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
             .appendingPathComponent("scripts/tts-fixture-server.py")
-        let python = try #require(["/usr/bin/python3", "/opt/homebrew/bin/python3"].first {
-            FileManager.default.isExecutableFile(atPath: $0)
-        })
+        let python = try #require(
+            ["/usr/bin/python3", "/opt/homebrew/bin/python3"].first {
+                FileManager.default.isExecutableFile(atPath: $0)
+            })
         let process = Process()
         process.executableURL = URL(fileURLWithPath: python)
         process.arguments = [script.path, "8898"]
         let readiness = Pipe()
         process.standardOutput = readiness
         try process.run()
-        defer { if process.isRunning { process.terminate(); process.waitUntilExit() } }
+        defer {
+            if process.isRunning {
+                process.terminate()
+                process.waitUntilExit()
+            }
+        }
         let ready = readiness.fileHandleForReading.availableData
         try #require(String(data: ready, encoding: .utf8)?.contains("READY") == true)
         let fallback = Fallback()
-        let client = LocalServerTTSClient(configuration: .init(
-            configuredBaseURLString: "http://127.0.0.1:8898/v1", configuredModelIdentifier: nil,
-            configuredVoiceIdentifier: nil, configuredSpeedString: nil), fallbackClient: fallback)
+        let client = LocalServerTTSClient(
+            configuration: .init(
+                configuredBaseURLString: "http://127.0.0.1:8898/v1", configuredModelIdentifier: nil,
+                configuredVoiceIdentifier: nil, configuredSpeedString: nil), fallbackClient: fallback)
         defer { client.stopPlayback() }
         try await body(client, fallback)
     }
@@ -75,8 +85,10 @@ struct PaceServerSpeechLifecycleTests {
             let request = Task { try await client.speakUtterance("lifecycle delayed") { starts += 1 } }
             try await Task.sleep(for: .milliseconds(80))
             client.stopPlayback()
-            do { try await request.value; Issue.record("A stopped synthesis must cancel.") }
-            catch { #expect(error is CancellationError) }
+            do {
+                try await request.value
+                Issue.record("A stopped synthesis must cancel.")
+            } catch { #expect(error is CancellationError) }
             try await Task.sleep(for: .milliseconds(500))
             #expect(starts == 0)
             #expect(fallback.spokenTexts.isEmpty)
@@ -90,8 +102,10 @@ struct PaceServerSpeechLifecycleTests {
             let request = Task { try await client.speakUtterance("lifecycle retry") { starts += 1 } }
             try await Task.sleep(for: .milliseconds(120))
             client.stopPlayback()
-            do { try await request.value; Issue.record("A stopped retry must cancel.") }
-            catch { #expect(error is CancellationError) }
+            do {
+                try await request.value
+                Issue.record("A stopped retry must cancel.")
+            } catch { #expect(error is CancellationError) }
             try await Task.sleep(for: .milliseconds(500))
             #expect(starts == 0)
             #expect(fallback.spokenTexts.isEmpty)
@@ -104,8 +118,10 @@ struct PaceServerSpeechLifecycleTests {
             let old = Task { try await client.speakUtterance("lifecycle fallback") { starts += 1 } }
             try await waitUntil { fallback.completion != nil }
             client.stopPlayback()
-            do { try await old.value; Issue.record("A stopped fallback must cancel.") }
-            catch { #expect(error is CancellationError) }
+            do {
+                try await old.value
+                Issue.record("A stopped fallback must cancel.")
+            } catch { #expect(error is CancellationError) }
             #expect(starts == 1)
             #expect(!client.isPlaying)
             var freshStarts = 0
@@ -145,7 +161,9 @@ struct PaceServerSpeechLifecycleTests {
             try await client.speakUtterance("default before") { starts += 1 }
             try await client.speakUtterance(.init(text: "こんにちは。", profile: .japaneseFemale)) { starts += 1 }
             try await client.speakUtterance("default after") { starts += 1 }
-            let requests = try await fixtureRequests().filter { ["default before", "こんにちは。", "default after"].contains($0["input"] as? String ?? "") }
+            let requests = try await fixtureRequests().filter {
+                ["default before", "こんにちは。", "default after"].contains($0["input"] as? String ?? "")
+            }
             #expect(requests.count == 3)
             #expect(requests.filter { $0["lang_code"] == nil }.allSatisfy { $0["voice"] as? String == "af_heart" })
             expectJapaneseRequests(requests.filter { $0["input"] as? String == "こんにちは。" }, count: 1)
@@ -183,7 +201,8 @@ struct PaceServerSpeechLifecycleTests {
 
     @Test func failedLongJapaneseUtteranceNeverSplitsOrStartsPartialSpeech() async throws {
         try await withFixture { client, fallback in
-            let text = "profile split fail. first half has enough words to cross the retry boundary. second-half-fail completes the requested utterance with the same Japanese voice."
+            let text =
+                "profile split fail. first half has enough words to cross the retry boundary. second-half-fail completes the requested utterance with the same Japanese voice."
             var starts = 0
             do {
                 try await client.speakUtterance(.init(text: text, profile: .japaneseFemale)) { starts += 1 }
@@ -201,7 +220,8 @@ struct PaceServerSpeechLifecycleTests {
     @Test func japaneseTransportOutageDoesNotPoisonDefaultSpeech() async throws {
         try await withFixture { client, fallback in
             do {
-                try await client.speakUtterance(.init(text: "profile transport failure", profile: .japaneseFemale), onStarted: {})
+                try await client.speakUtterance(
+                    .init(text: "profile transport failure", profile: .japaneseFemale), onStarted: {})
                 Issue.record("Transport failure must fail explicit Japanese.")
             } catch { #expect(error is PaceSpeechProfileError) }
             #expect(!client.hasObservedSidecarOutage)
@@ -235,12 +255,16 @@ struct PaceServerSpeechLifecycleTests {
         try await withFixture { client, fallback in
             var starts = 0
             let delayed = Task {
-                try await client.speakUtterance(.init(text: "profile delayed", profile: .japaneseFemale)) { starts += 1 }
+                try await client.speakUtterance(.init(text: "profile delayed", profile: .japaneseFemale)) {
+                    starts += 1
+                }
             }
             try await Task.sleep(for: .milliseconds(80))
             delayed.cancel()
-            do { try await delayed.value; Issue.record("Cancelling delayed speech must cancel completion.") }
-            catch { #expect(error is CancellationError) }
+            do {
+                try await delayed.value
+                Issue.record("Cancelling delayed speech must cancel completion.")
+            } catch { #expect(error is CancellationError) }
             try await Task.sleep(for: .milliseconds(500))
             #expect(starts == 0)
             do {
@@ -258,8 +282,11 @@ struct PaceServerSpeechLifecycleTests {
 
     @Test func nonKokoroServerRejectsExplicitProfileBeforeOnset() async {
         let fallback = Fallback()
-        let client = LocalServerTTSClient(configuration: .init(configuredBaseURLString: "http://127.0.0.1:59997/v1",
-            configuredModelIdentifier: "local-Qwen3-TTS", configuredVoiceIdentifier: nil, configuredSpeedString: nil), fallbackClient: fallback)
+        let client = LocalServerTTSClient(
+            configuration: .init(
+                configuredBaseURLString: "http://127.0.0.1:59997/v1",
+                configuredModelIdentifier: "local-Qwen3-TTS", configuredVoiceIdentifier: nil, configuredSpeedString: nil
+            ), fallbackClient: fallback)
         defer { client.stopPlayback() }
         var starts = 0
         do {

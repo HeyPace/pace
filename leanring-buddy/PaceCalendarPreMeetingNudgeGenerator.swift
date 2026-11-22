@@ -110,10 +110,12 @@ final class PaceCalendarPreMeetingNudgeGenerator: PaceProactiveNudgeGenerator {
 
         let upcomingEvents = upcomingEventSnapshotsProvider(Self.leadTimeLookaheadSeconds)
         let restraintContext = restraintContextProvider()
-        var announcements: [(occurrence: EventOccurrence, utterance: PaceProactiveUtterance, decision: PaceRestraintDecision)] = []
+        var announcements:
+            [(occurrence: EventOccurrence, utterance: PaceProactiveUtterance, decision: PaceRestraintDecision)] = []
         for eventSnapshot in upcomingEvents {
             guard !eventSnapshot.isAllDay,
-                  eventSnapshot.endDate >= eventSnapshot.startDate else { continue }
+                eventSnapshot.endDate >= eventSnapshot.startDate
+            else { continue }
             let occurrence = EventOccurrence(
                 stableIdentifier: eventSnapshot.stableIdentifier,
                 startDate: eventSnapshot.startDate

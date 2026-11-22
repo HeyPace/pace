@@ -6,7 +6,8 @@ nonisolated struct PaceFunctionPChord {
     private var isPressed = false
 
     mutating func handle(_ type: CGEventType, keyCode: UInt16, flags: CGEventFlags, isRepeat: Bool)
-        -> (consumesEvent: Bool, transition: BuddyPushToTalkShortcut.ShortcutTransition) {
+        -> (consumesEvent: Bool, transition: BuddyPushToTalkShortcut.ShortcutTransition)
+    {
         if type == .flagsChanged {
             return (false, releaseIfNeeded(functionHeld: flags.contains(.maskSecondaryFn)))
         }
@@ -52,11 +53,16 @@ nonisolated final class PaceFunctionPEventTap: @unchecked Sendable {
         let mask = [CGEventType.flagsChanged, .keyDown, .keyUp].reduce(CGEventMask(0)) {
             $0 | (CGEventMask(1) << $1.rawValue)
         }
-        guard let port = CGEvent.tapCreate(tap: .cgSessionEventTap, place: .headInsertEventTap,
-            options: .defaultTap, eventsOfInterest: mask, callback: { _, type, event, context in
-                guard !Thread.current.isCancelled, let context else { return Unmanaged.passUnretained(event) }
-                return Unmanaged<PaceFunctionPEventTap>.fromOpaque(context).takeUnretainedValue().handle(type, event: event)
-            }, userInfo: Unmanaged.passUnretained(self).toOpaque()) else { return false }
+        guard
+            let port = CGEvent.tapCreate(
+                tap: .cgSessionEventTap, place: .headInsertEventTap,
+                options: .defaultTap, eventsOfInterest: mask,
+                callback: { _, type, event, context in
+                    guard !Thread.current.isCancelled, let context else { return Unmanaged.passUnretained(event) }
+                    return Unmanaged<PaceFunctionPEventTap>.fromOpaque(context).takeUnretainedValue().handle(
+                        type, event: event)
+                }, userInfo: Unmanaged.passUnretained(self).toOpaque())
+        else { return false }
         guard let source = CFMachPortCreateRunLoopSource(nil, port, 0) else {
             CFMachPortInvalidate(port)
             return false
@@ -84,7 +90,8 @@ nonisolated final class PaceFunctionPEventTap: @unchecked Sendable {
             if let tap { CGEvent.tapEnable(tap: tap, enable: true) }
             return Unmanaged.passUnretained(event)
         }
-        let result = chord.handle(type, keyCode: UInt16(event.getIntegerValueField(.keyboardEventKeycode)),
+        let result = chord.handle(
+            type, keyCode: UInt16(event.getIntegerValueField(.keyboardEventKeycode)),
             flags: event.flags, isRepeat: event.getIntegerValueField(.keyboardEventAutorepeat) != 0)
         if result.transition != .none { didTransition(result.transition) }
         return result.consumesEvent ? nil : Unmanaged.passUnretained(event)

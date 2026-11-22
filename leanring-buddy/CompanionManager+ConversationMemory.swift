@@ -36,12 +36,16 @@ extension CompanionManager {
         print("🧠 Thread memory restored: \(persistedSnapshot.verbatimWindow.count) verbatim turn(s), summary=\(persistedSnapshot.summary != nil)")
     }
     @discardableResult
-    func acceptConversationRequest(_ transcript: String, origin: ConversationEvent.Origin,
-                                   eventIdentifier: String = UUID().uuidString) -> ConversationEvent {
+    func acceptConversationRequest(
+        _ transcript: String, origin: ConversationEvent.Origin,
+        eventIdentifier: String = UUID().uuidString
+    ) -> ConversationEvent {
         conversationRecorder.acceptRequest(transcript, origin: origin, eventIdentifier: eventIdentifier)
     }
 
-    func beginConversationRequest(_ transcript: String, screenSuggestionContext: PaceScreenSuggestionRequestContext? = nil) {
+    func beginConversationRequest(
+        _ transcript: String, screenSuggestionContext: PaceScreenSuggestionRequestContext? = nil
+    ) {
         if replayPreservesOriginalConversationHistory { interruptConversationRequest() }
         replayPreservesOriginalConversationHistory = false
         hasRecordedCurrentTurnSpeechUserContext = false
@@ -50,14 +54,18 @@ extension CompanionManager {
         streamingSentenceTTSPipeline.setConversationLanguageModeForCurrentTurn(activeConversationLanguageMode)
         let typedEventIdentifier = pendingTypedConversationEventIdentifier
         pendingTypedConversationEventIdentifier = nil
-        activeConversationScreenSuggestionContext = screenSuggestionContextForCurrentPrivacyGate(screenSuggestionContext
-            ?? (typedEventIdentifier == nil ? screenSuggestionCoordinator.followUpSuggestion(for: transcript).map(PaceScreenSuggestionRequestContext.followUp) : nil))
+        activeConversationScreenSuggestionContext = screenSuggestionContextForCurrentPrivacyGate(
+            screenSuggestionContext
+                ?? (typedEventIdentifier == nil
+                    ? screenSuggestionCoordinator.followUpSuggestion(for: transcript).map(
+                        PaceScreenSuggestionRequestContext.followUp) : nil))
         if typedEventIdentifier == nil, activeConversationScreenSuggestionContext != nil {
             chatSession.acknowledgeScreenSuggestions()
         }
         // The accepted message replaces the provisional voice row immediately.
         liveSpeechDraft = ""
-        activeConversationUserEvent = acceptConversationRequest(transcript,
+        activeConversationUserEvent = acceptConversationRequest(
+            transcript,
             origin: typedEventIdentifier == nil ? .voice : .typed,
             eventIdentifier: typedEventIdentifier ?? UUID().uuidString)
         activeConversationPlannerTranscript = transcript
@@ -68,8 +76,9 @@ extension CompanionManager {
 
     func presentVoiceConversationPreviewIfCurrentTurn(_ turnLease: PaceTurnLease) {
         guard isActiveTurn(turnLease), let userEvent = activeConversationUserEvent,
-              userEvent.origin == .voice,
-              lastPresentedVoiceConversationEventIdentifier != userEvent.eventID else { return }
+            userEvent.origin == .voice,
+            lastPresentedVoiceConversationEventIdentifier != userEvent.eventID
+        else { return }
         lastPresentedVoiceConversationEventIdentifier = userEvent.eventID
         conversationPanelPresentationRequests.send(.preview)
     }
@@ -95,18 +104,23 @@ extension CompanionManager {
 
     func commitInterruptedAssistantPrefix() {
         guard let userEvent = activeConversationUserEvent else { return }
-        let visiblePrefix = (activeConversationVisibleAssistantText.isEmpty
+        let visiblePrefix =
+            (activeConversationVisibleAssistantText.isEmpty
             ? streamingSentenceTTSPipeline.inFlightStreamedText : activeConversationVisibleAssistantText)
             .trimmingCharacters(in: .whitespacesAndNewlines)
         if !visiblePrefix.isEmpty {
             let eventIdentifier = activeConversationAssistantEventIdentifier ?? UUID().uuidString
-            conversationRecorder.record(ConversationEvent(eventID: eventIdentifier,
-                turnID: userEvent.turnID, role: .pace, origin: .assistant, text: visiblePrefix,
-                deliveryState: .interrupted))
+            conversationRecorder.record(
+                ConversationEvent(
+                    eventID: eventIdentifier,
+                    turnID: userEvent.turnID, role: .pace, origin: .assistant, text: visiblePrefix,
+                    deliveryState: .interrupted))
         } else if let lastConversationAssistantEventIdentifier,
-                  ttsClient.isPlaying || voiceState == .responding {
+            ttsClient.isPlaying || voiceState == .responding
+        {
             // The complete text remains visible even when playback stopped early.
-            conversationRecorder.updateDeliveryState(.interrupted,
+            conversationRecorder.updateDeliveryState(
+                .interrupted,
                 eventIdentifier: lastConversationAssistantEventIdentifier)
         }
         activeConversationVisibleAssistantText = ""
@@ -115,25 +129,33 @@ extension CompanionManager {
 
     func updateAssistantStreamingText(_ text: String) {
         guard activeConversationLanguageMode != .japanesePractice else { return }
-        activeConversationVisibleAssistantText = text == "…" ? ""
+        activeConversationVisibleAssistantText =
+            text == "…"
+            ? ""
             : StreamingSentenceTTSPipeline.computeSpeakableSafePrefix(from: text, requiresCompleteSentence: false)
         responseOverlayManager.updateStreamingText(text)
     }
 
     @discardableResult
-    func recordAssistantNarration(_ text: String, origin: ConversationEvent.Origin = .assistant,
-                                  eventIdentifier: String = UUID().uuidString,
-                                  turnIdentifier: String? = nil, recordedAt: Date = Date(),
-                                  plannerContext: String = "", recordsDerivedMemory: Bool = true,
-                                  speechRequest: PaceSpeechRequest? = nil,
-                                  generatedImagePreviewID: UUID? = nil) -> String {
-        let event = ConversationEvent(eventID: eventIdentifier, turnID: turnIdentifier,
+    func recordAssistantNarration(
+        _ text: String, origin: ConversationEvent.Origin = .assistant,
+        eventIdentifier: String = UUID().uuidString,
+        turnIdentifier: String? = nil, recordedAt: Date = Date(),
+        plannerContext: String = "", recordsDerivedMemory: Bool = true,
+        speechRequest: PaceSpeechRequest? = nil,
+        generatedImagePreviewID: UUID? = nil
+    ) -> String {
+        let event = ConversationEvent(
+            eventID: eventIdentifier, turnID: turnIdentifier,
             role: .pace, origin: origin, text: text, createdAt: recordedAt, speechRequest: speechRequest,
             generatedImagePreviewID: generatedImagePreviewID)
         let isNewEvent = conversationRecorder.event(withIdentifier: eventIdentifier) == nil
         conversationRecorder.record(event)
-        if recordsDerivedMemory, recordsDerivedConversationMemory, isNewEvent && !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            let displacedTurnPair = threadMemory.record(userTurn: plannerContext, assistantTurn: text,
+        if recordsDerivedMemory, recordsDerivedConversationMemory,
+            isNewEvent && !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        {
+            let displacedTurnPair = threadMemory.record(
+                userTurn: plannerContext, assistantTurn: text,
                 turnId: eventIdentifier, now: recordedAt)
             persistThreadMemorySnapshot()
             if let displacedTurnPair {
@@ -171,16 +193,20 @@ extension CompanionManager {
         }
         let recordedAt = Date()
         let trimmedUserTranscript = userTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
-        let isGenuineUserTranscript = !trimmedUserTranscript.isEmpty
+        let isGenuineUserTranscript =
+            !trimmedUserTranscript.isEmpty
             && !trimmedUserTranscript.hasPrefix("(system)")
             && !trimmedUserTranscript.hasPrefix("(agent step ")
         let userEvent: ConversationEvent?
         if let userEventIdentifier,
-            let acceptedEvent = conversationRecorder.event(withIdentifier: userEventIdentifier) {
+            let acceptedEvent = conversationRecorder.event(withIdentifier: userEventIdentifier)
+        {
             userEvent = acceptedEvent
         } else if isGenuineUserTranscript {
             if let activeConversationUserEvent,
-                activeConversationUserEvent.text == trimmedUserTranscript || activeConversationPlannerTranscript == userTranscript {
+                activeConversationUserEvent.text == trimmedUserTranscript
+                    || activeConversationPlannerTranscript == userTranscript
+            {
                 userEvent = activeConversationUserEvent
             } else {
                 userEvent = acceptConversationRequest(userTranscript, origin: .voice)
@@ -192,16 +218,21 @@ extension CompanionManager {
         let stableTurnId = userEvent?.eventID ?? activeConversationUserEvent?.eventID ?? UUID().uuidString
         let speechAlreadyRecordedUserContext = ownsActiveStream && hasRecordedCurrentTurnSpeechUserContext
         let userTranscriptForDerivedMemory = speechAlreadyRecordedUserContext ? "" : userTranscriptForMemory
-        let shouldExtractUserFacts = userEvent.map {
-            extractedConversationUserEventIdentifiers.insert($0.eventID).inserted
-        } ?? false
+        let shouldExtractUserFacts =
+            userEvent.map {
+                extractedConversationUserEventIdentifiers.insert($0.eventID).inserted
+            } ?? false
         if let userEvent {
             conversationRecorder.updateDeliveryState(.completed, eventIdentifier: userEvent.eventID)
         }
-        let assistantEventIdentifier = (ownsActiveStream ? activeConversationAssistantEventIdentifier : nil) ?? UUID().uuidString
+        let assistantEventIdentifier =
+            (ownsActiveStream ? activeConversationAssistantEventIdentifier : nil) ?? UUID().uuidString
         if recordsAssistantEvent {
-            conversationRecorder.record(ConversationEvent(eventID: assistantEventIdentifier,
-                turnID: stableTurnId, role: .pace, origin: .assistant, text: visibleAssistantResponse, createdAt: recordedAt, speechRequest: spokenRequest))
+            conversationRecorder.record(
+                ConversationEvent(
+                    eventID: assistantEventIdentifier,
+                    turnID: stableTurnId, role: .pace, origin: .assistant, text: visibleAssistantResponse,
+                    createdAt: recordedAt, speechRequest: spokenRequest))
         }
         if ownsActiveStream {
             if recordsAssistantEvent { lastConversationAssistantEventIdentifier = assistantEventIdentifier }
@@ -209,7 +240,8 @@ extension CompanionManager {
         }
         if ownsActiveStream, recordsAssistantEvent, !isRemoteResponse,
             let activeConversationUserEvent, activeConversationUserEvent.eventID == userEvent?.eventID,
-            !visibleAssistantResponse.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            !visibleAssistantResponse.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        {
             revealRequestFeedback()
         }
 
@@ -221,7 +253,9 @@ extension CompanionManager {
                 assistantTurn: assistantResponse, turnId: assistantEventIdentifier, now: recordedAt)
             refreshLocalRetrievalPublishedState()
             persistThreadMemorySnapshot()
-        } else { displacedTurnPair = nil }
+        } else {
+            displacedTurnPair = nil
+        }
         let assistantResponseForFactExtraction = recordsAssistantDerivedMemory ? assistantResponse : ""
         guard shouldExtractUserFacts else {
             if let displacedTurnPair {
@@ -257,7 +291,8 @@ extension CompanionManager {
             recordUnifiedMemoryTurn(
                 userTranscript: userTranscriptForDerivedMemory,
                 assistantResponse: assistantResponse,
-                turnId: speechAlreadyRecordedUserContext && recordsAssistantEvent ? assistantEventIdentifier : stableTurnId,
+                turnId: speechAlreadyRecordedUserContext && recordsAssistantEvent
+                    ? assistantEventIdentifier : stableTurnId,
                 recordedAt: recordedAt
             )
         }

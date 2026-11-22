@@ -110,12 +110,16 @@ extension CompanionManager {
         scheduleLazyEmbedding(entryIdsAndTextsToEmbed)
     }
 
-    func scheduleLazyEmbedding(_ entryIdsAndTexts: [(id: String, text: String)],
-                               sourceSubset: Set<PaceRetrievalSource>? = nil) {
+    func scheduleLazyEmbedding(
+        _ entryIdsAndTexts: [(id: String, text: String)],
+        sourceSubset: Set<PaceRetrievalSource>? = nil
+    ) {
         if let sourceSubset {
-            lazyEmbeddingScheduler.schedule(entryIdsAndTexts, onScheduledEmbeddingsPersisted: { [weak self] in
-                self?.persistUnifiedMemory(sourceSubset: sourceSubset)
-            })
+            lazyEmbeddingScheduler.schedule(
+                entryIdsAndTexts,
+                onScheduledEmbeddingsPersisted: { [weak self] in
+                    self?.persistUnifiedMemory(sourceSubset: sourceSubset)
+                })
         } else {
             lazyEmbeddingScheduler.schedule(entryIdsAndTexts)
         }

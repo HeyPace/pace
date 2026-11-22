@@ -57,8 +57,9 @@ nonisolated struct LocalServerTTSConfiguration: Equatable {
         let trimmedVoice = configuredVoiceIdentifier?.trimmingCharacters(in: .whitespacesAndNewlines)
         self.voiceIdentifier = (trimmedVoice?.isEmpty == false ? trimmedVoice! : Self.defaultVoiceIdentifier)
         if let configuredSpeedString,
-           let parsedSpeed = Double(configuredSpeedString.trimmingCharacters(in: .whitespacesAndNewlines)),
-           parsedSpeed > 0.25, parsedSpeed < 4.0 {
+            let parsedSpeed = Double(configuredSpeedString.trimmingCharacters(in: .whitespacesAndNewlines)),
+            parsedSpeed > 0.25, parsedSpeed < 4.0
+        {
             self.speed = parsedSpeed
         } else {
             self.speed = Self.defaultSpeed
@@ -83,7 +84,8 @@ nonisolated struct LocalServerTTSConfiguration: Equatable {
     }
 
     func synthesisIdentity(profile: PaceSpeechProfile?) -> SynthesisIdentity {
-        SynthesisIdentity(baseURL: baseURL, modelIdentifier: modelIdentifier,
+        SynthesisIdentity(
+            baseURL: baseURL, modelIdentifier: modelIdentifier,
             voiceIdentifier: profile?.voiceIdentifier ?? voiceIdentifier,
             languageCode: profile?.languageCode ?? "a", speed: speed)
     }
@@ -181,7 +183,9 @@ final class LocalServerTTSClient: NSObject, BuddyTTSClient {
         self.fallbackClient = fallbackClient ?? LocalTTSClient()
         self.urlSession = urlSession
         super.init()
-        print("🔊 Server TTS: \(configuration.baseURL.absoluteString) model=\(configuration.modelIdentifier) voice=\(configuration.voiceIdentifier) (Apple TTS fallback ready)")
+        print(
+            "🔊 Server TTS: \(configuration.baseURL.absoluteString) model=\(configuration.modelIdentifier) voice=\(configuration.voiceIdentifier) (Apple TTS fallback ready)"
+        )
         warmUpSynthesizer()
     }
 
@@ -199,8 +203,9 @@ final class LocalServerTTSClient: NSObject, BuddyTTSClient {
                 var probeRequest = URLRequest(url: modelsURL)
                 probeRequest.timeoutInterval = 2
                 if let (_, response) = try? await warmUpSession.data(for: probeRequest),
-                   let httpResponse = response as? HTTPURLResponse,
-                   (200..<500).contains(httpResponse.statusCode) {
+                    let httpResponse = response as? HTTPURLResponse,
+                    (200..<500).contains(httpResponse.statusCode)
+                {
                     break
                 }
                 try? await Task.sleep(nanoseconds: 1_000_000_000)
@@ -262,7 +267,10 @@ final class LocalServerTTSClient: NSObject, BuddyTTSClient {
         let generation = playbackGeneration
         try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-                guard !Task.isCancelled else { continuation.resume(throwing: CancellationError()); return }
+                guard !Task.isCancelled else {
+                    continuation.resume(throwing: CancellationError())
+                    return
+                }
                 utterance.completion = continuation
                 utterance.onStarted = onStarted
                 lastStopReason = .naturalCompletion
@@ -273,7 +281,9 @@ final class LocalServerTTSClient: NSObject, BuddyTTSClient {
         } onCancel: { [weak self] in
             Task { @MainActor in
                 guard let self, self.playbackGeneration == generation,
-                      self.activeUtterance === utterance || self.pendingUtteranceQueue.contains(where: { $0 === utterance }) else { return }
+                    self.activeUtterance === utterance
+                        || self.pendingUtteranceQueue.contains(where: { $0 === utterance })
+                else { return }
                 self.stopPlayback()
             }
         }
@@ -324,7 +334,9 @@ final class LocalServerTTSClient: NSObject, BuddyTTSClient {
         let cancelledUtterances = pendingUtteranceQueue + [activeUtterance].compactMap { $0 }
         pendingUtteranceQueue = []
         activeUtterance = nil
-        cancelledUtterances.forEach { $0.finish(CancellationError()) }
+        for utterance in cancelledUtterances {
+            utterance.finish(CancellationError())
+        }
         audioPlayer?.stop()
         audioPlayer = nil
         playbackContinuation?.resume(throwing: CancellationError())
@@ -341,7 +353,8 @@ final class LocalServerTTSClient: NSObject, BuddyTTSClient {
             PaceAPIAuditLog.shared.record(
                 subsystem: "tts",
                 operation: "audio.speech",
-                target: "\(synthesisIdentity.modelIdentifier)/\(synthesisIdentity.voiceIdentifier)/\(synthesisIdentity.languageCode)",
+                target:
+                    "\(synthesisIdentity.modelIdentifier)/\(synthesisIdentity.voiceIdentifier)/\(synthesisIdentity.languageCode)",
                 durationMilliseconds: Int(Date().timeIntervalSince(synthesisStartedAt) * 1000),
                 outcome: outcome,
                 inputCharacterCount: text.count,
@@ -360,8 +373,9 @@ final class LocalServerTTSClient: NSObject, BuddyTTSClient {
             )
             guard !Task.isCancelled else { return nil }
             guard let httpResponse = response as? HTTPURLResponse,
-                  (200..<300).contains(httpResponse.statusCode),
-                  !audioData.isEmpty else {
+                (200..<300).contains(httpResponse.statusCode),
+                !audioData.isEmpty
+            else {
                 auditSynthesis(outcome: "bad_response")
                 if profile == nil { didDetectSidecarOutageDuringCurrentSession = true }
                 return nil
@@ -423,7 +437,8 @@ final class LocalServerTTSClient: NSObject, BuddyTTSClient {
             let audioData = await synthesizeAudioData(forText: utterance.text, profile: utterance.profile)
             guard isCurrentPlayback(generation) else { throw CancellationError() }
             if let audioData {
-                try await playAudioDataOrFallback(audioData, text: utterance.text, utterance: utterance, generation: generation)
+                try await playAudioDataOrFallback(
+                    audioData, text: utterance.text, utterance: utterance, generation: generation)
                 return
             }
         }
@@ -435,15 +450,18 @@ final class LocalServerTTSClient: NSObject, BuddyTTSClient {
             let firstHalfAudio = await synthesizeAudioData(forText: firstHalf, profile: utterance.profile)
             guard isCurrentPlayback(generation) else { throw CancellationError() }
             if let firstHalfAudio {
-                try await playAudioDataOrFallback(firstHalfAudio, text: firstHalf, utterance: utterance, generation: generation)
+                try await playAudioDataOrFallback(
+                    firstHalfAudio, text: firstHalf, utterance: utterance, generation: generation)
                 guard isCurrentPlayback(generation) else { throw CancellationError() }
                 if !secondHalf.isEmpty {
                     let secondHalfAudio = await synthesizeAudioData(forText: secondHalf, profile: utterance.profile)
                     guard isCurrentPlayback(generation) else { throw CancellationError() }
                     if let secondHalfAudio {
-                        try await playAudioDataOrFallback(secondHalfAudio, text: secondHalf, utterance: utterance, generation: generation)
+                        try await playAudioDataOrFallback(
+                            secondHalfAudio, text: secondHalf, utterance: utterance, generation: generation)
                     } else {
-                        try await speakWithSystemFallback(text: secondHalf, utterance: utterance, generation: generation)
+                        try await speakWithSystemFallback(
+                            text: secondHalf, utterance: utterance, generation: generation)
                     }
                 }
                 return
@@ -490,10 +508,11 @@ final class LocalServerTTSClient: NSObject, BuddyTTSClient {
         return (trimmedText, "")
     }
 
-    private func playAudioDataOrFallback(_ audioData: Data, text: String,
-                                         utterance: PendingUtterance, generation: UInt64) async throws {
-        do { try await playAudioData(audioData, utterance: utterance, generation: generation) }
-        catch {
+    private func playAudioDataOrFallback(
+        _ audioData: Data, text: String,
+        utterance: PendingUtterance, generation: UInt64
+    ) async throws {
+        do { try await playAudioData(audioData, utterance: utterance, generation: generation) } catch {
             guard isCurrentPlayback(generation), !(error is CancellationError) else { throw CancellationError() }
             audioPlayer?.stop()
             audioPlayer = nil
@@ -511,7 +530,10 @@ final class LocalServerTTSClient: NSObject, BuddyTTSClient {
         player.delegate = self
         player.prepareToPlay()
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            guard isCurrentPlayback(generation) else { continuation.resume(throwing: CancellationError()); return }
+            guard isCurrentPlayback(generation) else {
+                continuation.resume(throwing: CancellationError())
+                return
+            }
             playbackContinuation = continuation
             guard player.play() else {
                 playbackContinuation = nil
@@ -532,8 +554,11 @@ extension LocalServerTTSClient: AVAudioPlayerDelegate {
     nonisolated func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
         Task { @MainActor [weak self] in
             guard let self, self.audioPlayer === player else { return }
-            if flag { self.playbackContinuation?.resume() }
-            else { self.playbackContinuation?.resume(throwing: PaceUtterancePlaybackError.playbackFailed) }
+            if flag {
+                self.playbackContinuation?.resume()
+            } else {
+                self.playbackContinuation?.resume(throwing: PaceUtterancePlaybackError.playbackFailed)
+            }
             self.playbackContinuation = nil
         }
     }

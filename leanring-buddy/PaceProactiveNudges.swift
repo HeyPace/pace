@@ -104,12 +104,15 @@ nonisolated enum PaceCalendarPreMeetingNudgeDecision {
         guard case .queueUntilIdle = evaluation.decision else { return evaluation }
         // The queue may wait several minutes; a frozen countdown would be wrong
         // when delivery resumes. Its event-start deadline still prevents late speech.
-        return (evaluation.decision, PaceProactiveUtterance(
-            spokenText: "\(eventTitle.trimmingCharacters(in: .whitespacesAndNewlines)) is coming up.",
-            source: candidateUtterance.source,
-            confidence: candidateUtterance.confidence,
-            relevanceWindowExpiresAt: candidateUtterance.relevanceWindowExpiresAt
-        ))
+        return (
+            evaluation.decision,
+            PaceProactiveUtterance(
+                spokenText: "\(eventTitle.trimmingCharacters(in: .whitespacesAndNewlines)) is coming up.",
+                source: candidateUtterance.source,
+                confidence: candidateUtterance.confidence,
+                relevanceWindowExpiresAt: candidateUtterance.relevanceWindowExpiresAt
+            )
+        )
     }
 }
 

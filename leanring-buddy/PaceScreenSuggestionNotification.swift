@@ -10,9 +10,11 @@ nonisolated enum PaceScreenSuggestionNotificationAction: Equatable {
     func request(for _: PaceScreenSuggestion) -> String? {
         switch self {
         case .explain:
-            return "Please explain the offered subject with a detailed, labeled, interactive visual and brief step-by-step narration. Show the visual early, highlight the part you are explaining, and reuse it as the explanation progresses."
+            return
+                "Please explain the offered subject with a detailed, labeled, interactive visual and brief step-by-step narration. Show the visual early, highlight the part you are explaining, and reuse it as the explanation progresses."
         case .draw:
-            return "Please draw a detailed, labeled, interactive diagram explaining the offered subject. Use an illustrative figure suited to the topic, with selectable parts; use a rotatable 3D model for a physical object when useful."
+            return
+                "Please draw a detailed, labeled, interactive diagram explaining the offered subject. Use an illustrative figure suited to the topic, with selectable parts; use a rotatable 3D model for a physical object when useful."
         case .dismiss:
             return nil
         }
@@ -34,8 +36,10 @@ final class PaceScreenSuggestionNotificationController {
     private let presenter: any PaceScreenSuggestionNotificationPresenting
     private let onAction: (PaceScreenSuggestion, PaceScreenSuggestionNotificationAction) -> Void
 
-    init(presenter: any PaceScreenSuggestionNotificationPresenting,
-         onAction: @escaping (PaceScreenSuggestion, PaceScreenSuggestionNotificationAction) -> Void) {
+    init(
+        presenter: any PaceScreenSuggestionNotificationPresenting,
+        onAction: @escaping (PaceScreenSuggestion, PaceScreenSuggestionNotificationAction) -> Void
+    ) {
         self.presenter = presenter
         self.onAction = onAction
     }
@@ -80,19 +84,24 @@ final class PaceScreenSuggestionNotificationPanel: PaceScreenSuggestionNotificat
     private var animationGeneration = 0
     private var arrivalSound: NSSound?
 
-    func show(_ suggestion: PaceScreenSuggestion, onAction: @escaping (PaceScreenSuggestionNotificationAction) -> Void) {
+    func show(_ suggestion: PaceScreenSuggestion, onAction: @escaping (PaceScreenSuggestionNotificationAction) -> Void)
+    {
         animationGeneration += 1
         let panel = self.panel ?? makePanel()
         self.panel = panel
-        let hostingView = NSHostingView(rootView: PaceScreenSuggestionNotificationView(suggestion: suggestion, onAction: onAction))
+        let hostingView = NSHostingView(
+            rootView: PaceScreenSuggestionNotificationView(suggestion: suggestion, onAction: onAction))
         panel.contentView = hostingView
-        let display = NSScreen.screens.first {
-            ($0.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? UInt32) == suggestion.sceneIdentity.displayIdentifier
-        } ?? NSScreen.main ?? NSScreen.screens.first
+        let display =
+            NSScreen.screens.first {
+                ($0.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? UInt32)
+                    == suggestion.sceneIdentity.displayIdentifier
+            } ?? NSScreen.main ?? NSScreen.screens.first
         guard let display else { return }
         let size = hostingView.fittingSize
         let visibleFrame = display.visibleFrame
-        let destination = NSRect(x: visibleFrame.maxX - size.width - 20,
+        let destination = NSRect(
+            x: visibleFrame.maxX - size.width - 20,
             y: visibleFrame.maxY - size.height - 16, width: size.width, height: size.height)
         let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
         panel.alphaValue = 0
@@ -143,7 +152,8 @@ final class PaceScreenSuggestionNotificationPanel: PaceScreenSuggestionNotificat
     }
 
     private func makePanel() -> PaceSuggestionPanel {
-        let panel = PaceSuggestionPanel(contentRect: .zero,
+        let panel = PaceSuggestionPanel(
+            contentRect: .zero,
             styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         panel.isOpaque = false
         panel.backgroundColor = .clear
@@ -181,7 +191,9 @@ struct PaceScreenSuggestionNotificationView: View {
                     Text("On your screen").font(.system(size: 11)).foregroundStyle(.white.opacity(0.48))
                 }
                 Spacer()
-                Button { onAction(.dismiss) } label: {
+                Button {
+                    onAction(.dismiss)
+                } label: {
                     Image(systemName: "xmark").font(.system(size: 10, weight: .semibold))
                         .frame(width: 26, height: 26)
                 }
@@ -198,10 +210,12 @@ struct PaceScreenSuggestionNotificationView: View {
                 actionButton("Explain", symbol: "waveform", action: .explain, isPrimary: true)
                 actionButton("Draw it", symbol: "square.on.circle", action: .draw, isPrimary: false)
                 Spacer(minLength: 0)
-                Button { onAction(.dismiss) } label: {
+                Button {
+                    onAction(.dismiss)
+                } label: {
                     Text("Not now").font(.system(size: 11)).padding(.horizontal, 8).padding(.vertical, 9)
                 }
-                    .buttonStyle(PaceSuggestionNotificationButtonStyle(isPrimary: false))
+                .buttonStyle(PaceSuggestionNotificationButtonStyle(isPrimary: false))
             }
         }
         .padding(18)
@@ -214,9 +228,13 @@ struct PaceScreenSuggestionNotificationView: View {
         .accessibilityLabel("Pace screen suggestion")
     }
 
-    private func actionButton(_ title: String, symbol: String,
-                              action: PaceScreenSuggestionNotificationAction, isPrimary: Bool) -> some View {
-        Button { onAction(action) } label: {
+    private func actionButton(
+        _ title: String, symbol: String,
+        action: PaceScreenSuggestionNotificationAction, isPrimary: Bool
+    ) -> some View {
+        Button {
+            onAction(action)
+        } label: {
             Label(title, systemImage: symbol).font(.system(size: 12, weight: .semibold))
                 .padding(.horizontal, 12).padding(.vertical, 9)
         }
@@ -241,7 +259,9 @@ private struct PaceSuggestionNotificationButtonStyle: ButtonStyle {
             configuration.label
                 .foregroundStyle(.white.opacity(isPrimary || isHovered ? 0.95 : 0.65))
                 .background(background, in: RoundedRectangle(cornerRadius: 8))
-                .overlay { RoundedRectangle(cornerRadius: 8).stroke(.white.opacity(isPrimary ? 0.16 : 0), lineWidth: 1) }
+                .overlay {
+                    RoundedRectangle(cornerRadius: 8).stroke(.white.opacity(isPrimary ? 0.16 : 0), lineWidth: 1)
+                }
                 .overlay { PointerCursorView().allowsHitTesting(false) }
                 .opacity(configuration.isPressed ? 0.76 : 1)
                 .onHover { isHovered = $0 }

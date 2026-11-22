@@ -370,7 +370,8 @@ extension PaceActionExecutor {
             guard let request = PaceActionTagParser.parseAppleReminderCreation(mcpToolCall) else {
                 return PaceActionExecutionObservation(
                     toolName: toolObservationName,
-                    summary: "Could not create the reminder. Use a title, a valid due date, and an optional Reminders list name."
+                    summary:
+                        "Could not create the reminder. Use a title, a valid due date, and an optional Reminders list name."
                 )
             }
             return await createReminder(request)
@@ -603,8 +604,11 @@ extension PaceActionExecutor {
         let unvalidatedCount = Set(rawReportedCandidates).subtracting(reportedCandidates).count
         let candidates = Array(reportedCandidates.prefix(4))
         let omittedCandidates = Array(reportedCandidates.dropFirst(4))
-        let omittedEvidence = omittedCandidates.isEmpty ? "" : "Omitted validated PIDs: "
-            + omittedCandidates.map { "PID:\($0)" }.joined(separator: ", ") + "."
+        let omittedEvidence =
+            omittedCandidates.isEmpty
+            ? ""
+            : "Omitted validated PIDs: "
+                + omittedCandidates.map { "PID:\($0)" }.joined(separator: ", ") + "."
         let usesCompactWindowDetails = toolCall.arguments["include_window_details"] == .array([.string("ids")])
         let maximumInventoryBytes = usesCompactWindowDetails ? 4_800 : 4_000 / max(1, candidates.count)
         var inventories: [String] = []
@@ -684,13 +688,16 @@ extension PaceActionExecutor {
             var inventoryBudgets = inventoryLengths.map { min($0, fairShare) }
             var remainingBytes = availableBytes - inventoryBudgets.reduce(0, +)
             for inventoryIndex in inventories.indices {
-                let additionalBytes = min(remainingBytes, inventoryLengths[inventoryIndex] - inventoryBudgets[inventoryIndex])
+                let additionalBytes = min(
+                    remainingBytes, inventoryLengths[inventoryIndex] - inventoryBudgets[inventoryIndex])
                 inventoryBudgets[inventoryIndex] += additionalBytes
                 remainingBytes -= additionalBytes
             }
-            inventoryWasTruncated = inventoryWasTruncated || inventories.indices.contains {
-                inventoryLengths[$0] > inventoryBudgets[$0]
-            }
+            inventoryWasTruncated =
+                inventoryWasTruncated
+                || inventories.indices.contains {
+                    inventoryLengths[$0] > inventoryBudgets[$0]
+                }
             inventoryBody = inventories.indices.map { inventoryIndex in
                 Self.boundedInspectionText(inventories[inventoryIndex], maximumBytes: inventoryBudgets[inventoryIndex])
             }.joined(separator: "\n\n")
@@ -699,10 +706,12 @@ extension PaceActionExecutor {
         }
         let candidateParsingWasBounded = diagnostic.count > 8_000 || rawReportedCandidates.count == 64
         let omittedCount = reportedCandidates.count - candidates.count
-        let coversReportedInstances = !reportedCandidates.isEmpty
+        let coversReportedInstances =
+            !reportedCandidates.isEmpty
             && successfulCount == reportedCandidates.count && unvalidatedCount == 0
             && !candidateParsingWasBounded && !inventoryWasTruncated
-        let coverage = coversReportedInstances
+        let coverage =
+            coversReportedInstances
             ? "All validated reported instances succeeded; inventories untruncated."
             : "Partial coverage; inventory may be incomplete."
         return PaceActionExecutionObservation(

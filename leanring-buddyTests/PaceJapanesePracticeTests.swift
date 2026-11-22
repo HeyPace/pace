@@ -1,26 +1,35 @@
 import Combine
 import Foundation
 import Testing
+
 @testable import Pace
 
 struct PaceJapanesePracticeContractTests {
-    private let response = #"{"spokenText":"今日は何をしましたか。","intent":"answer","payload":{"englishSubtitle":"What did you do today?"}}"#
+    private let response =
+        #"{"spokenText":"今日は何をしましたか。","intent":"answer","payload":{"englishSubtitle":"What did you do today?"}}"#
 
     @Test func practiceCommandsAreExplicitAndSupportBothLanguages() {
-        for command in ["start Japanese practice", "speak Japanese with English subtitles", "let’s practice Japanese", "日本語で話して"] {
+        for command in [
+            "start Japanese practice", "speak Japanese with English subtitles", "let’s practice Japanese", "日本語で話して",
+        ] {
             #expect(PaceConversationLanguageMode.command(command) == .japanesePractice)
         }
         for command in ["stop Japanese practice", "back to English", "英語に戻して。"] {
             #expect(PaceConversationLanguageMode.command(command) == .standard)
         }
-        for question in ["What is Japanese practice?", "Explain Japanese grammar", "I read about Japanese practice", "translate back to English please"] {
+        for question in [
+            "What is Japanese practice?", "Explain Japanese grammar", "I read about Japanese practice",
+            "translate back to English please",
+        ] {
             #expect(PaceConversationLanguageMode.command(question) == nil)
         }
     }
 
     @Test func bilingualContractKeepsTheExistingEnvelopeAndBoundsBothLanguages() throws {
         let reply = try PaceBilingualReply.parse(response)
-        #expect(reply.speechRequest == .init(text: "今日は何をしましたか。", profile: .japaneseFemale, englishSubtitle: "What did you do today?"))
+        #expect(
+            reply.speechRequest
+                == .init(text: "今日は何をしましたか。", profile: .japaneseFemale, englishSubtitle: "What did you do today?"))
         #expect(reply.englishSubtitle == "What did you do today?")
         for invalid in [
             "こんにちは。", #"{"spokenText":"こんにちは。","intent":"answer","payload":{}}"#,
@@ -28,7 +37,8 @@ struct PaceJapanesePracticeContractTests {
             response.replacingOccurrences(of: "What did you do today?", with: ""),
             response.replacingOccurrences(of: "What did you do today?", with: String(repeating: "a", count: 4001)),
             response.replacingOccurrences(of: "今日は何をしましたか。", with: String(repeating: "あ", count: 2001)),
-            response.replacingOccurrences(of: #""englishSubtitle":"What did you do today?""#, with: #""englishSubtitle":12"#),
+            response.replacingOccurrences(
+                of: #""englishSubtitle":"What did you do today?""#, with: #""englishSubtitle":12"#),
             response.replacingOccurrences(of: #""intent":"answer""#, with: #""intent":"unknown""#),
         ] { #expect(throws: PaceJapanesePracticeError.self) { try PaceBilingualReply.parse(invalid) } }
         #expect(PaceConversationLanguageMode.standard.applying(to: "unchanged") == "unchanged")
@@ -37,35 +47,49 @@ struct PaceJapanesePracticeContractTests {
     }
 
     @Test func subtitleDoesNotChangeExistingToolParsingOrApproval() throws {
-        let raw = #"{"spokenText":"表示します。","intent":"action","payload":{"englishSubtitle":"I’ll show it.","name":"present_media","args":{"assetID":"thank-you-dance","durationSeconds":4}}}"#
+        let raw =
+            #"{"spokenText":"表示します。","intent":"action","payload":{"englishSubtitle":"I’ll show it.","name":"present_media","args":{"assetID":"thank-you-dance","durationSeconds":4}}}"#
         let reply = try PaceBilingualReply.parse(raw)
         let parsed = PaceActionTagParser.parseActions(from: raw)
         #expect(reply.englishSubtitle == "I’ll show it.")
         #expect(parsed.executionPlan.flattenedActions.count == 1)
-        guard case .presentMedia(let media) = parsed.executionPlan.flattenedActions.first else { Issue.record("Media action must remain available."); return }
+        guard case .presentMedia(let media) = parsed.executionPlan.flattenedActions.first else {
+            Issue.record("Media action must remain available.")
+            return
+        }
         #expect(media.assetID == "thank-you-dance")
-        #expect(PaceActionApprovalRequest(approvalSummary: parsed.executionPlan.approvalSummary, requiresActionApproval: true) != nil)
+        #expect(
+            PaceActionApprovalRequest(
+                approvalSummary: parsed.executionPlan.approvalSummary, requiresActionApproval: true) != nil)
     }
 
     @Test func historyRoundTripKeepsOneEnglishEventWithImmutableJapaneseSpeech() throws {
         let reply = try PaceBilingualReply.parse(response)
-        let event = ConversationEvent(role: .pace, origin: .assistant, text: reply.englishSubtitle, speechRequest: reply.speechRequest)
+        let event = ConversationEvent(
+            role: .pace, origin: .assistant, text: reply.englishSubtitle, speechRequest: reply.speechRequest)
         let decoded = try JSONDecoder().decode(ConversationEvent.self, from: JSONEncoder().encode(event))
         #expect(decoded == event)
         let oldEvent = ConversationEvent(role: .pace, origin: .assistant, text: "An older reply.")
         var oldJSON = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(oldEvent)) as? [String: Any])
         oldJSON.removeValue(forKey: "speechRequest")
-        let decodedOldEvent = try JSONDecoder().decode(ConversationEvent.self, from: JSONSerialization.data(withJSONObject: oldJSON))
+        let decodedOldEvent = try JSONDecoder().decode(
+            ConversationEvent.self, from: JSONSerialization.data(withJSONObject: oldJSON))
         #expect(decodedOldEvent.speechRequest == nil && decodedOldEvent.text == oldEvent.text)
-        let row = PaceChatTranscriptModel.messageRowModel(fromChatMessage: .init(id: event.id, role: .pace,
-            body: event.text, createdAt: event.createdAt, speechRequest: event.speechRequest))
+        let row = PaceChatTranscriptModel.messageRowModel(
+            fromChatMessage: .init(
+                id: event.id, role: .pace,
+                body: event.text, createdAt: event.createdAt, speechRequest: event.speechRequest))
         #expect(row.isEnglishSubtitle && row.bodyText == reply.englishSubtitle)
     }
 
     @Test func authoredSpeechSubtitleIsOptionalStrictAndBounded() {
-        let valid: [String: PaceMCPJSONValue] = ["text": .string("こんにちは。"), "profile": .string("japanese_female"), "englishSubtitle": .string("Hello.")]
+        let valid: [String: PaceMCPJSONValue] = [
+            "text": .string("こんにちは。"), "profile": .string("japanese_female"), "englishSubtitle": .string("Hello."),
+        ]
         #expect(PaceSpeechRequest.parse(arguments: valid)?.englishSubtitle == "Hello.")
-        for invalidSubtitle in [PaceMCPJSONValue.null, .number(1), .string(" "), .string(String(repeating: "a", count: 4001))] {
+        for invalidSubtitle in [
+            PaceMCPJSONValue.null, .number(1), .string(" "), .string(String(repeating: "a", count: 4001)),
+        ] {
             var arguments = valid
             arguments["englishSubtitle"] = invalidSubtitle
             #expect(PaceSpeechRequest.parse(arguments: arguments) == nil)
@@ -74,9 +98,12 @@ struct PaceJapanesePracticeContractTests {
     }
 
     @MainActor @Test func practiceUnknownConversationDefaultsToTextOnlyButMachineAndKnownRoutesStayIntact() {
-        func decide(_ transcript: String, mode: PaceConversationLanguageMode = .japanesePractice,
-                    route: PaceIntentRoute = .fullPipeline, suggestion: Bool = false, visual: Bool = false) -> PaceJapanesePracticeRouting.Decision {
-            PaceJapanesePracticeRouting.decision(mode: mode, route: route, transcript: transcript,
+        func decide(
+            _ transcript: String, mode: PaceConversationLanguageMode = .japanesePractice,
+            route: PaceIntentRoute = .fullPipeline, suggestion: Bool = false, visual: Bool = false
+        ) -> PaceJapanesePracticeRouting.Decision {
+            PaceJapanesePracticeRouting.decision(
+                mode: mode, route: route, transcript: transcript,
                 hasScreenSuggestion: suggestion, hasActiveVisualContext: visual)
         }
         let greeting = "こんにちは。短く返事してください。"
@@ -97,16 +124,20 @@ struct PaceJapanesePracticeContractTests {
         #expect(decide(greeting, mode: .standard) == .normalRouting)
         #expect(decide(greeting, suggestion: true) == .normalRouting)
         #expect(decide(greeting, visual: true) == .normalRouting)
-        let knownRoutes: [PaceIntentRoute] = [.readScreen, .executeTool, .research, .phoneLargeModel,
-                                              .escalateToLargeModel, .chitchatFastPath, .answerDirectly]
+        let knownRoutes: [PaceIntentRoute] = [
+            .readScreen, .executeTool, .research, .phoneLargeModel,
+            .escalateToLargeModel, .chitchatFastPath, .answerDirectly,
+        ]
         for route in knownRoutes {
             #expect(decide(greeting, route: route) == .normalRouting)
         }
-        for command in ["画面を見て説明して", "ブラウザを開いて", "左のアイコンを押して", "メールを送信して",
-                        "フォルダを削除して", "日本語のパワーを実行して", "音量を上げて", "サイトを検索して",
-                        "Click the save button", "Open Chrome", "run power Japanese Greeting", "research this topic",
-                        "Show the screen", "type this into the terminal", "https://example.com",
-                        "undo that", "lock", "mission control", "make it better", "音楽をかけて", "リマインドして"] {
+        for command in [
+            "画面を見て説明して", "ブラウザを開いて", "左のアイコンを押して", "メールを送信して",
+            "フォルダを削除して", "日本語のパワーを実行して", "音量を上げて", "サイトを検索して",
+            "Click the save button", "Open Chrome", "run power Japanese Greeting", "research this topic",
+            "Show the screen", "type this into the terminal", "https://example.com",
+            "undo that", "lock", "mission control", "make it better", "音楽をかけて", "リマインドして",
+        ] {
             #expect(decide(command) == .normalRouting)
         }
     }
@@ -114,8 +145,11 @@ struct PaceJapanesePracticeContractTests {
     @Test func multilingualConfigurationNeverReplacesEnglishDefaults() {
         let standard = WhisperKitTranscriptionProvider.LanguageMode.english
         let practice = WhisperKitTranscriptionProvider.LanguageMode.automaticJapaneseEnglish
-        #expect(standard.modelName == "openai_whisper-base.en" && standard.decodingLanguage == "en" && !standard.detectsLanguage)
-        #expect(practice.modelName == "openai_whisper-base" && practice.decodingLanguage == nil && practice.detectsLanguage)
+        #expect(
+            standard.modelName == "openai_whisper-base.en" && standard.decodingLanguage == "en"
+                && !standard.detectsLanguage)
+        #expect(
+            practice.modelName == "openai_whisper-base" && practice.decodingLanguage == nil && practice.detectsLanguage)
         #expect(standard.modelFolderURL != practice.modelFolderURL)
         #expect(WhisperKitTranscriptionProvider.modelFolderURL == standard.modelFolderURL)
     }
@@ -130,10 +164,13 @@ struct PaceJapanesePracticeManagerTests {
         var emitsUnsafePartial = true
         var capturedSystemPrompt = ""
         var imageCounts: [Int] = []
-        var response = #"{"spokenText":"今日は何をしましたか。","intent":"answer","payload":{"englishSubtitle":"What did you do today?"}}"#
-        func generateResponseStreaming(images: [(data: Data, label: String)], systemPrompt: String,
+        var response =
+            #"{"spokenText":"今日は何をしましたか。","intent":"answer","payload":{"englishSubtitle":"What did you do today?"}}"#
+        func generateResponseStreaming(
+            images: [(data: Data, label: String)], systemPrompt: String,
             conversationHistory: [(userPlaceholder: String, assistantResponse: String)], userPrompt: String,
-            onTextChunk: @MainActor @Sendable (String) -> Void) async throws -> (text: String, duration: TimeInterval) {
+            onTextChunk: @MainActor @Sendable (String) -> Void
+        ) async throws -> (text: String, duration: TimeInterval) {
             calls += 1
             imageCounts.append(images.count)
             capturedSystemPrompt = systemPrompt
@@ -145,7 +182,10 @@ struct PaceJapanesePracticeManagerTests {
 
     @Test func onePlannerReplyShowsEnglishAndSpeaksJapaneseExactlyOnceAndReplaysItsProfile() async throws {
         let (root, manager, persister, speech) = try PacePowerManagerTests().fixture()
-        defer { manager.cancelActiveTurnTasks(); try? FileManager.default.removeItem(at: root) }
+        defer {
+            manager.cancelActiveTurnTasks()
+            try? FileManager.default.removeItem(at: root)
+        }
         manager.conversationLanguageMode = .japanesePractice
         PacePowerManagerTests().begin("I had tea today", manager: manager)
         let planner = Planner()
@@ -156,7 +196,10 @@ struct PaceJapanesePracticeManagerTests {
         await manager.currentResponseTask?.value
         #expect(planner.calls == 1 && planner.capturedSystemPrompt.contains("englishSubtitle"))
         #expect(speech.spokenTexts == ["今日は何をしましたか。"])
-        #expect(speech.requests == [.init(text: "今日は何をしましたか。", profile: .japaneseFemale, englishSubtitle: "What did you do today?")])
+        #expect(
+            speech.requests == [
+                .init(text: "今日は何をしましたか。", profile: .japaneseFemale, englishSubtitle: "What did you do today?")
+            ])
         let replies = persister.events.values.filter { $0.role == .pace }
         #expect(replies.count == 1 && replies.first?.text == "What did you do today?")
         #expect(replies.first?.speechRequest?.profile == .japaneseFemale)
@@ -183,18 +226,24 @@ struct PaceJapanesePracticeManagerTests {
             calls += 1
             return PaceIntentPrediction(intent: .unknown, confidence: 0)
         }
-        func classify(_ transcript: String,
-            conversationHistory: [(userTranscript: String, assistantResponse: String)]) async -> PaceIntentPrediction {
+        func classify(
+            _ transcript: String,
+            conversationHistory: [(userTranscript: String, assistantResponse: String)]
+        ) async -> PaceIntentPrediction {
             await classify(transcript)
         }
     }
 
     @Test func typedUnknownJapaneseGreetingUsesOneSelectedPlannerWithoutCapturingEvenWithReadMyScreenOn() async throws {
         let (root, manager, persister, speech) = try PacePowerManagerTests().fixture()
-        defer { manager.cancelActiveTurnTasks(); try? FileManager.default.removeItem(at: root) }
+        defer {
+            manager.cancelActiveTurnTasks()
+            try? FileManager.default.removeItem(at: root)
+        }
         let transcript = "こんにちは。短く返事してください。"
         let planner = Planner()
-        planner.response = #"{"spokenText":"こんにちは。お元気ですか。","intent":"answer","payload":{"englishSubtitle":"Hello. How are you?"}}"#
+        planner.response =
+            #"{"spokenText":"こんにちは。お元気ですか。","intent":"answer","payload":{"englishSubtitle":"Hello. How are you?"}}"#
         let classifier = UnknownConversationClassifier()
         manager.plannerClient = planner
         manager.textOnlyPlannerClient = planner
@@ -216,8 +265,12 @@ struct PaceJapanesePracticeManagerTests {
         #expect(classifier.calls == 1 && planner.calls == 1)
         #expect(planner.imageCounts == [0] && captureAttempts == 0)
         #expect(planner.capturedSystemPrompt.contains("englishSubtitle"))
-        #expect(speech.requests == [.init(text: "こんにちは。お元気ですか。", profile: .japaneseFemale,
-            englishSubtitle: "Hello. How are you?")])
+        #expect(
+            speech.requests == [
+                .init(
+                    text: "こんにちは。お元気ですか。", profile: .japaneseFemale,
+                    englishSubtitle: "Hello. How are you?")
+            ])
         #expect(persister.events.values.filter { $0.role == .pace }.map(\.text) == ["Hello. How are you?"])
         #expect(persister.events.values.contains { $0.origin == .typed && $0.text == transcript })
         #expect(manager.voiceState == .idle)
@@ -225,7 +278,10 @@ struct PaceJapanesePracticeManagerTests {
 
     @Test func practiceUnknownDeterministicCommandsAndClarificationKeepTheirActualManagerRoutes() async throws {
         let (root, manager, _, _) = try PacePowerManagerTests().fixture()
-        defer { manager.cancelActiveTurnTasks(); try? FileManager.default.removeItem(at: root) }
+        defer {
+            manager.cancelActiveTurnTasks()
+            try? FileManager.default.removeItem(at: root)
+        }
         let classifier = PaceRuleBasedIntentClassifierAdapter(classifier: PaceIntentClassifier())
         let planner = Planner()
         manager.intentClassifier = classifier
@@ -250,7 +306,10 @@ struct PaceJapanesePracticeManagerTests {
             manager.submitChatTranscriptFromDeepLink(transcript)
             await manager.currentTurnDispatchTask?.value
             await manager.currentResponseTask?.value
-            #expect(manager.recentActionResults.contains { $0.status == .planned && $0.detail.contains(parsed.executionPlan.approvalSummary) })
+            #expect(
+                manager.recentActionResults.contains {
+                    $0.status == .planned && $0.detail.contains(parsed.executionPlan.approvalSummary)
+                })
             #expect(manager.recentActionResults.contains { $0.status == .skipped })
         }
         manager.submitChatTranscriptFromDeepLink("make it better")
@@ -274,12 +333,16 @@ struct PaceJapanesePracticeManagerTests {
 
     @Test func practiceMathRoutesThroughTheSelectedBilingualPlannerAndSpeaksJapanese() async throws {
         let (root, manager, persister, speech) = try PacePowerManagerTests().fixture()
-        defer { manager.cancelActiveTurnTasks(); try? FileManager.default.removeItem(at: root) }
+        defer {
+            manager.cancelActiveTurnTasks()
+            try? FileManager.default.removeItem(at: root)
+        }
         let transcript = "What is seven times nine?"
         manager.conversationLanguageMode = .japanesePractice
         PacePowerManagerTests().begin(transcript, manager: manager)
         let planner = Planner()
-        planner.response = #"{"spokenText":"七かける九は六十三です。","intent":"answer","payload":{"englishSubtitle":"Seven times nine is sixty-three."}}"#
+        planner.response =
+            #"{"spokenText":"七かける九は六十三です。","intent":"answer","payload":{"englishSubtitle":"Seven times nine is sixty-three."}}"#
         manager.plannerClient = planner
         manager.textOnlyPlannerClient = planner
         manager.intentClassifier = PaceRuleBasedIntentClassifierAdapter(classifier: PaceIntentClassifier())
@@ -289,8 +352,12 @@ struct PaceJapanesePracticeManagerTests {
             transcript: transcript, turnLease: manager.turnLeaseRegistry.currentLease)
         await manager.currentResponseTask?.value
         #expect(planner.calls == 1 && planner.capturedSystemPrompt.contains("englishSubtitle"))
-        #expect(speech.requests == [.init(text: "七かける九は六十三です。", profile: .japaneseFemale,
-            englishSubtitle: "Seven times nine is sixty-three.")])
+        #expect(
+            speech.requests == [
+                .init(
+                    text: "七かける九は六十三です。", profile: .japaneseFemale,
+                    englishSubtitle: "Seven times nine is sixty-three.")
+            ])
         #expect(speech.spokenTexts == ["七かける九は六十三です。"])
         let assistantEvents = persister.events.values.filter { $0.role == .pace }
         #expect(assistantEvents.count == 1 && assistantEvents.first?.text == "Seven times nine is sixty-three.")
@@ -335,9 +402,13 @@ struct PaceJapanesePracticeManagerTests {
         manager.handleShortcutTransition(.pressed)
         manager.handleShortcutTransition(.released)
         #expect(manager.currentTurnHUDState == activeHUD)
-        #expect(manager.buddyDictationManager.japanesePracticePreparationStatus.contains("Preparing")
-            || manager.buddyDictationManager.japanesePracticePreparationStatus.contains("Fixture multilingual"))
-        for _ in 0..<1000 { if preparationAttempts == 2 { break }; await Task.yield() }
+        #expect(
+            manager.buddyDictationManager.japanesePracticePreparationStatus.contains("Preparing")
+                || manager.buddyDictationManager.japanesePracticePreparationStatus.contains("Fixture multilingual"))
+        for _ in 0..<1000 {
+            if preparationAttempts == 2 { break }
+            await Task.yield()
+        }
         #expect(preparationAttempts == 2 && !activeTask.isCancelled)
         #expect(manager.currentTurnHUDState == activeHUD)
         #expect(manager.voiceState == .responding && speech.spokenTexts.isEmpty)
@@ -349,13 +420,20 @@ struct PaceJapanesePracticeManagerTests {
 
     @Test func taggedJapaneseReplyKeepsEnglishHistoryAndReplaysNormalizedSpeech() async throws {
         let (root, manager, persister, speech) = try PacePowerManagerTests().fixture()
-        defer { manager.cancelActiveTurnTasks(); try? FileManager.default.removeItem(at: root) }
+        defer {
+            manager.cancelActiveTurnTasks()
+            try? FileManager.default.removeItem(at: root)
+        }
         manager.conversationLanguageMode = .japanesePractice
         PacePowerManagerTests().begin("Say hello", manager: manager)
         let planner = Planner()
-        planner.response = #"{"spokenText":"こんにちは。 [POINT:42,84:greeting:desktop] [DONE]","intent":"answer","payload":{"englishSubtitle":"Hello."}}"#
-        let originalPoint = PaceTagParsers.parsePointingCoordinates(from:
-            PaceTagParsers.parseAndStripDoneSignal(from: PaceActionTagParser.parseActions(from: planner.response).spokenText).strippedText)
+        planner.response =
+            #"{"spokenText":"こんにちは。 [POINT:42,84:greeting:desktop] [DONE]","intent":"answer","payload":{"englishSubtitle":"Hello."}}"#
+        let originalPoint = PaceTagParsers.parsePointingCoordinates(
+            from:
+                PaceTagParsers.parseAndStripDoneSignal(
+                    from: PaceActionTagParser.parseActions(from: planner.response).spokenText
+                ).strippedText)
         #expect(originalPoint.coordinate?.x == 42 && originalPoint.coordinate?.y == 84)
         manager.plannerClient = planner
         manager.textOnlyPlannerClient = planner
@@ -374,7 +452,10 @@ struct PaceJapanesePracticeManagerTests {
 
     @Test func validatedMismatchFailsVisiblyButWrittenOperationalAcknowledgementStaysQuiet() async throws {
         let (root, manager, _, speech) = try PacePowerManagerTests().fixture()
-        defer { manager.cancelActiveTurnTasks(); try? FileManager.default.removeItem(at: root) }
+        defer {
+            manager.cancelActiveTurnTasks()
+            try? FileManager.default.removeItem(at: root)
+        }
         manager.conversationLanguageMode = .japanesePractice
         PacePowerManagerTests().begin("Hello", manager: manager)
         await manager.streamingSentenceTTSPipeline.flushFinal(finalSpokenText: "Showing the animation.")
@@ -382,7 +463,8 @@ struct PaceJapanesePracticeManagerTests {
         let lease = manager.turnLeaseRegistry.currentLease
         try manager.prepareBilingualReplyIfNeeded(
             #"{"spokenText":"こんにちは。","intent":"answer","payload":{"englishSubtitle":"Hello."}}"#, turnLease: lease)
-        let succeeded = await manager.beginFinalSpeechIfCurrentTurn(spokenText: "違う文章。", turnLease: lease, purpose: .assistantReply)
+        let succeeded = await manager.beginFinalSpeechIfCurrentTurn(
+            spokenText: "違う文章。", turnLease: lease, purpose: .assistantReply)
         #expect(!succeeded && manager.currentTurnHUDState.status == .failed)
         #expect(manager.currentTurnHUDState.detail?.contains("did not match") == true)
         #expect(manager.voiceState == .idle && speech.requests.isEmpty)
@@ -394,30 +476,45 @@ struct PaceJapanesePracticeManagerTests {
 
     @Test func validBilingualActionKeepsOperationalFeedbackWrittenOnlyAndPreservesItsHUD() async throws {
         let (root, manager, persister, speech) = try PacePowerManagerTests().fixture()
-        defer { manager.cancelActiveTurnTasks(); try? FileManager.default.removeItem(at: root) }
+        defer {
+            manager.cancelActiveTurnTasks()
+            try? FileManager.default.removeItem(at: root)
+        }
         manager.conversationLanguageMode = .japanesePractice
         PacePowerManagerTests().begin("Show the greeting", manager: manager)
-        let response = #"{"spokenText":"あいさつを表示します。","intent":"action","payload":{"name":"present_media","args":{"assetID":"japanese-greeting-woman","durationSeconds":6},"englishSubtitle":"I’ll show the greeting."}}"#
+        let response =
+            #"{"spokenText":"あいさつを表示します。","intent":"action","payload":{"name":"present_media","args":{"assetID":"japanese-greeting-woman","durationSeconds":6},"englishSubtitle":"I’ll show the greeting."}}"#
         #expect(PaceActionTagParser.parseActions(from: response).actions.count == 1)
         let lease = manager.turnLeaseRegistry.currentLease
         try manager.prepareBilingualReplyIfNeeded(response, turnLease: lease)
         manager.recordConversationTurn(userTranscript: "Show the greeting", assistantResponse: "あいさつを表示します。")
-        #expect(persister.events.values.contains { $0.role == .pace && $0.text == "I’ll show the greeting." && $0.speechRequest != nil })
+        #expect(
+            persister.events.values.contains {
+                $0.role == .pace && $0.text == "I’ll show the greeting." && $0.speechRequest != nil
+            })
         let delivered = await manager.beginFinalSpeechIfCurrentTurn(
             spokenText: "あいさつを表示します。", turnLease: lease, purpose: .assistantReply)
         #expect(delivered && speech.spokenTexts == ["あいさつを表示します。"])
-        let japaneseReplayRequest = PaceSpeechRequest(text: "あいさつを表示します。", profile: .japaneseFemale,
+        let japaneseReplayRequest = PaceSpeechRequest(
+            text: "あいさつを表示します。", profile: .japaneseFemale,
             englishSubtitle: "I’ll show the greeting.")
         #expect(manager.lastSpokenReplyRequest == japaneseReplayRequest)
-        let feedback = try #require(PaceActionExecutionObservation.formatForUserFeedback([
-            .init(toolName: "present_media", summary: "Presented local media fixture.",
-                userFacingSummary: "Presented the requested local media.")]))
+        let feedback = try #require(
+            PaceActionExecutionObservation.formatForUserFeedback([
+                .init(
+                    toolName: "present_media", summary: "Presented local media fixture.",
+                    userFacingSummary: "Presented the requested local media.")
+            ]))
         let cases: [(String, PaceTurnHUDState)] = [
             (feedback, .acting("Presenting the greeting")),
-            ("Stopped because the next action was denied. Earlier actions may have completed; the full request remains unverified.",
-                .failed("Action denied; request not verified")),
-            ("Stopped after 2 steps before verifying the full request. Please check the current result before continuing.",
-                .failed("Step limit reached; request not verified")),
+            (
+                "Stopped because the next action was denied. Earlier actions may have completed; the full request remains unverified.",
+                .failed("Action denied; request not verified")
+            ),
+            (
+                "Stopped after 2 steps before verifying the full request. Please check the current result before continuing.",
+                .failed("Step limit reached; request not verified")
+            ),
         ]
         for (writtenFeedback, expectedHUD) in cases {
             manager.currentTurnHUDState = expectedHUD
@@ -430,7 +527,8 @@ struct PaceJapanesePracticeManagerTests {
             #expect(manager.lastSpokenReplyRequest == japaneseReplayRequest)
         }
         #expect(!persister.events.values.contains { $0.origin == .failure })
-        await manager.deliverCodingForegroundReply("Coding session stopped before completing the request.",
+        await manager.deliverCodingForegroundReply(
+            "Coding session stopped before completing the request.",
             transcript: "", turnLease: lease, failed: true)
         #expect(manager.voiceState == .idle)
         #expect(manager.currentTurnHUDState == .failed("Coding session stopped before completing the request."))
@@ -439,7 +537,8 @@ struct PaceJapanesePracticeManagerTests {
 
         manager.conversationLanguageMode = .standard
         PacePowerManagerTests().begin("Back to normal", manager: manager)
-        let standardDelivered = await manager.deliverPostActionFeedbackIfCurrentTurn(feedback,
+        let standardDelivered = await manager.deliverPostActionFeedbackIfCurrentTurn(
+            feedback,
             turnLease: manager.turnLeaseRegistry.currentLease)
         #expect(standardDelivered && speech.spokenTexts.last == feedback)
         #expect(manager.lastSpokenReplyRequest == PaceSpeechRequest(text: feedback))
@@ -449,7 +548,9 @@ struct PaceJapanesePracticeManagerTests {
         #expect(Array(speech.spokenTexts.suffix(2)) == [feedback, feedback])
     }
 
-    @Test(.timeLimit(.minutes(1))) func unsupportedTypedPracticeCommandReturnsIdleAndDrainsTheFollowingQueuedTurn() async throws {
+    @Test(.timeLimit(.minutes(1))) func unsupportedTypedPracticeCommandReturnsIdleAndDrainsTheFollowingQueuedTurn()
+        async throws
+    {
         let (root, manager, persister, _) = try PacePowerManagerTests().fixture()
         defer {
             manager.cancelActiveTurnTasks()
@@ -471,7 +572,10 @@ struct PaceJapanesePracticeManagerTests {
         manager.useLocalVLMForScreenContext = false
         let (states, stateContinuation) = AsyncStream<CompanionVoiceState>.makeStream()
         let stateObservation = manager.$voiceState.sink { stateContinuation.yield($0) }
-        defer { stateObservation.cancel(); stateContinuation.finish() }
+        defer {
+            stateObservation.cancel()
+            stateContinuation.finish()
+        }
         manager.isOverlayVisible = true
         manager.bindQueuedChatTurnDrainObservation()
         manager.voiceState = .processing
@@ -487,12 +591,18 @@ struct PaceJapanesePracticeManagerTests {
         #expect(manager.voiceState == .idle && manager.queuedChatTurnCount == 0)
         #expect(speech.spokenTexts.contains { $0.contains("63") })
         #expect(planner.calls == 1)
-        #expect(persister.events.values.contains { $0.role == .pace && $0.text.contains("needs the local Kokoro Japanese voice") })
+        #expect(
+            persister.events.values.contains {
+                $0.role == .pace && $0.text.contains("needs the local Kokoro Japanese voice")
+            })
     }
 
     @Test func invalidPracticeReplyFailsVisiblyWithoutSpeakingEnglishOrJSON() async throws {
         let (root, manager, _, speech) = try PacePowerManagerTests().fixture()
-        defer { manager.cancelActiveTurnTasks(); try? FileManager.default.removeItem(at: root) }
+        defer {
+            manager.cancelActiveTurnTasks()
+            try? FileManager.default.removeItem(at: root)
+        }
         manager.conversationLanguageMode = .japanesePractice
         PacePowerManagerTests().begin("Hello", manager: manager)
         let planner = Planner()
@@ -508,14 +618,24 @@ struct PaceJapanesePracticeManagerTests {
 
     @Test func practiceFastActionStillExecutesAndKeepsItsEnglishAcknowledgementSilent() async throws {
         let (root, manager, _, speech) = try PacePowerManagerTests().fixture()
-        defer { manager.cancelActiveTurnTasks(); try? FileManager.default.removeItem(at: root) }
+        defer {
+            manager.cancelActiveTurnTasks()
+            try? FileManager.default.removeItem(at: root)
+        }
         manager.conversationLanguageMode = .japanesePractice
         PacePowerManagerTests().begin("Show the animation", manager: manager)
         manager.requiresActionApproval = false
         var presented = 0
-        manager.actionExecutor.presentLocalMedia = { _ in presented += 1; return .init(toolName: "present_media", summary: "Presented") }
-        let plan = PaceActionExecutionPlan.serial(actions: [.presentMedia(.init(assetID: "thank-you-dance", durationSeconds: 4, motion: nil))])
-        manager.handleFastLocalActionPath(transcript: "Show the animation", fastActionParseResult: .init(spokenText: "Showing the animation.", executionPlan: plan))
+        manager.actionExecutor.presentLocalMedia = { _ in
+            presented += 1
+            return .init(toolName: "present_media", summary: "Presented")
+        }
+        let plan = PaceActionExecutionPlan.serial(actions: [
+            .presentMedia(.init(assetID: "thank-you-dance", durationSeconds: 4, motion: nil))
+        ])
+        manager.handleFastLocalActionPath(
+            transcript: "Show the animation",
+            fastActionParseResult: .init(spokenText: "Showing the animation.", executionPlan: plan))
         await manager.currentResponseTask?.value
         #expect(presented == 1)
         #expect(speech.spokenTexts.isEmpty)
@@ -523,7 +643,10 @@ struct PaceJapanesePracticeManagerTests {
 
     @Test func bundledGreetingSubtitleUsesTheSameEnglishHistoryEntryOutsidePractice() async throws {
         let (root, manager, persister, speech) = try PacePowerManagerTests().fixture()
-        defer { manager.cancelActiveTurnTasks(); try? FileManager.default.removeItem(at: root) }
+        defer {
+            manager.cancelActiveTurnTasks()
+            try? FileManager.default.removeItem(at: root)
+        }
         PacePowerManagerTests().begin("show me the Japanese greeting", manager: manager)
         let request = PaceSpeechRequest(text: "こんにちは。", profile: .japaneseFemale, englishSubtitle: "Hello.")
         let observation = await manager.actionExecutor.speakLocalText?(request)
@@ -539,7 +662,8 @@ struct PaceJapanesePracticeManagerTests {
     @Test func muteAndStopKeepPracticeSpeechSilentAndRetainEnglishSubtitles() async throws {
         let speech = PacePowerManagerTests.LocalSpeech()
         let pipeline = StreamingSentenceTTSPipeline(ttsClient: speech)
-        let reply = try PaceBilingualReply.parse(#"{"spokenText":"こんにちは。","intent":"answer","payload":{"englishSubtitle":"Hello."}}"#)
+        let reply = try PaceBilingualReply.parse(
+            #"{"spokenText":"こんにちは。","intent":"answer","payload":{"englishSubtitle":"Hello."}}"#)
         pipeline.setConversationLanguageModeForCurrentTurn(.japanesePractice)
         await pipeline.acceptStreamedText("English should never escape.")
         await pipeline.flushFinal(finalSpokenText: "Another English status.")
@@ -562,7 +686,9 @@ struct PaceJapanesePracticeSpeechFixtureTests {
         let filePath: String
         let expectedFragment: String
     }
-    private static var manifestPath: String? { ProcessInfo.processInfo.environment["PACE_LANGUAGE_PRACTICE_FIXTURE_MANIFEST"] }
+    private static var manifestPath: String? {
+        ProcessInfo.processInfo.environment["PACE_LANGUAGE_PRACTICE_FIXTURE_MANIFEST"]
+    }
 
     @Test(.enabled(if: PaceJapanesePracticeSpeechFixtureTests.manifestPath != nil))
     func multilingualLocalRuntimeRecognizesJapaneseAndEnglishFixtures() async throws {

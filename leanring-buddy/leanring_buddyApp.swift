@@ -78,7 +78,7 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
         // duplicate cleanup in RELEASE builds where the user is unlikely
         // to be cycling permissions.
         #if !DEBUG
-        terminateOtherRunningPaceInstances()
+            terminateOtherRunningPaceInstances()
         #endif
 
         UserDefaults.standard.register(defaults: ["NSInitialToolTipDelay": 0])
@@ -238,7 +238,10 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
         if codingTerminationTask == nil {
             companionManager.dismissCodingApprovals()
             codingTerminationTask = Task { [weak self] in
-                guard let self else { sender.reply(toApplicationShouldTerminate: true); return }
+                guard let self else {
+                    sender.reply(toApplicationShouldTerminate: true)
+                    return
+                }
                 await companionManager.codingSessionCoordinator.shutdown()
                 codingShutdownCompleted = true
                 sender.reply(toApplicationShouldTerminate: true)
@@ -308,24 +311,25 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
     /// every grant. Release builds keep the convenience.
     private func registerAsLoginItemIfNeeded() {
         #if DEBUG
-        return
+            return
         #else
-        let loginItemService = SMAppService.mainApp
-        if loginItemService.status != .enabled {
-            do {
-                try loginItemService.register()
-                print("🎯 Pace: Registered as login item")
-            } catch {
-                print("⚠️ Pace: Failed to register as login item: \(error)")
+            let loginItemService = SMAppService.mainApp
+            if loginItemService.status != .enabled {
+                do {
+                    try loginItemService.register()
+                    print("🎯 Pace: Registered as login item")
+                } catch {
+                    print("⚠️ Pace: Failed to register as login item: \(error)")
+                }
             }
-        }
         #endif
     }
 
     /// Eats Mail's cold-launch cost before the first compose command. This is
     /// launch-only and non-activating so the user does not lose focus.
     private func prewarmMailForFastDraftsIfNeeded() {
-        let rawFlag = AppBundleConfiguration
+        let rawFlag =
+            AppBundleConfiguration
             .stringValue(forKey: "PrewarmMailForDrafts")?
             .lowercased()
         guard rawFlag != "false", rawFlag != "0", rawFlag != "no" else {
@@ -341,9 +345,11 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
-        guard let mailApplicationURL = NSWorkspace.shared.urlForApplication(
-            withBundleIdentifier: mailBundleIdentifier
-        ) else {
+        guard
+            let mailApplicationURL = NSWorkspace.shared.urlForApplication(
+                withBundleIdentifier: mailBundleIdentifier
+            )
+        else {
             print("⚠️ Pace: Mail app not found for draft prewarm")
             return
         }

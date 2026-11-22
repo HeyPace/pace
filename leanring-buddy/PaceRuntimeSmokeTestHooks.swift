@@ -27,8 +27,10 @@ extension Notification.Name {
     static let paceSmokeShowClarification = Notification.Name("com.pace.smoke.showClarification")
     static let paceSmokeResolveClarification = Notification.Name("com.pace.smoke.resolveClarification")
     static let paceSmokeShowClickTargetClarification = Notification.Name("com.pace.smoke.showClickTargetClarification")
-    static let paceSmokeResolveClickTargetClarification = Notification.Name("com.pace.smoke.resolveClickTargetClarification")
-    static let paceSmokeSimulateClickAllFailObservation = Notification.Name("com.pace.smoke.simulateClickAllFailObservation")
+    static let paceSmokeResolveClickTargetClarification = Notification.Name(
+        "com.pace.smoke.resolveClickTargetClarification")
+    static let paceSmokeSimulateClickAllFailObservation = Notification.Name(
+        "com.pace.smoke.simulateClickAllFailObservation")
 }
 
 @MainActor
@@ -60,14 +62,22 @@ final class PaceRuntimeSmokeTestHooks {
             observe(.paceSmokeTeachNextToken) { [weak self] in
                 guard let self else { return }
                 self.companionManager.cancelActiveTurnTasks()
-                guard self.companionManager.diagramOverlayController.present(PaceTeachingArrayIllustration.nextTokenExample) else { return }
+                guard
+                    self.companionManager.diagramOverlayController.present(
+                        PaceTeachingArrayIllustration.nextTokenExample)
+                else { return }
                 self.companionManager.playTeachingLessonFromControls()
-                PaceSmokeTestStateStore.recordDiagramState(PaceTeachingArrayIllustration.nextTokenExample.nodes.count, selectedPart: nil)
+                PaceSmokeTestStateStore.recordDiagramState(
+                    PaceTeachingArrayIllustration.nextTokenExample.nodes.count, selectedPart: nil)
             }
-            for (notification, template) in [(Notification.Name.paceSmokeTeachLiftSystem, PaceFigureScene.Template.liftSystem),
-                                             (.paceSmokeTeachPiCamera, .piCamera)] {
+            for (notification, template) in [
+                (Notification.Name.paceSmokeTeachLiftSystem, PaceFigureScene.Template.liftSystem),
+                (.paceSmokeTeachPiCamera, .piCamera),
+            ] {
                 observe(notification) { [weak self] in
-                    guard let self, let document = PaceTeachingTemplateCatalog.lessonDocument(for: template) else { return }
+                    guard let self, let document = PaceTeachingTemplateCatalog.lessonDocument(for: template) else {
+                        return
+                    }
                     self.companionManager.cancelActiveTurnTasks()
                     guard self.companionManager.diagramOverlayController.present(document) else { return }
                     self.companionManager.playTeachingLessonFromControls()

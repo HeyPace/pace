@@ -33,9 +33,10 @@ final class PaceThreadMemoryStore {
         let applicationSupportRootURL = FileManager.default
             .urls(for: .applicationSupportDirectory, in: .userDomainMask)
             .first
-        self.init(fileURL: applicationSupportRootURL?
-            .appendingPathComponent("Pace", isDirectory: true)
-            .appendingPathComponent("thread-memory.json", isDirectory: false))
+        self.init(
+            fileURL: applicationSupportRootURL?
+                .appendingPathComponent("Pace", isDirectory: true)
+                .appendingPathComponent("thread-memory.json", isDirectory: false))
     }
 
     init(fileURL: URL?) { self.fileURL = fileURL }

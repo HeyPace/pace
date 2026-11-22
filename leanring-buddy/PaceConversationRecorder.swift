@@ -21,10 +21,12 @@ nonisolated struct ConversationEvent: Codable, Equatable, Identifiable, Sendable
 
     var id: String { eventID }
 
-    init(eventID: String = UUID().uuidString, turnID: String? = nil,
-         role: PaceChatRole, origin: Origin, text: String,
-         createdAt: Date = Date(), deliveryState: DeliveryState = .completed,
-         speechRequest: PaceSpeechRequest? = nil, generatedImagePreviewID: UUID? = nil) {
+    init(
+        eventID: String = UUID().uuidString, turnID: String? = nil,
+        role: PaceChatRole, origin: Origin, text: String,
+        createdAt: Date = Date(), deliveryState: DeliveryState = .completed,
+        speechRequest: PaceSpeechRequest? = nil, generatedImagePreviewID: UUID? = nil
+    ) {
         self.eventID = eventID
         self.turnID = turnID
         self.role = role
@@ -56,12 +58,16 @@ final class PaceConversationRecorder {
     }
 
     @discardableResult
-    func acceptRequest(_ text: String, origin: ConversationEvent.Origin,
-                       eventIdentifier: String = UUID().uuidString) -> ConversationEvent {
+    func acceptRequest(
+        _ text: String, origin: ConversationEvent.Origin,
+        eventIdentifier: String = UUID().uuidString
+    ) -> ConversationEvent {
         if let existingEvent = recordedEvents[eventIdentifier] { return existingEvent }
-        return record(ConversationEvent(eventID: eventIdentifier, turnID: eventIdentifier,
-            role: .user, origin: origin, text: text.trimmingCharacters(in: .whitespacesAndNewlines),
-            deliveryState: .accepted))
+        return record(
+            ConversationEvent(
+                eventID: eventIdentifier, turnID: eventIdentifier,
+                role: .user, origin: origin, text: text.trimmingCharacters(in: .whitespacesAndNewlines),
+                deliveryState: .accepted))
     }
 
     @discardableResult
@@ -77,8 +83,10 @@ final class PaceConversationRecorder {
         recordedEvents[eventIdentifier]
     }
 
-    func updateDeliveryState(_ deliveryState: ConversationEvent.DeliveryState,
-                             eventIdentifier: String, visibleText: String? = nil) {
+    func updateDeliveryState(
+        _ deliveryState: ConversationEvent.DeliveryState,
+        eventIdentifier: String, visibleText: String? = nil
+    ) {
         guard var event = recordedEvents[eventIdentifier] else { return }
         event.deliveryState = deliveryState
         if let visibleText { event.text = visibleText }

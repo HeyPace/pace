@@ -1,7 +1,9 @@
 import Darwin
 import Foundation
 
-final class PacePowerJavaScriptService: NSObject, NSXPCListenerDelegate, PaceJavaScriptPowerServiceProtocol, @unchecked Sendable {
+final class PacePowerJavaScriptService: NSObject, NSXPCListenerDelegate, PaceJavaScriptPowerServiceProtocol,
+    @unchecked Sendable
+{
     private struct Evaluation {
         let request: PaceJavaScriptPowerRequest
         let requestData: Data
@@ -38,20 +40,24 @@ final class PacePowerJavaScriptService: NSObject, NSXPCListenerDelegate, PaceJav
     func evaluate(_ requestData: Data, withReply reply: @escaping (Data) -> Void) {
         controlQueue.async { [self] in
             guard requestData.count <= PaceJavaScriptPowerLimits.maximumSourceBytes * 8,
-                  let request = try? JSONDecoder().decode(PaceJavaScriptPowerRequest.self, from: requestData),
-                  request.source.utf8.count <= PaceJavaScriptPowerLimits.maximumSourceBytes,
-                  !request.source.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-                  (0...23).contains(request.localHour), (1...7).contains(request.weekday),
-                  UUID(uuidString: request.runIdentifier) != nil else {
-                reply(Self.response(failure: "Invalid JavaScript evaluation request.")); return
+                let request = try? JSONDecoder().decode(PaceJavaScriptPowerRequest.self, from: requestData),
+                request.source.utf8.count <= PaceJavaScriptPowerLimits.maximumSourceBytes,
+                !request.source.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                (0...23).contains(request.localHour), (1...7).contains(request.weekday),
+                UUID(uuidString: request.runIdentifier) != nil
+            else {
+                reply(Self.response(failure: "Invalid JavaScript evaluation request."))
+                return
             }
             guard !cancelledRunIdentifiers.contains(request.runIdentifier) else {
-                reply(Self.response(failure: "JavaScript evaluation was cancelled.")); return
+                reply(Self.response(failure: "JavaScript evaluation was cancelled."))
+                return
             }
             let evaluation = Evaluation(request: request, requestData: requestData, reply: reply)
             if activeJob != nil {
                 guard pendingEvaluation == nil else {
-                    reply(Self.response(failure: "JavaScript worker is busy.")); return
+                    reply(Self.response(failure: "JavaScript worker is busy."))
+                    return
                 }
                 pendingEvaluation = evaluation
                 return
@@ -81,22 +87,29 @@ final class PacePowerJavaScriptService: NSObject, NSXPCListenerDelegate, PaceJav
         var fileActions: posix_spawn_file_actions_t?
         var attributes: posix_spawnattr_t?
         guard posix_spawn_file_actions_init(&fileActions) == 0 else {
-            evaluation.reply(Self.response(failure: "JavaScript helper launch setup failed.")); return
+            evaluation.reply(Self.response(failure: "JavaScript helper launch setup failed."))
+            return
         }
         guard posix_spawnattr_init(&attributes) == 0 else {
             posix_spawn_file_actions_destroy(&fileActions)
-            evaluation.reply(Self.response(failure: "JavaScript helper launch setup failed.")); return
+            evaluation.reply(Self.response(failure: "JavaScript helper launch setup failed."))
+            return
         }
         defer {
             posix_spawn_file_actions_destroy(&fileActions)
             posix_spawnattr_destroy(&attributes)
         }
         // Only the three explicitly duplicated descriptors cross into generated-code computation.
-        guard posix_spawn_file_actions_adddup2(&fileActions, input.fileHandleForReading.fileDescriptor, STDIN_FILENO) == 0,
-              posix_spawn_file_actions_adddup2(&fileActions, output.fileHandleForWriting.fileDescriptor, STDOUT_FILENO) == 0,
-              posix_spawn_file_actions_addopen(&fileActions, STDERR_FILENO, "/dev/null", O_WRONLY, 0) == 0,
-              posix_spawnattr_setflags(&attributes, Int16(POSIX_SPAWN_CLOEXEC_DEFAULT)) == 0 else {
-            evaluation.reply(Self.response(failure: "JavaScript helper descriptor setup failed.")); return
+        guard
+            posix_spawn_file_actions_adddup2(&fileActions, input.fileHandleForReading.fileDescriptor, STDIN_FILENO)
+                == 0,
+            posix_spawn_file_actions_adddup2(&fileActions, output.fileHandleForWriting.fileDescriptor, STDOUT_FILENO)
+                == 0,
+            posix_spawn_file_actions_addopen(&fileActions, STDERR_FILENO, "/dev/null", O_WRONLY, 0) == 0,
+            posix_spawnattr_setflags(&attributes, Int16(POSIX_SPAWN_CLOEXEC_DEFAULT)) == 0
+        else {
+            evaluation.reply(Self.response(failure: "JavaScript helper descriptor setup failed."))
+            return
         }
         let executablePath = strdup(executableURL.path)!
         defer { free(executablePath) }
@@ -105,7 +118,8 @@ final class PacePowerJavaScriptService: NSObject, NSXPCListenerDelegate, PaceJav
         var processIdentifier: pid_t = 0
         let spawnResult = arguments.withUnsafeMutableBufferPointer { argumentBuffer in
             environment.withUnsafeMutableBufferPointer { environmentBuffer in
-                posix_spawn(&processIdentifier, executablePath, &fileActions, &attributes,
+                posix_spawn(
+                    &processIdentifier, executablePath, &fileActions, &attributes,
                     argumentBuffer.baseAddress!, environmentBuffer.baseAddress!)
             }
         }
@@ -123,7 +137,8 @@ final class PacePowerJavaScriptService: NSObject, NSXPCListenerDelegate, PaceJav
         watchdog.schedule(deadline: .now() + PaceJavaScriptPowerLimits.executionSeconds)
         watchdog.setEventHandler { [weak self, weak job] in
             guard let self, let job else { return }
-            self.terminate(job, failure: "The Power exceeded its two-second computation time limit. No Power actions ran.")
+            self.terminate(
+                job, failure: "The Power exceeded its two-second computation time limit. No Power actions ran.")
         }
         job.watchdog = watchdog
         watchdog.resume()
@@ -138,8 +153,7 @@ final class PacePowerJavaScriptService: NSObject, NSXPCListenerDelegate, PaceJav
         let inputHandle = input.fileHandleForWriting
         _ = fcntl(inputHandle.fileDescriptor, F_SETNOSIGPIPE, 1)
         DispatchQueue.global(qos: .userInitiated).async { [self, job] in
-            do { try inputHandle.write(contentsOf: evaluation.requestData) }
-            catch {
+            do { try inputHandle.write(contentsOf: evaluation.requestData) } catch {
                 controlQueue.async { [self, job] in terminate(job, failure: "JavaScript helper input failed.") }
             }
             try? inputHandle.close()
@@ -187,7 +201,9 @@ final class PacePowerJavaScriptService: NSObject, NSXPCListenerDelegate, PaceJav
         job.reapTimer = nil
         job.watchdog?.cancel()
         job.watchdog = nil
-        if (result < 0 || status != 0), job.failure == nil { job.failure = "JavaScript compute helper stopped before completing." }
+        if result < 0 || status != 0, job.failure == nil {
+            job.failure = "JavaScript compute helper stopped before completing."
+        }
         finishIfReady(job)
     }
 

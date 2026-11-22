@@ -44,22 +44,29 @@ nonisolated struct PaceSpeechRequest: Codable, Equatable, Sendable {
 
     static func parse(arguments: [String: PaceMCPJSONValue]) -> Self? {
         guard Set(arguments.keys).isSubset(of: ["text", "profile", "englishSubtitle"]),
-              case .string(let text)? = arguments["text"],
-              !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-              text.count <= 2000 else { return nil }
+            case .string(let text)? = arguments["text"],
+            !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+            text.count <= 2000
+        else { return nil }
         let profile: PaceSpeechProfile?
         if let profileValue = arguments["profile"] {
             guard case .string(let name) = profileValue,
-                  let parsedProfile = PaceSpeechProfile(rawValue: name) else { return nil }
+                let parsedProfile = PaceSpeechProfile(rawValue: name)
+            else { return nil }
             profile = parsedProfile
-        } else { profile = nil }
+        } else {
+            profile = nil
+        }
         let englishSubtitle: String?
         if let subtitleValue = arguments["englishSubtitle"] {
             guard case .string(let subtitle) = subtitleValue,
-                  !subtitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-                  subtitle.count <= 4000 else { return nil }
+                !subtitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                subtitle.count <= 4000
+            else { return nil }
             englishSubtitle = subtitle
-        } else { englishSubtitle = nil }
+        } else {
+            englishSubtitle = nil
+        }
         return Self(text: text, profile: profile, englishSubtitle: englishSubtitle)
     }
 }
@@ -70,7 +77,8 @@ nonisolated enum PaceSpeechProfileError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .unsupportedBackend: return "The selected speech backend does not support the requested speech profile."
-        case .synthesisOrPlaybackFailed: return "The requested Japanese voice could not complete local synthesis or playback."
+        case .synthesisOrPlaybackFailed:
+            return "The requested Japanese voice could not complete local synthesis or playback."
         }
     }
 }

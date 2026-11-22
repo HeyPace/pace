@@ -94,8 +94,9 @@ final class PaceMemoryRetriever {
             fromRankedEntries: rankedEntries.compactMap { entry in
                 guard entry.source == .screenWatchHistory else { return entry }
                 guard screenHistoryAccessGenerationAtStart == screenWatchHistoryAccessGeneration(),
-                      let currentEntry = memoryIndex.entry(id: entry.id), currentEntry.isActive,
-                      currentEntry.source == .screenWatchHistory else { return nil }
+                    let currentEntry = memoryIndex.entry(id: entry.id), currentEntry.isActive,
+                    currentEntry.source == .screenWatchHistory
+                else { return nil }
                 return currentEntry
             },
             excludingEntryIds: excludingEntryIds,
@@ -190,8 +191,12 @@ final class PaceMemoryRetriever {
         }
         for entry in entries {
             if entry.source == .screenWatchHistory {
-                lines.append("- " + PaceScreenWatchRecallEvidence.render(text: entry.text,
-                    fallbackDate: entry.updatedAt, query: query, maximumCharacters: maximumRenderedCharacterCount))
+                lines.append(
+                    "- "
+                        + PaceScreenWatchRecallEvidence.render(
+                            text: entry.text,
+                            fallbackDate: entry.updatedAt, query: query,
+                            maximumCharacters: maximumRenderedCharacterCount))
                 continue
             }
             let renderedEntryText: String

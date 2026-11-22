@@ -166,7 +166,9 @@ final class PaceBoundedTextAnswerPlanner: BuddyPlannerClient {
         If answering reliably needs deeper reasoning, research, screen context, or prior conversation, return exactly PACE_USE_SELECTED_PLANNER as your entire response.
         """
 
-    var displayName: String { "\(everydayClient == nil ? "Codex" : "OpenAI Responses") everyday answer → \(selectedPlanner.displayName)" }
+    var displayName: String {
+        "\(everydayClient == nil ? "Codex" : "OpenAI Responses") everyday answer → \(selectedPlanner.displayName)"
+    }
     let supportsImageInput = false
     private let everydayPlanner: (any BuddyPlannerClient)?
     private let everydayClient: (any PaceEverydayAnswerClient)?
@@ -184,7 +186,9 @@ final class PaceBoundedTextAnswerPlanner: BuddyPlannerClient {
             PaceAPIAuditLog.shared.record(
                 subsystem: "planner.routing", operation: "text.answer.selection", target: "codex",
                 durationMilliseconds: 0, outcome: "ok",
-                detail: "model=gpt-6-luna effort=low selectedModel=cli-default selectedEffort=cli-default selection=classifiedSimpleAnswer decision=\(reason)")
+                detail:
+                    "model=gpt-6-luna effort=low selectedModel=cli-default selectedEffort=cli-default selection=classifiedSimpleAnswer decision=\(reason)"
+            )
         }
     ) {
         self.everydayClient = nil
@@ -196,12 +200,16 @@ final class PaceBoundedTextAnswerPlanner: BuddyPlannerClient {
         self.recordDecision = recordDecision
     }
 
-    init(everydayClient: any PaceEverydayAnswerClient, question: PaceEverydayQuestion,
-         selectedPlanner: any BuddyPlannerClient, recordDecision: @escaping (String) -> Void = { reason in
-        PaceAPIAuditLog.shared.record(subsystem: "planner.routing", operation: "text.answer.selection",
-            target: "openai.responses", durationMilliseconds: 0, outcome: "ok",
-            detail: "model=gpt-6-luna effort=none route=currentQuestionOnly decision=\(reason)")
-    }) {
+    init(
+        everydayClient: any PaceEverydayAnswerClient, question: PaceEverydayQuestion,
+        selectedPlanner: any BuddyPlannerClient,
+        recordDecision: @escaping (String) -> Void = { reason in
+            PaceAPIAuditLog.shared.record(
+                subsystem: "planner.routing", operation: "text.answer.selection",
+                target: "openai.responses", durationMilliseconds: 0, outcome: "ok",
+                detail: "model=gpt-6-luna effort=none route=currentQuestionOnly decision=\(reason)")
+        }
+    ) {
         self.everydayClient = everydayClient
         self.everydayQuestion = question
         self.everydayPlanner = nil
@@ -235,22 +243,24 @@ final class PaceBoundedTextAnswerPlanner: BuddyPlannerClient {
             if let everydayClient, let everydayQuestion {
                 everydayResponseText = try await everydayClient.answer(everydayQuestion)
             } else if let everydayPlanner {
-            let response = try await everydayPlanner.generateResponseStreaming(
-                images: [], systemPrompt: everydaySystemPrompt + "\n\n" + Self.answerInstructions,
-                conversationHistory: conversationHistory, userPrompt: userPrompt,
-                onTextChunk: { completeTurnText in
-                    guard self.textDelivery == .trustedCompletedTurn,
-                        completedTurnAnswer.receivedText == nil, !Task.isCancelled
-                    else { return }
-                    completedTurnAnswer.receivedText = completeTurnText
-                    guard Self.escalationReason(for: completeTurnText) == nil else { return }
-                    completedTurnAnswer.acceptedText = completeTurnText
-                    self.lastAnswerSource = .everyday
-                    self.recordDecision("acceptedEverydayAnswer")
-                    onTextChunk(completeTurnText)
-                })
-            everydayResponseText = completedTurnAnswer.receivedText ?? response.text
-            } else { throw PaceEverydayAnswerError.invalidResponse }
+                let response = try await everydayPlanner.generateResponseStreaming(
+                    images: [], systemPrompt: everydaySystemPrompt + "\n\n" + Self.answerInstructions,
+                    conversationHistory: conversationHistory, userPrompt: userPrompt,
+                    onTextChunk: { completeTurnText in
+                        guard self.textDelivery == .trustedCompletedTurn,
+                            completedTurnAnswer.receivedText == nil, !Task.isCancelled
+                        else { return }
+                        completedTurnAnswer.receivedText = completeTurnText
+                        guard Self.escalationReason(for: completeTurnText) == nil else { return }
+                        completedTurnAnswer.acceptedText = completeTurnText
+                        self.lastAnswerSource = .everyday
+                        self.recordDecision("acceptedEverydayAnswer")
+                        onTextChunk(completeTurnText)
+                    })
+                everydayResponseText = completedTurnAnswer.receivedText ?? response.text
+            } else {
+                throw PaceEverydayAnswerError.invalidResponse
+            }
         } catch {
             try Task.checkCancellation()
             if error is CancellationError { throw error }
@@ -290,8 +300,10 @@ final class PaceBoundedTextAnswerPlanner: BuddyPlannerClient {
         case PaceEverydayAnswerError.httpFailure(let status): return status == 429 || status >= 500 ? .unavailable : nil
         case let error as URLError:
             if error.code == .timedOut { return .timedOut }
-            return [.notConnectedToInternet, .networkConnectionLost, .cannotConnectToHost,
-                .cannotFindHost, .dnsLookupFailed].contains(error.code) ? .unavailable : nil
+            return [
+                .notConnectedToInternet, .networkConnectionLost, .cannotConnectToHost,
+                .cannotFindHost, .dnsLookupFailed,
+            ].contains(error.code) ? .unavailable : nil
         case PaceCLIProcessError.emptyResponse: return .emptyAnswer
         case PaceCLIProcessError.timedOut: return .timedOut
         case PaceCLIProcessError.failed(_, let stderrExcerpt):
@@ -309,7 +321,8 @@ final class PaceBoundedTextAnswerPlanner: BuddyPlannerClient {
         if trimmedResponse.isEmpty { return .emptyAnswer }
         if trimmedResponse.hasPrefix("{") || trimmedResponse.hasPrefix("[")
             || trimmedResponse.contains("```") || trimmedResponse.contains(escalationMarker)
-            || trimmedResponse.range(of: #"\[[A-Z_]+(?:[:\]])|</?(?:tool|action|function)[_a-z]*\b"#,
+            || trimmedResponse.range(
+                of: #"\[[A-Z_]+(?:[:\]])|</?(?:tool|action|function)[_a-z]*\b"#,
                 options: .regularExpression) != nil
             || !PaceActionTagParser.parseActions(from: trimmedResponse).actions.isEmpty
         {

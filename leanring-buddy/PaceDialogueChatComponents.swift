@@ -100,7 +100,9 @@ struct PaceDialogueMessageView: View {
 
     private func speechControls(_ speechRequest: PaceSpeechRequest) -> some View {
         HStack(spacing: 10) {
-            Button { onReplay(speechRequest) } label: {
+            Button {
+                onReplay(speechRequest)
+            } label: {
                 Label(speechRequest.profile == .japaneseFemale ? "Replay Japanese" : "Replay", systemImage: "play")
             }
             .disabled(!canReplay)
@@ -167,7 +169,9 @@ struct PaceDialogueActivityView: View {
                 .font(.system(size: 10))
                 .foregroundStyle(DS.Colors.textSecondary)
             } else {
-                Button { isExpanded.toggle() } label: {
+                Button {
+                    isExpanded.toggle()
+                } label: {
                     HStack(spacing: 6) {
                         Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
                             .font(.system(size: 8, weight: .medium))
@@ -224,19 +228,22 @@ struct PaceDialogueCurrentStatusView: View {
 
     private func status(at date: Date) -> some View {
         let powerClarificationIdentifier = companionManager.pendingSpokenPowerClarification?.identifier
-        let feedback = PaceRequestFeedback.resolve(state: signalState,
+        let feedback = PaceRequestFeedback.resolve(
+            state: signalState,
             hudDetail: companionManager.currentTurnHUDState.detail,
             isPreparing: companionManager.buddyDictationManager.isPreparingToRecord,
             isFinalizing: companionManager.buddyDictationManager.isFinalizingTranscript,
             startedAt: companionManager.currentRequestStartedAt, now: date)
-        let displayedTitle = companionManager.currentTurnHUDState.status == .needsClarification
+        let displayedTitle =
+            companionManager.currentTurnHUDState.status == .needsClarification
             ? companionManager.currentTurnHUDState.title : feedback.title
         return HStack(alignment: .top, spacing: 10) {
             Group {
                 if feedback.showsSpinner && !reduceMotion {
                     ProgressView().controlSize(.small).tint(.white)
                 } else {
-                    PaceSignalView(state: signalState,
+                    PaceSignalView(
+                        state: signalState,
                         isOffDeviceTurn: companionManager.isOffDeviceTurnInFlight,
                         audioPowerLevel: companionManager.currentAudioPowerLevel, lineCount: 1,
                         colorRoleOverride: companionManager.nativeEffectiveSignalColorRoleOverride)
@@ -250,7 +257,8 @@ struct PaceDialogueCurrentStatusView: View {
                         HStack(spacing: 6) {
                             ForEach(companionManager.currentTurnHUDState.options, id: \.self) { option in
                                 Button(option) {
-                                    companionManager.resolveClarification(option: option,
+                                    companionManager.resolveClarification(
+                                        option: option,
                                         powerClarificationIdentifier: powerClarificationIdentifier)
                                 }
                                 .buttonStyle(.plain).font(.system(size: 12, weight: .medium))

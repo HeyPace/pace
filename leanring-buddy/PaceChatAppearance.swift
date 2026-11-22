@@ -8,7 +8,9 @@ nonisolated struct PaceChatAppearance: Codable, Equatable, Sendable {
     }
 
     enum PanelWidth: Int, Codable, CaseIterable, Sendable {
-        case standard = 520, comfortable = 600, wide = 680
+        case standard = 520
+        case comfortable = 600
+        case wide = 680
     }
 
     enum ControlAccent: String, Codable, CaseIterable, Sendable {
@@ -113,7 +115,8 @@ final class PaceChatAppearanceStore: ObservableObject {
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
-        appearance = PaceChatAppearance.restore(from: defaults.data(forKey: PaceUserPreferenceKey.chatAppearance.rawValue))
+        appearance = PaceChatAppearance.restore(
+            from: defaults.data(forKey: PaceUserPreferenceKey.chatAppearance.rawValue))
     }
 
     func apply(_ appearance: PaceChatAppearance) {

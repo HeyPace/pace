@@ -153,7 +153,9 @@ enum PaceUserPreferenceKey: String {
 enum PaceUserPreferencesStore {
     /// Read a boolean preference. Returns `defaultValue` if the key has
     /// never been written.
-    static func bool(_ key: PaceUserPreferenceKey, default defaultValue: Bool, defaults: UserDefaults = .standard) -> Bool {
+    static func bool(_ key: PaceUserPreferenceKey, default defaultValue: Bool, defaults: UserDefaults = .standard)
+        -> Bool
+    {
         guard let stored = defaults.object(forKey: key.rawValue) as? Bool else {
             return defaultValue
         }
@@ -210,7 +212,9 @@ enum PaceUserPreferencesStore {
 
     /// Read a string preference. Returns `defaultValue` if the key has
     /// never been written.
-    static func string(_ key: PaceUserPreferenceKey, default defaultValue: String, defaults: UserDefaults = .standard) -> String {
+    static func string(_ key: PaceUserPreferenceKey, default defaultValue: String, defaults: UserDefaults = .standard)
+        -> String
+    {
         guard let stored = defaults.string(forKey: key.rawValue) else {
             return defaultValue
         }

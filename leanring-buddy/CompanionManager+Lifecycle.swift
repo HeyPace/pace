@@ -100,7 +100,8 @@ extension CompanionManager {
     }
 
     func submitScreenSuggestionRequest(_ transcript: String, suggestion: PaceScreenSuggestion) {
-        submitChatTranscript(transcript, optimisticMessageIdentifier: nil,
+        submitChatTranscript(
+            transcript, optimisticMessageIdentifier: nil,
             shouldMuteTTS: chatSession.isChatTTSMuted, screenSuggestionContext: .notification(suggestion))
     }
 
@@ -112,14 +113,17 @@ extension CompanionManager {
         screenSuggestionContext: PaceScreenSuggestionRequestContext? = nil
     ) {
         revealRequestFeedback()
-        let acceptedEvent = acceptConversationRequest(transcript, origin: .typed,
+        let acceptedEvent = acceptConversationRequest(
+            transcript, origin: .typed,
             eventIdentifier: optimisticMessageIdentifier ?? UUID().uuidString)
         let queuedTurn = PaceQueuedChatTurn(
             transcript: transcript,
             shouldMuteTTS: shouldMuteTTS,
             allowsPermissionPrompt: allowsPermissionPrompt,
             optimisticMessageIdentifier: acceptedEvent.eventID,
-            screenSuggestionContext: screenSuggestionContext ?? screenSuggestionCoordinator.followUpSuggestion(for: transcript).map(PaceScreenSuggestionRequestContext.followUp)
+            screenSuggestionContext: screenSuggestionContext
+                ?? screenSuggestionCoordinator.followUpSuggestion(for: transcript).map(
+                    PaceScreenSuggestionRequestContext.followUp)
         )
 
         // A permission prompt can suspend meeting startup. Its stop command
@@ -151,8 +155,11 @@ extension CompanionManager {
     private func startQueuedChatTurn(_ queuedTurn: PaceQueuedChatTurn) {
         currentRequestStartedAt = Date()
         let screenSuggestionContext = screenSuggestionContextForCurrentPrivacyGate(queuedTurn.screenSuggestionContext)
-        guard !discardScreenSuggestionRequestIfUnavailable(screenSuggestionContext,
-            eventIdentifier: queuedTurn.optimisticMessageIdentifier) else { return }
+        guard
+            !discardScreenSuggestionRequestIfUnavailable(
+                screenSuggestionContext,
+                eventIdentifier: queuedTurn.optimisticMessageIdentifier)
+        else { return }
         let transcript = queuedTurn.transcript
         // The notch chat input lives in the same panel as the turn HUD,
         // so as soon as a turn is committed the input collapses and
@@ -196,7 +203,8 @@ extension CompanionManager {
         PaceLatencyBudget.shared.mark(.sttComplete)
         voiceState = .processing
         pendingTypedConversationEventIdentifier = queuedTurn.optimisticMessageIdentifier
-        sendTranscriptToPlannerWithScreenshot(transcript: transcript, screenSuggestionContext: screenSuggestionContext,
+        sendTranscriptToPlannerWithScreenshot(
+            transcript: transcript, screenSuggestionContext: screenSuggestionContext,
             allowsPermissionPrompt: queuedTurn.allowsPermissionPrompt)
     }
 
@@ -255,7 +263,8 @@ extension CompanionManager {
         annotationOverlayController.onActiveAnnotationsPresenceChanged = { [weak self] annotationsArePresent in
             guard let self else { return }
             if annotationsArePresent {
-                NotificationCenter.default.post(name: .paceDismissPanel, object: PaceExplanationDismissalIntent.automatic)
+                NotificationCenter.default.post(
+                    name: .paceDismissPanel, object: PaceExplanationDismissalIntent.automatic)
             }
             guard self.mascotModeActive else { return }
             if annotationsArePresent || detectedElementScreenLocation != nil {
@@ -270,7 +279,8 @@ extension CompanionManager {
             }
         }
         diagramOverlayController.onUserDismissed = { [weak self] in
-            self?.handleVisualExplanationDismissal(ownedTurnLease: diagramPresentationTurnLease,
+            self?.handleVisualExplanationDismissal(
+                ownedTurnLease: diagramPresentationTurnLease,
                 ownedRequestIdentifiers: diagramRequestIdentifiers)
             diagramRequestIdentifiers.removeAll()
         }
@@ -295,29 +305,34 @@ extension CompanionManager {
             do {
                 guard let previewData else { throw PaceImageGenerationError.invalidArtifact }
                 try PaceGeneratedImageStore.saveChatPreview(previewData, identifier: artifact.id)
-                self.recordAssistantNarration(artifact.request.title, eventIdentifier: "image-" + artifact.id.uuidString,
+                self.recordAssistantNarration(
+                    artifact.request.title, eventIdentifier: "image-" + artifact.id.uuidString,
                     turnIdentifier: self.activeConversationUserEvent?.eventID, recordsDerivedMemory: false,
                     generatedImagePreviewID: artifact.id)
             } catch {
-                PaceAPIAuditLog.shared.record(subsystem: "images", operation: "chat_preview",
+                PaceAPIAuditLog.shared.record(
+                    subsystem: "images", operation: "chat_preview",
                     target: "local", durationMilliseconds: 0, outcome: "failed")
             }
         }
         imageOverlayController.onGenerationProgress = { [weak self] message in
             self?.currentTurnHUDState = .acting(message)
-            self?.recordAssistantNarration(message, origin: .progress, turnIdentifier: self?.activeConversationUserEvent?.eventID)
+            self?.recordAssistantNarration(
+                message, origin: .progress, turnIdentifier: self?.activeConversationUserEvent?.eventID)
             self?.responseOverlayManager.updateStreamingText(message)
         }
         diagramOverlayController.onWrittenLessonStep = { [weak self] step in
             guard let self else { return }
-            self.recordTeachingStep(step, turnIdentifier: self.diagramOverlayController.lessonConversationTurnIdentifier)
+            self.recordTeachingStep(
+                step, turnIdentifier: self.diagramOverlayController.lessonConversationTurnIdentifier)
         }
         diagramOverlayController.onPlayLessonRequested = { [weak self] in self?.playTeachingLessonFromControls() }
         diagramOverlayController.onAskAboutPart = { [weak self] transcript in
             guard let self else { return }
             let eventIdentifier = UUID().uuidString
             diagramRequestIdentifiers.insert(eventIdentifier)
-            self.submitChatTranscript(transcript, optimisticMessageIdentifier: eventIdentifier,
+            self.submitChatTranscript(
+                transcript, optimisticMessageIdentifier: eventIdentifier,
                 shouldMuteTTS: self.chatSession.isChatTTSMuted)
         }
     }

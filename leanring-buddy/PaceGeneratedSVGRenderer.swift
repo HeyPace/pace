@@ -29,13 +29,14 @@ final class PaceGeneratedSVGRenderer {
         self.navigationDecider = navigationDecider
         let page = WebPage(configuration: configuration, navigationDecider: navigationDecider)
         self.page = page
-        let hostingView = NSHostingView(rootView: WebView(page)
-            .webViewContentBackground(.hidden)
-            .webViewBackForwardNavigationGestures(.disabled)
-            .webViewMagnificationGestures(.disabled)
-            .webViewTextSelection(.disabled)
-            .allowsHitTesting(false)
-            .frame(width: viewportSize.width, height: viewportSize.height))
+        let hostingView = NSHostingView(
+            rootView: WebView(page)
+                .webViewContentBackground(.hidden)
+                .webViewBackForwardNavigationGestures(.disabled)
+                .webViewMagnificationGestures(.disabled)
+                .webViewTextSelection(.disabled)
+                .allowsHitTesting(false)
+                .frame(width: viewportSize.width, height: viewportSize.height))
         hostingView.sizingOptions = []
         hostingView.frame = CGRect(origin: .zero, size: viewportSize)
         view = hostingView
@@ -50,15 +51,21 @@ final class PaceGeneratedSVGRenderer {
                 guard !Task.isCancelled else { return }
                 self?.stop()
             }
-            let rules = #"[{"trigger":{"url-filter":".*","resource-type":["image","style-sheet","script","font","media","raw","svg-document"]},"action":{"type":"block"}},{"trigger":{"url-filter":"^data:image/svg\\+xml;base64,","resource-type":["image"]},"action":{"type":"ignore-previous-rules"}}]"#
+            let rules =
+                #"[{"trigger":{"url-filter":".*","resource-type":["image","style-sheet","script","font","media","raw","svg-document"]},"action":{"type":"block"}},{"trigger":{"url-filter":"^data:image/svg\\+xml;base64,","resource-type":["image"]},"action":{"type":"ignore-previous-rules"}}]"#
             let list: WKContentRuleList = try await withCheckedThrowingContinuation { continuation in
                 ruleReadiness = continuation
-                WKContentRuleListStore.default().compileContentRuleList(forIdentifier: "pace-generated-svg-v1", encodedContentRuleList: rules) { [weak self] list, error in
+                WKContentRuleListStore.default().compileContentRuleList(
+                    forIdentifier: "pace-generated-svg-v1", encodedContentRuleList: rules
+                ) { [weak self] list, error in
                     Task { @MainActor [weak self] in
                         guard let self, let pending = self.ruleReadiness else { return }
                         self.ruleReadiness = nil
-                        if let list { pending.resume(returning: list) }
-                        else { pending.resume(throwing: error ?? CocoaError(.fileReadCorruptFile)) }
+                        if let list {
+                            pending.resume(returning: list)
+                        } else {
+                            pending.resume(throwing: error ?? CocoaError(.fileReadCorruptFile))
+                        }
                     }
                 }
             }
@@ -67,12 +74,13 @@ final class PaceGeneratedSVGRenderer {
             configuration.userContentController.add(list)
             let encodedSVG = Data(svg.markup.utf8).base64EncodedString()
             let document = """
-            <!doctype html><html><head><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'none'; connect-src 'none'; img-src data:; style-src 'unsafe-inline'; font-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none';"><style>html,body{margin:0;width:100%;height:100%;overflow:hidden;background:transparent}img{display:block;width:100%;height:100%;object-fit:contain}</style></head><body><img alt="Generated Power drawing" src="data:image/svg+xml;base64,\(encodedSVG)"></body></html>
-            """
+                <!doctype html><html><head><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'none'; connect-src 'none'; img-src data:; style-src 'unsafe-inline'; font-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none';"><style>html,body{margin:0;width:100%;height:100%;overflow:hidden;background:transparent}img{display:block;width:100%;height:100%;object-fit:contain}</style></head><body><img alt="Generated Power drawing" src="data:image/svg+xml;base64,\(encodedSVG)"></body></html>
+                """
             let events = page.navigations
             navigationMonitor = Task { @MainActor [weak self] in
-                do { for try await _ in events { if Task.isCancelled { return } } }
-                catch { if !Task.isCancelled { self?.handleFailure(error) } }
+                do { for try await _ in events { if Task.isCancelled { return } } } catch {
+                    if !Task.isCancelled { self?.handleFailure(error) }
+                }
             }
             try await withCheckedThrowingContinuation { continuation in
                 readiness = continuation
@@ -80,7 +88,10 @@ final class PaceGeneratedSVGRenderer {
                     do {
                         for try await event in page.load(html: document) {
                             guard !Task.isCancelled else { return }
-                            if event == .finished { self?.finish(.success(())); return }
+                            if event == .finished {
+                                self?.finish(.success(()))
+                                return
+                            }
                         }
                         self?.handleFailure(CocoaError(.fileReadUnknown))
                     } catch { if !Task.isCancelled { self?.handleFailure(error) } }
@@ -136,10 +147,13 @@ private final class PaceSVGNavigationDecider: WebPage.NavigationDeciding {
 
     func permitEmptyTeardown() { permitsHostBlank = true }
 
-    func decidePolicy(for action: WebPage.NavigationAction, preferences: inout WebPage.NavigationPreferences) async -> WKNavigationActionPolicy {
+    func decidePolicy(for action: WebPage.NavigationAction, preferences: inout WebPage.NavigationPreferences) async
+        -> WKNavigationActionPolicy
+    {
         preferences.allowsContentJavaScript = false
         guard permitsHostBlank, action.target?.isMainFrame == true, action.navigationType == .other,
-              !action.shouldPerformDownload, action.request.url?.absoluteString == "about:blank" else {
+            !action.shouldPerformDownload, action.request.url?.absoluteString == "about:blank"
+        else {
             blockedNavigationCount += 1
             return .cancel
         }
@@ -151,7 +165,9 @@ private final class PaceSVGNavigationDecider: WebPage.NavigationDeciding {
         response.response.url?.absoluteString == "about:blank" && response.canShowMimeType ? .allow : .cancel
     }
 
-    func decideAuthenticationChallengeDisposition(for challenge: URLAuthenticationChallenge) async -> (URLSession.AuthChallengeDisposition, URLCredential?) {
+    func decideAuthenticationChallengeDisposition(for challenge: URLAuthenticationChallenge) async -> (
+        URLSession.AuthChallengeDisposition, URLCredential?
+    ) {
         (.cancelAuthenticationChallenge, nil)
     }
 }

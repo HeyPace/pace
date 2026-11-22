@@ -115,7 +115,6 @@ final class StreamingSentenceTTSPipeline: ObservableObject {
         bilingualReply = reply
     }
 
-
     /// Public read of whether the LAST completed turn was interrupted
     /// by a barge-in. Tests assert on this; the CompanionManager uses
     /// it when journaling the interrupt line. Reset on the next
@@ -276,7 +275,8 @@ final class StreamingSentenceTTSPipeline: ObservableObject {
                 reportPlaybackFailureIfNeeded()
                 return
             }
-            await dispatchDeltaIfReady(speakableSafePrefix: finalSpokenText, allowShortFinalChunk: true,
+            await dispatchDeltaIfReady(
+                speakableSafePrefix: finalSpokenText, allowShortFinalChunk: true,
                 displayText: bilingualReply.englishSubtitle, speechProfile: bilingualReply.speechRequest.profile)
         } else {
             await dispatchDeltaIfReady(speakableSafePrefix: finalSpokenText, allowShortFinalChunk: true)
@@ -364,8 +364,9 @@ final class StreamingSentenceTTSPipeline: ObservableObject {
                     .init(text: trimmedNewPortion, profile: speechProfile, englishSubtitle: displayText),
                     onStarted: { [weak self] in
                         guard let self, !hasRecordedOnset, !Task.isCancelled,
-                              self.dispatchGeneration == expectedDispatchGeneration,
-                              !self.hasStoppedSpeechForCurrentTurn else { return }
+                            self.dispatchGeneration == expectedDispatchGeneration,
+                            !self.hasStoppedSpeechForCurrentTurn
+                        else { return }
                         hasRecordedOnset = true
                         self.firstSpokenWordCharacterCount += trimmedNewPortion.count
                         latencyBudget?.mark(.ttsFirstDispatch)
@@ -374,15 +375,18 @@ final class StreamingSentenceTTSPipeline: ObservableObject {
             } else if let localTTSClient = ttsClient as? LocalTTSClient {
                 // Keep late queued-playback failures scoped to this dispatch;
                 // direct speech and newer turns must not inherit its notice.
-                try await localTTSClient.speakText(trimmedNewPortion, onPlaybackFailure: { [weak self] in
-                    guard let self, self.dispatchGeneration == expectedDispatchGeneration else { return }
-                    self.reportPlaybackFailureIfNeeded()
-                })
+                try await localTTSClient.speakText(
+                    trimmedNewPortion,
+                    onPlaybackFailure: { [weak self] in
+                        guard let self, self.dispatchGeneration == expectedDispatchGeneration else { return }
+                        self.reportPlaybackFailureIfNeeded()
+                    })
             } else {
                 try await ttsClient.speakText(trimmedNewPortion)
             }
             guard speechProfile == nil, expectedDispatchGeneration == dispatchGeneration,
-                  !hasStoppedSpeechForCurrentTurn else { return }
+                !hasStoppedSpeechForCurrentTurn
+            else { return }
             // Track total spoken character count so the speculative-
             // planner-race supersede decision can read "how much has
             // the user already heard" without subscribing to TTS state.
@@ -463,7 +467,8 @@ final class StreamingSentenceTTSPipeline: ObservableObject {
         if !rawAccumulatedText.contains("<")
             && !rawAccumulatedText.contains("[")
             && !rawAccumulatedText.contains("{") {
-            return requiresCompleteSentence ? computeLastSentenceBoundedPrefix(of: rawAccumulatedText) : rawAccumulatedText
+            return requiresCompleteSentence
+                ? computeLastSentenceBoundedPrefix(of: rawAccumulatedText) : rawAccumulatedText
         }
 
         // 1. Thinking blocks — handles unterminated `<think>` mid-stream
@@ -518,7 +523,8 @@ final class StreamingSentenceTTSPipeline: ObservableObject {
         // 4. Bound to last complete sentence so we don't speak partial
         //    words. Sentence terminators: `.` `!` `?` `\n`. Require
         //    the terminator to be followed by whitespace OR end of text.
-        return requiresCompleteSentence ? computeLastSentenceBoundedPrefix(of: safeFromOpenBracket) : safeFromOpenBracket
+        return requiresCompleteSentence
+            ? computeLastSentenceBoundedPrefix(of: safeFromOpenBracket) : safeFromOpenBracket
     }
 
     nonisolated private static func looksLikeStructuredPlannerJSON(_ text: String) -> Bool {

@@ -86,7 +86,8 @@ struct PaceTTSVoiceSummary: Equatable {
         }
         if selectedProvider == .localServer {
             let configuration = LocalServerTTSConfiguration.fromBundle()
-            return localServerSummary(voiceIdentifier: configuration.voiceIdentifier, modelIdentifier: configuration.modelIdentifier)
+            return localServerSummary(
+                voiceIdentifier: configuration.voiceIdentifier, modelIdentifier: configuration.modelIdentifier)
         }
         let preferredVoiceIdentifier = AppBundleConfiguration.stringValue(forKey: "LocalTTSVoiceIdentifier")
         guard let voice = PaceTTSVoiceResolver.bestAvailableVoice(

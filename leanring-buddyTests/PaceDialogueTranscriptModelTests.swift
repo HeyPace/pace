@@ -1,12 +1,16 @@
 import Foundation
 import Testing
+
 @testable import Pace
 
 struct PaceDialogueTranscriptModelTests {
     private let timestamp = Date(timeIntervalSince1970: 1_000)
 
-    private func activity(_ id: String, turnIdentifier: String?, state: PaceChatToolActivityResultState = .done) -> PaceChatToolActivityRowModel {
-        var row = PaceChatToolActivityRowModel(id: id, toolDisplayName: "Action complete", resultState: state,
+    private func activity(_ id: String, turnIdentifier: String?, state: PaceChatToolActivityResultState = .done)
+        -> PaceChatToolActivityRowModel
+    {
+        var row = PaceChatToolActivityRowModel(
+            id: id, toolDisplayName: "Action complete", resultState: state,
             resultSummaryLine: "Compact summary", occurredAt: timestamp)
         row.turnIdentifier = turnIdentifier
         row.fullDetail = "Full receipt for \(id)\nincluding the original detail."
@@ -14,11 +18,13 @@ struct PaceDialogueTranscriptModelTests {
     }
 
     @Test func exactParentGroupsRoutineUpdatesAndPreservesEverySourceBody() {
-        var progress = PaceChatTranscriptMessageRowModel(id: "progress", author: .assistant,
+        var progress = PaceChatTranscriptMessageRowModel(
+            id: "progress", author: .assistant,
             bodyText: "Running Japanese Greeting.", createdAt: timestamp)
         progress.turnIdentifier = "turn-a"
         progress.origin = .progress
-        var answer = PaceChatTranscriptMessageRowModel(id: "answer", author: .assistant,
+        var answer = PaceChatTranscriptMessageRowModel(
+            id: "answer", author: .assistant,
             bodyText: "Hello.", createdAt: timestamp.addingTimeInterval(3))
         answer.turnIdentifier = "turn-a"
         let sourceMessages = [progress, answer]
@@ -26,7 +32,8 @@ struct PaceDialogueTranscriptModelTests {
         let rows = PaceDialogueTranscriptModel.items(messages: sourceMessages, activities: [sourceActivity])
         #expect(rows.count == 2)
         guard case .message(let displayedAnswer) = rows[0], case .activity(let group) = rows[1] else {
-            Issue.record("Expected the answer followed by its routine activity"); return
+            Issue.record("Expected the answer followed by its routine activity")
+            return
         }
         #expect(displayedAnswer.bodyText == "Hello.")
         #expect(group.id == "turn-a" && group.entries.count == 2)
@@ -36,12 +43,15 @@ struct PaceDialogueTranscriptModelTests {
     }
 
     @Test func unknownAndOtherParentsNeverAttachByMatchingTimestamps() {
-        let rows = PaceDialogueTranscriptModel.items(messages: [], activities: [
-            activity("a", turnIdentifier: "turn-a"), activity("b", turnIdentifier: "turn-b"),
-            activity("unknown-one", turnIdentifier: nil), activity("unknown-two", turnIdentifier: nil),
-        ])
+        let rows = PaceDialogueTranscriptModel.items(
+            messages: [],
+            activities: [
+                activity("a", turnIdentifier: "turn-a"), activity("b", turnIdentifier: "turn-b"),
+                activity("unknown-one", turnIdentifier: nil), activity("unknown-two", turnIdentifier: nil),
+            ])
         let groups = rows.compactMap { item -> PaceDialogueActivityGroup? in
-            guard case .activity(let group) = item else { return nil }; return group
+            guard case .activity(let group) = item else { return nil }
+            return group
         }
         #expect(groups.count == 4)
         #expect(Set(groups.map(\.id)).count == 4)
@@ -49,11 +59,15 @@ struct PaceDialogueTranscriptModelTests {
     }
 
     @Test func failuresAndCurrentApprovalRemainVisibleOutsideRoutineDisclosures() {
-        let rows = PaceDialogueTranscriptModel.items(messages: [], activities: [
-            activity("done", turnIdentifier: "same-turn"), activity("failed", turnIdentifier: "same-turn", state: .failed),
-        ])
+        let rows = PaceDialogueTranscriptModel.items(
+            messages: [],
+            activities: [
+                activity("done", turnIdentifier: "same-turn"),
+                activity("failed", turnIdentifier: "same-turn", state: .failed),
+            ])
         let attention = rows.compactMap { item -> PaceDialogueActivityGroup? in
-            guard case .activity(let group) = item, group.needsAttention else { return nil }; return group
+            guard case .activity(let group) = item, group.needsAttention else { return nil }
+            return group
         }
         #expect(attention.count == 1)
         #expect(attention.first?.entries.first?.detail.contains("Full receipt for failed") == true)
@@ -76,16 +90,19 @@ struct PaceDialogueTranscriptModelTests {
     }
 
     @Test func japaneseVoiceWithoutCaptionIsNotLabeledAsEnglish() {
-        let captionless = PaceChatMessage(id: "jp", role: .pace, body: "こんにちは。", createdAt: timestamp,
+        let captionless = PaceChatMessage(
+            id: "jp", role: .pace, body: "こんにちは。", createdAt: timestamp,
             speechRequest: .init(text: "こんにちは。", profile: .japaneseFemale))
         let row = PaceChatTranscriptModel.messageRowModel(fromChatMessage: captionless)
         #expect(!row.isEnglishSubtitle && row.bodyText == "こんにちは。")
         #expect(row.speechRequest?.profile == .japaneseFemale)
         var subtitled = captionless
-        subtitled = PaceChatMessage(id: "en", role: .pace, body: "Hello.", createdAt: timestamp,
+        subtitled = PaceChatMessage(
+            id: "en", role: .pace, body: "Hello.", createdAt: timestamp,
             speechRequest: .init(text: "こんにちは。", profile: .japaneseFemale, englishSubtitle: "Hello."))
         #expect(PaceChatTranscriptModel.messageRowModel(fromChatMessage: subtitled).isEnglishSubtitle)
-        let mismatched = PaceChatMessage(id: "different", role: .pace, body: "Unrelated text", createdAt: timestamp,
+        let mismatched = PaceChatMessage(
+            id: "different", role: .pace, body: "Unrelated text", createdAt: timestamp,
             speechRequest: subtitled.speechRequest)
         #expect(!PaceChatTranscriptModel.messageRowModel(fromChatMessage: mismatched).isEnglishSubtitle)
     }
@@ -93,22 +110,30 @@ struct PaceDialogueTranscriptModelTests {
     @Test func latestAndEarlierWindowsShowOnlyTheirLinkedActivityAndBoundUnlinkedRecords() {
         let oldDate = Date(timeIntervalSince1970: 100)
         let currentDate = Date(timeIntervalSince1970: 200)
-        var earlier = PaceChatTranscriptMessageRowModel(id: "old-question", author: .user, bodyText: "Earlier", createdAt: oldDate)
+        var earlier = PaceChatTranscriptMessageRowModel(
+            id: "old-question", author: .user, bodyText: "Earlier", createdAt: oldDate)
         earlier.turnIdentifier = "old-turn"
-        var current = PaceChatTranscriptMessageRowModel(id: "new-question", author: .user, bodyText: "Current", createdAt: currentDate)
+        var current = PaceChatTranscriptMessageRowModel(
+            id: "new-question", author: .user, bodyText: "Current", createdAt: currentDate)
         current.turnIdentifier = "current-turn"
-        func receipt(_ id: String, parent: String?, time: TimeInterval, state: PaceChatToolActivityResultState = .done) -> PaceChatToolActivityRowModel {
-            var row = PaceChatToolActivityRowModel(id: id, toolDisplayName: id, resultState: state,
+        func receipt(_ id: String, parent: String?, time: TimeInterval, state: PaceChatToolActivityResultState = .done)
+            -> PaceChatToolActivityRowModel
+        {
+            var row = PaceChatToolActivityRowModel(
+                id: id, toolDisplayName: id, resultState: state,
                 resultSummaryLine: id, occurredAt: Date(timeIntervalSince1970: time))
             row.turnIdentifier = parent
             return row
         }
-        let receipts = [receipt("old-linked", parent: "old-turn", time: 220, state: .failed),
+        let receipts = [
+            receipt("old-linked", parent: "old-turn", time: 220, state: .failed),
             receipt("current-linked", parent: "current-turn", time: 150, state: .failed),
-            receipt("old-unlinked", parent: nil, time: 150), receipt("current-unlinked", parent: nil, time: 210)]
+            receipt("old-unlinked", parent: nil, time: 150), receipt("current-unlinked", parent: nil, time: 210),
+        ]
         let latest = PaceDialogueTranscriptModel.visibleActivities(receipts, messages: [current])
         #expect(latest.map(\.id) == ["current-linked", "current-unlinked"])
-        let selectedEarlier = PaceDialogueTranscriptModel.visibleActivities(receipts, messages: [earlier], windowEnd: currentDate)
+        let selectedEarlier = PaceDialogueTranscriptModel.visibleActivities(
+            receipts, messages: [earlier], windowEnd: currentDate)
         #expect(selectedEarlier.map(\.id) == ["old-linked", "old-unlinked"])
         let expanded = PaceDialogueTranscriptModel.visibleActivities(receipts, messages: [earlier, current])
         #expect(expanded.count == 4 && receipts.count == 4)
@@ -116,11 +141,17 @@ struct PaceDialogueTranscriptModelTests {
 
     @Test func committedEventIdentityRetiresStreamingMirrorWithoutTextGuessing() {
         let committed = PaceChatMessage(id: "assistant-event", role: .pace, body: "Hello.", createdAt: timestamp)
-        #expect(!PaceDialogueTranscriptModel.shouldShowStreamingReply(text: "Hello.",
-            assistantEventIdentifier: "assistant-event", committedMessages: [committed]))
-        #expect(PaceDialogueTranscriptModel.shouldShowStreamingReply(text: "Hello.",
-            assistantEventIdentifier: "next-event", committedMessages: [committed]))
-        #expect(!PaceDialogueTranscriptModel.shouldShowStreamingReply(text: " ",
-            assistantEventIdentifier: nil, committedMessages: []))
+        #expect(
+            !PaceDialogueTranscriptModel.shouldShowStreamingReply(
+                text: "Hello.",
+                assistantEventIdentifier: "assistant-event", committedMessages: [committed]))
+        #expect(
+            PaceDialogueTranscriptModel.shouldShowStreamingReply(
+                text: "Hello.",
+                assistantEventIdentifier: "next-event", committedMessages: [committed]))
+        #expect(
+            !PaceDialogueTranscriptModel.shouldShowStreamingReply(
+                text: " ",
+                assistantEventIdentifier: nil, committedMessages: []))
     }
 }

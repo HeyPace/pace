@@ -37,8 +37,15 @@ struct PaceFigureView: View {
                 model: model, document: controller.document, selectedNodeID: controller.selectedNodeID,
                 revision: controller.revision, controlValue: Float(controller.controlDeflection),
                 zoom: zoom, animated: !reduceMotion,
-                selectPart: { controller.pauseLesson(); model.stopGuidedMotion(); controller.selectNode(id: $0) },
-                onManualInteraction: { controller.pauseLesson(); model.stopGuidedMotion() }
+                selectPart: {
+                    controller.pauseLesson()
+                    model.stopGuidedMotion()
+                    controller.selectNode(id: $0)
+                },
+                onManualInteraction: {
+                    controller.pauseLesson()
+                    model.stopGuidedMotion()
+                }
             )
             .onHover { hovering in
                 if hovering { NSCursor.openHand.set() } else { NSCursor.arrow.set() }
@@ -98,7 +105,9 @@ struct PaceFigureView: View {
             .background(DS.Colors.background, in: RoundedRectangle(cornerRadius: 18))
             .overlay(RoundedRectangle(cornerRadius: 18).strokeBorder(.white.opacity(0.09), lineWidth: 1))
         }
-        .onAppear { if PaceTeachingTemplateCatalog.definition(for: controller.document?.figure?.template) != nil { zoom = 1.08 } }
+        .onAppear {
+            if PaceTeachingTemplateCatalog.definition(for: controller.document?.figure?.template) != nil { zoom = 1.08 }
+        }
         .onDisappear { model.stopProjection() }
         .onChange(of: controller.lessonPlaybackState) { _, state in
             if state != .playing { model.stopGuidedMotion() }
@@ -173,15 +182,19 @@ struct PaceFigureView: View {
                 value: Binding(get: { controller.controlDeflection }, set: controller.setControlDeflection),
                 in: -1...1
             )
-                .frame(width: 80)
-                .accessibilityLabel("Selected assembly movement")
-                .help("Move the selected articulated assembly through its illustrative range")
-                .onHover { hovering in if hovering { NSCursor.pointingHand.set() } }
+            .frame(width: 80)
+            .accessibilityLabel("Selected assembly movement")
+            .help("Move the selected articulated assembly through its illustrative range")
+            .onHover { hovering in if hovering { NSCursor.pointingHand.set() } }
         }
     }
 
     private func figureButton(_ label: String, symbol: String, action: @escaping () -> Void) -> some View {
-        Button(action: { controller.pauseLesson(); model.stopGuidedMotion(); action() }) {
+        Button(action: {
+            controller.pauseLesson()
+            model.stopGuidedMotion()
+            action()
+        }) {
             Image(systemName: symbol).frame(width: 24, height: 24).contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -259,8 +272,10 @@ private struct PaceFigureRenderer: NSViewRepresentable {
         var selectPart: (String) -> Void
         var onManualInteraction: () -> Void
 
-        init(model: PaceFigureViewModel, selectPart: @escaping (String) -> Void,
-             onManualInteraction: @escaping () -> Void) {
+        init(
+            model: PaceFigureViewModel, selectPart: @escaping (String) -> Void,
+            onManualInteraction: @escaping () -> Void
+        ) {
             self.model = model
             self.selectPart = selectPart
             self.onManualInteraction = onManualInteraction
@@ -604,7 +619,8 @@ final class PaceFigureViewModel: ObservableObject {
                 bounds.includeSphere(center: hingePosition, radius: radius)
             }
             if surface.maximumTranslation != .zero, let parent = surface.entity.parent {
-                let displacement = parent.convert(position: surface.maximumTranslation, to: sceneRoot)
+                let displacement =
+                    parent.convert(position: surface.maximumTranslation, to: sceneRoot)
                     - parent.convert(position: .zero, to: sceneRoot)
                 bounds.includeSymmetricTranslation(of: movingBounds, by: displacement)
             }
@@ -645,9 +661,11 @@ final class PaceFigureViewModel: ObservableObject {
             group.position = vector(motion.pivot)
             root.addChild(group)
             motionGroups[motion.nodeID] = group
-            movingSurfaces.append(.init(entity: group, restingOrientation: group.orientation,
-                axis: vector(motion.axis), maximumAngle: Float(motion.maximumAngle), nodeID: motion.nodeID,
-                direction: 1, restingPosition: group.position, maximumTranslation: vector(motion.translation)))
+            movingSurfaces.append(
+                .init(
+                    entity: group, restingOrientation: group.orientation,
+                    axis: vector(motion.axis), maximumAngle: Float(motion.maximumAngle), nodeID: motion.nodeID,
+                    direction: 1, restingPosition: group.position, maximumTranslation: vector(motion.translation)))
         }
         for part in definition?.parts ?? scene.parts ?? [] {
             let mesh: MeshResource
@@ -678,7 +696,9 @@ final class PaceFigureViewModel: ObservableObject {
             if let group = motionGroups[part.nodeID] {
                 entity.position -= group.position
                 group.addChild(entity)
-            } else { root.addChild(entity) }
+            } else {
+                root.addChild(entity)
+            }
             selectableEntities.append(entity)
         }
         var semanticAnchors: [String: Entity] = [:]
@@ -688,11 +708,14 @@ final class PaceFigureViewModel: ObservableObject {
             if let group = motionGroups[identifier] {
                 anchor.position -= group.position
                 group.addChild(anchor)
-            } else { root.addChild(anchor) }
+            } else {
+                root.addChild(anchor)
+            }
             semanticAnchors[identifier] = anchor
         }
-        return PaceFigureAssembly(root: root, selectableEntities: selectableEntities,
-                                 movingSurfaces: movingSurfaces, semanticAnchors: semanticAnchors)
+        return PaceFigureAssembly(
+            root: root, selectableEntities: selectableEntities,
+            movingSurfaces: movingSurfaces, semanticAnchors: semanticAnchors)
     }
 
     private static func vector(_ coordinates: [Double]) -> SIMD3<Float> {

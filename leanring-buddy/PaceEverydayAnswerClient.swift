@@ -49,7 +49,8 @@ nonisolated enum PaceEverydayAnswerError: Error, LocalizedError {
         switch self {
         case .missingKey: return "Fast answers could not load the OpenAI key. Check the configured credential source."
         case .consentRevoked: return "Fast answers require the current Codex off-device consent and fast-answer opt-in."
-        case .httpFailure(let status): return "OpenAI fast answer failed (HTTP \(status)). Check API access and credits."
+        case .httpFailure(let status):
+            return "OpenAI fast answer failed (HTTP \(status)). Check API access and credits."
         case .invalidResponse: return "OpenAI did not complete a valid text answer."
         case .refused: return "OpenAI declined this fast-answer request."
         }
@@ -59,7 +60,9 @@ nonisolated enum PaceEverydayAnswerError: Error, LocalizedError {
 @MainActor
 final class PaceOpenAIResponsesEverydayClient: PaceEverydayAnswerClient, PacePassiveScreenAnswerClient {
     static let model = "gpt-6-luna"
-    static let instructions = "You are Pace, a concise voice assistant. The current message may come from on-device speech transcription or typing. If asked whether you can hear the user, acknowledge receiving their message; do not claim live microphone or screen status. " + PaceBoundedTextAnswerPlanner.answerInstructions
+    static let instructions =
+        "You are Pace, a concise voice assistant. The current message may come from on-device speech transcription or typing. If asked whether you can hear the user, acknowledge receiving their message; do not claim live microphone or screen status. "
+        + PaceBoundedTextAnswerPlanner.answerInstructions
     private static let sharedSession: URLSession = {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.httpCookieStorage = nil
@@ -73,11 +76,13 @@ final class PaceOpenAIResponsesEverydayClient: PaceEverydayAnswerClient, PacePas
     private let isAuthorized: () -> Bool
     private let auditLog: PaceAPIAuditLog
 
-    init(session: URLSession? = nil,
+    init(
+        session: URLSession? = nil,
         loadKey: @escaping () async throws -> String? = { try await PacePlannerCredentialStore.shared.loadOpenAIKey() },
         invalidateKey: @escaping @MainActor () -> Void = { PacePlannerCredentialStore.shared.clearCachedKey() },
-         auditLog: PaceAPIAuditLog = .shared,
-         isAuthorized: @escaping () -> Bool) {
+        auditLog: PaceAPIAuditLog = .shared,
+        isAuthorized: @escaping () -> Bool
+    ) {
         self.session = session ?? Self.sharedSession
         self.loadKey = loadKey
         self.invalidateKey = invalidateKey
@@ -208,32 +213,42 @@ final class PaceOpenAIResponsesEverydayClient: PaceEverydayAnswerClient, PacePas
             let payload = dataLines.joined(separator: "\n")
             if payload == "[DONE]" { return }
             guard let bytes = payload.data(using: .utf8),
-                  let event = (try? JSONSerialization.jsonObject(with: bytes)) as? [String: Any],
-                  let type = event["type"] as? String else { throw PaceEverydayAnswerError.invalidResponse }
+                let event = (try? JSONSerialization.jsonObject(with: bytes)) as? [String: Any],
+                let type = event["type"] as? String
+            else { throw PaceEverydayAnswerError.invalidResponse }
             guard completedResponse == nil else { throw PaceEverydayAnswerError.invalidResponse }
-            if type == "response.refusal.delta" || type == "response.refusal.done" { throw PaceEverydayAnswerError.refused }
+            if type == "response.refusal.delta" || type == "response.refusal.done" {
+                throw PaceEverydayAnswerError.refused
+            }
             if type == "response.failed" || type == "response.incomplete" || type == "error" {
                 throw PaceEverydayAnswerError.invalidResponse
             }
             if type == "response.completed" {
-                guard let response = event["response"] as? [String: Any], response["status"] as? String == "completed" else {
+                guard let response = event["response"] as? [String: Any], response["status"] as? String == "completed"
+                else {
                     throw PaceEverydayAnswerError.invalidResponse
                 }
                 completedResponse = response
             }
         }
         for line in wireText.replacingOccurrences(of: "\r\n", with: "\n").components(separatedBy: "\n") {
-            if line.isEmpty { try consumeEvent() }
-            else if line.hasPrefix("data:") { dataLines.append(String(line.dropFirst(5)).trimmingCharacters(in: .whitespaces)) }
-            else if !line.hasPrefix("event:") && !line.hasPrefix(":") { throw PaceEverydayAnswerError.invalidResponse }
+            if line.isEmpty {
+                try consumeEvent()
+            } else if line.hasPrefix("data:") {
+                dataLines.append(String(line.dropFirst(5)).trimmingCharacters(in: .whitespaces))
+            } else if !line.hasPrefix("event:") && !line.hasPrefix(":") {
+                throw PaceEverydayAnswerError.invalidResponse
+            }
         }
         // A truncated final event is never a successful completion.
         guard dataLines.isEmpty, let completedResponse,
-              let output = completedResponse["output"] as? [[String: Any]] else { throw PaceEverydayAnswerError.invalidResponse }
+            let output = completedResponse["output"] as? [[String: Any]]
+        else { throw PaceEverydayAnswerError.invalidResponse }
         var texts: [String] = []
         for item in output {
             guard item["type"] as? String == "message", item["role"] as? String == "assistant",
-                  item["status"] as? String == "completed", let content = item["content"] as? [[String: Any]] else {
+                item["status"] as? String == "completed", let content = item["content"] as? [[String: Any]]
+            else {
                 throw PaceEverydayAnswerError.invalidResponse
             }
             for part in content {

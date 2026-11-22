@@ -126,9 +126,10 @@ extension PaceActionExecutor {
     ) async -> PaceActionExecutionObservation? {
         let observation = await dispatchSingleAction(action, screenCaptures: screenCaptures)
         let outcomeText: String
-        if let observation, observation.stopsAgentLoop
-            || observation.summary.lowercased().contains("fail")
-            || observation.summary.lowercased().contains("error")
+        if let observation,
+            observation.stopsAgentLoop
+                || observation.summary.lowercased().contains("fail")
+                || observation.summary.lowercased().contains("error")
             || observation.summary.lowercased().contains("could not") {
             outcomeText = "error"
         } else {
@@ -151,7 +152,10 @@ extension PaceActionExecutor {
         screenCaptures: [CompanionScreenCapture]
     ) async -> PaceActionExecutionObservation? {
         guard managedPowerExecutionCheck?() != false else {
-            return .init(toolName: action.auditOperationName, summary: "Power was disabled, removed, or changed; execution stopped.", terminalReason: .managedWorkflowUnavailable)
+            return .init(
+                toolName: action.auditOperationName,
+                summary: "Power was disabled, removed, or changed; execution stopped.",
+                terminalReason: .managedWorkflowUnavailable)
         }
         // Input posting can silently do nothing without Accessibility access.
         // Return a real observation so the agent does not treat that as success.
@@ -196,7 +200,8 @@ extension PaceActionExecutor {
                 return .init(toolName: "coding_session", summary: "Coding not started. EnableActions is disabled.")
             }
             guard let executeCodingSession else {
-                return .init(toolName: "coding_session", summary: "Coding is unavailable. The lifecycle binding is missing.")
+                return .init(
+                    toolName: "coding_session", summary: "Coding is unavailable. The lifecycle binding is missing.")
             }
             return await executeCodingSession(command)
         case .codexSession(let request):
@@ -244,11 +249,20 @@ extension PaceActionExecutor {
         case .downloadFile(let downloadRequest):
             return await downloadFile(downloadRequest)
         case .presentMedia(let request):
-            guard actionsAreEnabled else { return .init(toolName: "present_media", summary: "Would present \(request.presentationSummary)") }
-            return await presentLocalMedia?(request) ?? .init(toolName: "present_media", summary: "Media unavailable; lifecycle binding missing.", terminalReason: .managedWorkflowUnavailable)
+            guard actionsAreEnabled else {
+                return .init(toolName: "present_media", summary: "Would present \(request.presentationSummary)")
+            }
+            return await presentLocalMedia?(request)
+                ?? .init(
+                    toolName: "present_media", summary: "Media unavailable; lifecycle binding missing.",
+                    terminalReason: .managedWorkflowUnavailable)
         case .speak(let request):
             guard actionsAreEnabled else { return .init(toolName: "speak", summary: "Would speak local text.") }
-            guard let speakLocalText else { return .init(toolName: "speak", summary: "Local speech unavailable; lifecycle binding missing.", terminalReason: .managedWorkflowUnavailable) }
+            guard let speakLocalText else {
+                return .init(
+                    toolName: "speak", summary: "Local speech unavailable; lifecycle binding missing.",
+                    terminalReason: .managedWorkflowUnavailable)
+            }
             return await speakLocalText(request)
         case .startTimer(let timerRequest):
             return await startTimer(timerRequest)

@@ -86,7 +86,8 @@ final class CompanionManager: ObservableObject {
     @Published var localMemorySummary: String = PaceLocalMemoryStore.summaryText
     @Published var localRetrievalSummary: String = "Retrieval: local preferences and Pace history"
     @Published var localRetrievalSourceStatuses: [PaceRetrievalSourceStatus] = []
-    @Published var localRetrievalFileRootPaths: [String] = PaceLocalRetrievalFileRootPreferences
+    @Published var localRetrievalFileRootPaths: [String] =
+        PaceLocalRetrievalFileRootPreferences
         .rootPaths(for: PaceLocalRetrievalFileRootPreferences.userSelectedRootURLs())
     @Published var currentTurnHUDState: PaceTurnHUDState = .idle
 
@@ -592,7 +593,8 @@ final class CompanionManager: ObservableObject {
     /// User-facing toggle for "read my screen". Backed by UserDefaults so
     /// it survives launches; first launch seeds from Info.plist
     /// `UseLocalVLMForScreenContext`. Wired to a Switch in CompanionPanelView.
-    @Published var useLocalVLMForScreenContext: Bool = PaceUserPreferencesStore
+    @Published var useLocalVLMForScreenContext: Bool =
+        PaceUserPreferencesStore
         .boolWithInfoPlistSeed(.useLocalVLMForScreenContext, infoPlistKey: "UseLocalVLMForScreenContext")
     {
         didSet {
@@ -613,7 +615,8 @@ final class CompanionManager: ObservableObject {
     /// turns race Apple FM (lite, text-only) against the full VLM-fed
     /// local planner. RAM-neutral because FM is in-process. Default ON
     /// — this is a hot feature, users opt OUT in Settings → Planner.
-    @Published var isSpeculativePlannerRaceEnabled: Bool = PaceUserPreferencesStore
+    @Published var isSpeculativePlannerRaceEnabled: Bool =
+        PaceUserPreferencesStore
         .bool(.enableSpeculativePlannerRace, default: true)
 
     func setSpeculativePlannerRaceEnabled(_ enabled: Bool) {
@@ -784,7 +787,9 @@ final class CompanionManager: ObservableObject {
             PaceUserPreferencesStore.bool(.injectSensitiveEpisodicTopics, default: false)
         },
         isSourceEnabled: { [weak self] source in self?.localRetriever.isSourceEnabled(source) ?? false },
-        screenWatchHistoryAccessGeneration: { [weak self] in self?.localRetriever.screenWatchHistoryAccessGeneration ?? 0 }
+        screenWatchHistoryAccessGeneration: { [weak self] in
+            self?.localRetriever.screenWatchHistoryAccessGeneration ?? 0
+        }
     )
 
     /// Off-hot-path embedding scheduler — extracted into its own
@@ -959,7 +964,8 @@ final class CompanionManager: ObservableObject {
         // transcription provider uses the Speech framework. WhisperKit
         // transcribes without it, and requiring it anyway made the panel
         // nag for a permission the app never requests.
-        let speechPermissionSatisfied = !buddyDictationManager
+        let speechPermissionSatisfied =
+            !buddyDictationManager
             .transcriptionProvider.requiresSpeechRecognitionPermission
             || hasSpeechRecognitionPermission
         return hasAccessibilityPermission
@@ -996,7 +1002,8 @@ final class CompanionManager: ObservableObject {
     /// User preference for whether the walking avatar overlay is shown
     /// on the bottom of the cursor screen. Defaults to ON so first-run
     /// users see the character; toggleable from the menu-bar panel.
-    @Published var isWalkingAvatarEnabled: Bool = PaceUserPreferencesStore
+    @Published var isWalkingAvatarEnabled: Bool =
+        PaceUserPreferencesStore
         .bool(.isWalkingAvatarEnabled, default: true)
 
     func setWalkingAvatarEnabled(_ enabled: Bool) {
@@ -1007,11 +1014,13 @@ final class CompanionManager: ObservableObject {
     /// User preference for whether the Pace cursor should be shown.
     /// When toggled off, the overlay is hidden and push-to-talk is disabled.
     /// Persisted to UserDefaults so the choice survives app restarts.
-    @Published var isPaceCursorEnabled: Bool = PaceUserPreferencesStore
+    @Published var isPaceCursorEnabled: Bool =
+        PaceUserPreferencesStore
         .bool(.isPaceCursorEnabled, default: true)
 
     /// User preference for cursor-adjacent pinpoint labels and annotations.
-    @Published var areCursorAnnotationsEnabled: Bool = PaceUserPreferencesStore
+    @Published var areCursorAnnotationsEnabled: Bool =
+        PaceUserPreferencesStore
         .bool(.areCursorAnnotationsEnabled, default: true)
 
     func setCursorAnnotationsEnabled(_ enabled: Bool) {
@@ -1021,7 +1030,8 @@ final class CompanionManager: ObservableObject {
 
     /// User preference for the screen-edge glow border. When toggled
     /// at runtime, the glow border manager shows/hides immediately.
-    @Published var isGlowBorderEnabled: Bool = PaceUserPreferencesStore
+    @Published var isGlowBorderEnabled: Bool =
+        PaceUserPreferencesStore
         .bool(.isGlowBorderEnabled, default: PaceGlowBorderDefaults.isEnabled)
 
     func setGlowBorderEnabled(_ enabled: Bool) {
@@ -1045,7 +1055,8 @@ final class CompanionManager: ObservableObject {
     /// `clear_annotations` tools are ALWAYS available regardless of this
     /// flag; the toggle only changes the planner's bias. See PRD
     /// tuition-mode annotations.
-    @Published var isTuitionModeEnabled: Bool = PaceUserPreferencesStore
+    @Published var isTuitionModeEnabled: Bool =
+        PaceUserPreferencesStore
         .bool(.isTuitionModeEnabled, default: false)
 
     func setIsTuitionModeEnabled(_ enabled: Bool) {
@@ -1080,7 +1091,8 @@ final class CompanionManager: ObservableObject {
     /// User preference for whether Pace asks before higher-risk local tools.
     /// Routine reversible or visible actions auto-run; non-undoable app
     /// mutations, external tools, and blocking preflight issues still prompt.
-    @Published var requiresActionApproval: Bool = PaceUserPreferencesStore
+    @Published var requiresActionApproval: Bool =
+        PaceUserPreferencesStore
         .bool(.requiresActionApproval, default: true)
 
     func setRequiresActionApproval(_ enabled: Bool) {
@@ -1159,11 +1171,13 @@ final class CompanionManager: ObservableObject {
     @Published private(set) var isOffDeviceTurnInFlight: Bool = false
 
     func refreshOffDeviceIndicator() {
-        if (foregroundOffDeviceTurnInFlight || hostedMCPOffDeviceTurnInFlight), activePacePadTurnIdentifier != nil {
+        if foregroundOffDeviceTurnInFlight || hostedMCPOffDeviceTurnInFlight, activePacePadTurnIdentifier != nil {
             activePacePadTurnUsesOffDevicePlanner = true
         }
-        isOffDeviceTurnInFlight = foregroundOffDeviceTurnInFlight || hostedMCPOffDeviceTurnInFlight
-            || headlessOffDevicePlannerCallCount > 0 || !screenSuggestionDisclosureLeases.isEmpty || !codingSessionsInFlight.isEmpty || codingSetupCallCount > 0
+        isOffDeviceTurnInFlight =
+            foregroundOffDeviceTurnInFlight || hostedMCPOffDeviceTurnInFlight
+            || headlessOffDevicePlannerCallCount > 0 || !screenSuggestionDisclosureLeases.isEmpty
+            || !codingSessionsInFlight.isEmpty || codingSetupCallCount > 0
     }
 
     /// Count of HEADLESS planner calls (background agents, subagents,
@@ -1175,22 +1189,19 @@ final class CompanionManager: ObservableObject {
     /// hold until the LAST one finishes.
     var headlessOffDevicePlannerCallCount: Int = 0 { didSet { refreshOffDeviceIndicator() } }
 
-
-
-    @Published var isAlwaysListeningEnabled: Bool = PaceUserPreferencesStore
+    @Published var isAlwaysListeningEnabled: Bool =
+        PaceUserPreferencesStore
         .bool(.isAlwaysListeningEnabled, default: false)
 
-
-    @Published var areFocusFatigueNudgesEnabled: Bool = PaceUserPreferencesStore
+    @Published var areFocusFatigueNudgesEnabled: Bool =
+        PaceUserPreferencesStore
         .bool(.areFocusFatigueNudgesEnabled, default: false)
 
-
-    @Published var areCalendarNudgesEnabled: Bool = PaceUserPreferencesStore
+    @Published var areCalendarNudgesEnabled: Bool =
+        PaceUserPreferencesStore
         .bool(.areCalendarNudgesEnabled, default: false)
 
-
     @Published var areWatchObservationNudgesEnabled: Bool = false
-
 
     // MARK: - Proactivity profile — stored state; setters in CompanionManager+ProactivitySettings.swift
 
@@ -1206,7 +1217,6 @@ final class CompanionManager: ObservableObject {
             PaceUserPreferencesStore.setProactivityProfile(proactivityProfile)
         }
     }
-
 
     // MARK: - Proactive pipeline (Wave 7a extraction) — pipeline + forwarders split; forwarders in CompanionManager+ProactivePipeline.swift
     //
@@ -1275,27 +1285,26 @@ final class CompanionManager: ObservableObject {
         )
     }()
 
-
     // MARK: - Morning triage (daily brief) — stored state; methods in CompanionManager+MorningTriage.swift
 
     /// User-facing master switch for the daily weekday morning brief.
     /// Default OFF — the scheduler stays inert until the user
     /// explicitly enables this in Settings. See PRD
     /// docs/prds/morning-triage.md.
-    @Published var isMorningTriageEnabled: Bool = PaceUserPreferencesStore
+    @Published var isMorningTriageEnabled: Bool =
+        PaceUserPreferencesStore
         .bool(.isMorningTriageEnabled, default: false)
-
 
     /// Hour-of-day at which the brief fires on weekdays. Clamped 0...23
     /// on read so a corrupted UserDefaults value can't break the timer.
-    @Published var morningTriageHourOfDay: Int = PaceUserPreferencesStore
+    @Published var morningTriageHourOfDay: Int =
+        PaceUserPreferencesStore
         .clampedInt(.morningTriageHourOfDay, default: 8, in: 0...23)
 
-
     /// Minute-of-hour at which the brief fires. Clamped 0...59 on read.
-    @Published var morningTriageMinuteOfHour: Int = PaceUserPreferencesStore
+    @Published var morningTriageMinuteOfHour: Int =
+        PaceUserPreferencesStore
         .clampedInt(.morningTriageMinuteOfHour, default: 30, in: 0...59)
-
 
     /// Scheduler instance that owns the daily fire timer and the
     /// pending-card surface. Lazy so it captures the lazy retriever /

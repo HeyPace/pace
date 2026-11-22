@@ -1,6 +1,5 @@
 import AppKit
 import Combine
-import Combine
 import SaaSMakerUI
 import SwiftUI
 
@@ -14,7 +13,8 @@ struct PaceMainView: View {
     init(companionManager: CompanionManager, router: PaceCommandCenterRouter) {
         self.companionManager = companionManager
         self.router = router
-        _detailDestination = State(initialValue: router.selectedDestination == .general ? nil : router.selectedDestination)
+        _detailDestination = State(
+            initialValue: router.selectedDestination == .general ? nil : router.selectedDestination)
     }
 
     var body: some View {

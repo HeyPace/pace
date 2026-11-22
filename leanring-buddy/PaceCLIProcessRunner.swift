@@ -43,7 +43,10 @@ nonisolated final class PaceCLIProcessControl: @unchecked Sendable {
 
     func stop(timedOut: Bool = false) {
         lock.lock()
-        guard !hasFinished else { lock.unlock(); return }
+        guard !hasFinished else {
+            lock.unlock()
+            return
+        }
         cancellationRequested = true
         timeoutReached = timeoutReached || timedOut
         let runningProcess = process
@@ -52,14 +55,20 @@ nonisolated final class PaceCLIProcessControl: @unchecked Sendable {
         if shouldScheduleEscalation { stopStartedAt = ProcessInfo.processInfo.systemUptime }
         lock.unlock()
         guard let runningProcess, shouldScheduleEscalation else { return }
-        if let processGroup { killpg(processGroup, SIGTERM) }
-        else if runningProcess.isRunning { runningProcess.terminate() }
+        if let processGroup {
+            killpg(processGroup, SIGTERM)
+        } else if runningProcess.isRunning {
+            runningProcess.terminate()
+        }
         DispatchQueue.global().asyncAfter(deadline: .now() + 1) { [self] in
             lock.lock()
             defer { lock.unlock() }
             guard !hasFinished else { return }
-            if let processGroup { killpg(processGroup, SIGKILL) }
-            else if runningProcess.isRunning { kill(runningProcess.processIdentifier, SIGKILL) }
+            if let processGroup {
+                killpg(processGroup, SIGKILL)
+            } else if runningProcess.isRunning {
+                kill(runningProcess.processIdentifier, SIGKILL)
+            }
         }
     }
 
@@ -202,7 +211,8 @@ nonisolated enum PaceCLIProcessRunner {
             try processControl.checkCancellation()
             // A descendant can retain stdout after the owned root is stopped.
             // Poll wakes immediately for bytes but keeps that inherited pipe cancellable.
-            var descriptor = pollfd(fd: outputPipe.fileHandleForReading.fileDescriptor,
+            var descriptor = pollfd(
+                fd: outputPipe.fileHandleForReading.fileDescriptor,
                 events: Int16(POLLIN | POLLHUP), revents: 0)
             let readiness = Darwin.poll(&descriptor, 1, 50)
             if readiness < 0 {

@@ -17,7 +17,8 @@ struct PaceConversationRecorderTests {
 
         func loadPastTurnsOldestFirst() -> [PaceChatHistoryTurn] {
             events.values.sorted { $0.createdAt < $1.createdAt }.map {
-                PaceChatHistoryTurn(id: $0.eventID, userText: "", paceText: "",
+                PaceChatHistoryTurn(
+                    id: $0.eventID, userText: "", paceText: "",
                     recordedAt: $0.createdAt, conversationEvent: $0)
             }
         }
@@ -60,7 +61,8 @@ struct PaceConversationRecorderTests {
     func makeDismissalFixture() -> (CompanionManager, FixturePersister, DismissalTTSClient) {
         let (persister, session, recorder) = makeFixture()
         let preferences = UserDefaults(suiteName: "PaceExplanationDismissalTests." + UUID().uuidString)!
-        let manager = CompanionManager(watchModeDefaults: preferences, recordsDerivedConversationMemory: false, persistsDebugTraces: false)
+        let manager = CompanionManager(
+            watchModeDefaults: preferences, recordsDerivedConversationMemory: false, persistsDebugTraces: false)
         let client = DismissalTTSClient()
         manager.ttsClient = client
         manager.chatSession = session
@@ -85,7 +87,8 @@ struct PaceConversationRecorderTests {
     @Test func persistedImagePreviewRemainsAttachedWhenHistoryReloads() throws {
         let (persister, session, recorder) = makeFixture()
         let identifier = UUID()
-        let event = ConversationEvent(role: .pace, origin: .assistant, text: "A lighthouse",
+        let event = ConversationEvent(
+            role: .pace, origin: .assistant, text: "A lighthouse",
             generatedImagePreviewID: identifier)
         let reloaded = try JSONDecoder().decode(ConversationEvent.self, from: JSONEncoder().encode(event))
         recorder.record(reloaded)
@@ -146,7 +149,8 @@ struct PaceConversationRecorderTests {
         manager.voiceState = .responding
         client.isPlaying = true
         let gate = ExplanationAutoCloseSleepGate()
-        let panelManager = MenuBarPanelManager(companionManager: manager,
+        let panelManager = MenuBarPanelManager(
+            companionManager: manager,
             waitForExplanationAutoClose: { await gate.wait($0) })
         defer {
             panelManager.handleExplanationVoiceStateChange(.processing)
@@ -176,7 +180,8 @@ struct PaceConversationRecorderTests {
     @Test func interactingRestartsAutoCloseAndRetiresTheOldCountdown() async throws {
         let (manager, _, client) = makeDismissalFixture()
         let gate = ExplanationAutoCloseSleepGate()
-        let panelManager = MenuBarPanelManager(companionManager: manager,
+        let panelManager = MenuBarPanelManager(
+            companionManager: manager,
             waitForExplanationAutoClose: { await gate.wait($0) })
         defer {
             panelManager.handleExplanationVoiceStateChange(.processing)
@@ -202,7 +207,8 @@ struct PaceConversationRecorderTests {
     @Test func newTurnPreventsThePreviousExplanationFromAutoClosing() async throws {
         let (manager, _, _) = makeDismissalFixture()
         let gate = ExplanationAutoCloseSleepGate()
-        let panelManager = MenuBarPanelManager(companionManager: manager,
+        let panelManager = MenuBarPanelManager(
+            companionManager: manager,
             waitForExplanationAutoClose: { await gate.wait($0) })
         defer {
             panelManager.handleExplanationVoiceStateChange(.processing)
@@ -221,7 +227,8 @@ struct PaceConversationRecorderTests {
     @Test func autoClosePreservesAnUnsentDraftAndAllowsAnotherThirtySeconds() async throws {
         let (manager, _, _) = makeDismissalFixture()
         let gate = ExplanationAutoCloseSleepGate()
-        let panelManager = MenuBarPanelManager(companionManager: manager,
+        let panelManager = MenuBarPanelManager(
+            companionManager: manager,
             waitForExplanationAutoClose: { await gate.wait($0) })
         defer {
             panelManager.handleExplanationVoiceStateChange(.processing)
@@ -247,8 +254,10 @@ struct PaceConversationRecorderTests {
         manager.voiceState = .responding
         await manager.streamingSentenceTTSPipeline.acceptStreamedText("Light separates into colors.")
         let queuedEvent = manager.acceptConversationRequest("Explain the next part", origin: .typed)
-        manager.chatTurnQueue.enqueue(.init(transcript: queuedEvent.text, shouldMuteTTS: false,
-            optimisticMessageIdentifier: queuedEvent.eventID))
+        manager.chatTurnQueue.enqueue(
+            .init(
+                transcript: queuedEvent.text, shouldMuteTTS: false,
+                optimisticMessageIdentifier: queuedEvent.eventID))
         manager.queuedChatTurnCount = 1
         let routingTask = Task<Void, Never> {}
         let responseTask = Task<Void, Never> {}
@@ -260,7 +269,8 @@ struct PaceConversationRecorderTests {
             NotificationCenter.default.post(name: .paceDismissPanel, object: PaceExplanationDismissalIntent.automatic)
             #expect(!routingTask.isCancelled)
             #expect(client.stopCount == 0)
-            NotificationCenter.default.post(name: .paceDismissPanel, object: PaceExplanationDismissalIntent.userInitiated)
+            NotificationCenter.default.post(
+                name: .paceDismissPanel, object: PaceExplanationDismissalIntent.userInitiated)
         }
 
         #expect(routingTask.isCancelled && responseTask.isCancelled)
@@ -314,13 +324,15 @@ struct PaceConversationRecorderTests {
         let responseTask = Task<Void, Never> {}
         manager.currentResponseTask = responseTask
         // Check dismissal and speech continuity without depending on test-host animation completion.
-        let panelManager = MenuBarPanelManager(companionManager: manager,
+        let panelManager = MenuBarPanelManager(
+            companionManager: manager,
             shouldReducePanelMotion: { true })
         let previousWindowIdentifiers = Set(NSApplication.shared.windows.map(ObjectIdentifier.init))
         panelManager.showPanelForSmokeTest()
-        let panel = try #require(NSApplication.shared.windows.first {
-            !previousWindowIdentifiers.contains(ObjectIdentifier($0)) && $0.isVisible
-        })
+        let panel = try #require(
+            NSApplication.shared.windows.first {
+                !previousWindowIdentifiers.contains(ObjectIdentifier($0)) && $0.isVisible
+            })
         defer {
             manager.annotationOverlayController.clear(reason: "test cleanup")
             panel.orderOut(nil)
@@ -328,7 +340,8 @@ struct PaceConversationRecorderTests {
         }
         #expect(panel.isVisible)
         manager.annotationOverlayController.setAnnotations([
-            PaceRenderedAnnotation(geometry: .rect(CGRect(x: 0, y: 0, width: 10, height: 10)),
+            PaceRenderedAnnotation(
+                geometry: .rect(CGRect(x: 0, y: 0, width: 10, height: 10)),
                 style: .default, screenIndex: 1)
         ])
         for _ in 0..<100 {
@@ -349,7 +362,10 @@ struct PaceConversationRecorderTests {
         client.suspendsSubmissions = true
         let lease = manager.turnLeaseRegistry.beginTurn()
         manager.voiceState = .processing
-        let finalSpeech = Task { await manager.beginFinalSpeechIfCurrentTurn(spokenText: "The explanation is ready.", turnLease: lease, purpose: .assistantReply) }
+        let finalSpeech = Task {
+            await manager.beginFinalSpeechIfCurrentTurn(
+                spokenText: "The explanation is ready.", turnLease: lease, purpose: .assistantReply)
+        }
         defer {
             finalSpeech.cancel()
             client.submission?.resume()
@@ -376,16 +392,21 @@ struct PaceConversationRecorderTests {
         await manager.streamingSentenceTTSPipeline.acceptStreamedText("The old explanation is finished.")
         manager.handleExplanationDismissal(.userInitiated)
         let observedAt = Date()
-        let suggestion = PaceScreenSuggestion(identifier: UUID(), subject: "TCP congestion",
+        let suggestion = PaceScreenSuggestion(
+            identifier: UUID(), subject: "TCP congestion",
             evidence: "TCP congestion control", offer: "Want an explanation of TCP congestion?",
-            sceneIdentity: .init(displayIdentifier: 1, applicationProcessIdentifier: 42,
+            sceneIdentity: .init(
+                displayIdentifier: 1, applicationProcessIdentifier: 42,
                 applicationBundleIdentifier: "com.apple.Safari"),
             observedAt: observedAt, expiresAt: observedAt.addingTimeInterval(45))
-        manager.recordAssistantNarration(suggestion.offer, origin: .proactive,
+        manager.recordAssistantNarration(
+            suggestion.offer, origin: .proactive,
             eventIdentifier: suggestion.conversationEventIdentifier)
-        await manager.speakAcceptedWatchSuggestion(suggestion,
+        await manager.speakAcceptedWatchSuggestion(
+            suggestion,
             speechGeneration: manager.watchSuggestionSpeechGeneration)
-        await manager.streamingSentenceTTSPipeline.acceptStreamedText("The old reply must never resume.",
+        await manager.streamingSentenceTTSPipeline.acceptStreamedText(
+            "The old reply must never resume.",
             expectedTurnLease: oldLease, currentTurnLease: manager.turnLeaseRegistry.currentLease)
 
         #expect(client.spokenTexts == ["The old explanation is finished.", suggestion.offer])
@@ -398,13 +419,17 @@ struct PaceConversationRecorderTests {
         let (manager, _, client) = makeDismissalFixture()
         client.suspendsSubmissions = true
         let observedAt = Date()
-        let suggestion = PaceScreenSuggestion(identifier: UUID(), subject: "TCP congestion",
+        let suggestion = PaceScreenSuggestion(
+            identifier: UUID(), subject: "TCP congestion",
             evidence: "TCP congestion control", offer: "Want an explanation of TCP congestion?",
-            sceneIdentity: .init(displayIdentifier: 1, applicationProcessIdentifier: 42,
+            sceneIdentity: .init(
+                displayIdentifier: 1, applicationProcessIdentifier: 42,
                 applicationBundleIdentifier: "com.apple.Safari"),
             observedAt: observedAt, expiresAt: observedAt.addingTimeInterval(45))
         let speechGeneration = manager.watchSuggestionSpeechGeneration
-        let oldSpeech = Task { await manager.speakAcceptedWatchSuggestion(suggestion, speechGeneration: speechGeneration) }
+        let oldSpeech = Task {
+            await manager.speakAcceptedWatchSuggestion(suggestion, speechGeneration: speechGeneration)
+        }
         defer {
             oldSpeech.cancel()
             client.submission?.resume()
@@ -465,10 +490,12 @@ struct PaceConversationRecorderTests {
 
     @Test func completionDuringHistoryReadConvergesAndDoesNotEraseUpdatedVisiblePrefix() {
         let (persister, session, recorder) = makeFixture()
-        let event = ConversationEvent(role: .pace, origin: .assistant, text: "Visible prefix", deliveryState: .interrupted)
+        let event = ConversationEvent(
+            role: .pace, origin: .assistant, text: "Visible prefix", deliveryState: .interrupted)
         recorder.record(event)
         let staleDiskSnapshot = persister.loadPastTurnsOldestFirst()
-        recorder.updateDeliveryState(.completed, eventIdentifier: event.eventID, visibleText: "Visible prefix and final answer.")
+        recorder.updateDeliveryState(
+            .completed, eventIdentifier: event.eventID, visibleText: "Visible prefix and final answer.")
         session.applyLoadedHistory(staleDiskSnapshot)
         #expect(session.messages.count == 1)
         #expect(session.messages.first?.id == event.eventID)
@@ -480,7 +507,10 @@ struct PaceConversationRecorderTests {
     @Test func assistantOnlyProgressReminderAndFailureAreVisibleWhenMutedWithoutFakeUsers() {
         let (persister, session, recorder) = makeFixture()
         session.isChatTTSMuted = true
-        for (origin, text) in [(ConversationEvent.Origin.progress, "Researching."), (.reminder, "Timer finished."), (.failure, "Could not connect.")] {
+        for (origin, text) in [
+            (ConversationEvent.Origin.progress, "Researching."), (.reminder, "Timer finished."),
+            (.failure, "Could not connect."),
+        ] {
             recorder.record(ConversationEvent(role: .pace, origin: origin, text: text))
         }
         #expect(session.userFacingMessages.count == 3)
@@ -522,7 +552,8 @@ struct PaceConversationRecorderTests {
 
     @Test func interruptedVisibleTextKeepsPartialSentenceButExcludesThinkingAndToolPayloads() {
         let rawText = "<think>private reasoning</think>Visible partial [CLICK:1,2]"
-        let visibleText = StreamingSentenceTTSPipeline.computeSpeakableSafePrefix(from: rawText, requiresCompleteSentence: false)
+        let visibleText = StreamingSentenceTTSPipeline.computeSpeakableSafePrefix(
+            from: rawText, requiresCompleteSentence: false)
         #expect(visibleText.contains("Visible partial"))
         #expect(!visibleText.contains("private reasoning"))
         #expect(!visibleText.contains("CLICK"))
@@ -534,11 +565,13 @@ struct PaceConversationRecorderTests {
         let indexURL = directoryURL.appendingPathComponent("retrieval-index.json")
         let store = PaceInMemoryRetrievalStore(persistenceURL: indexURL)
         let retriever = PaceLocalRetriever(store: store, appliesPersistedSourcePreferences: false)
-        let session = PaceChatSession(historySource: PaceLocalChatHistoryReader(indexURL: indexURL), transcriptSubmitter: FixtureSubmitter())
+        let session = PaceChatSession(
+            historySource: PaceLocalChatHistoryReader(indexURL: indexURL), transcriptSubmitter: FixtureSubmitter())
         let recorder = PaceConversationRecorder(persister: retriever, chatSession: session)
         let request = recorder.acceptRequest("accepted", origin: .typed)
         session.loadHistoryWithoutBlockingInterface()
-        let reply = ConversationEvent(turnID: request.eventID, role: .pace, origin: .assistant, text: "Completed while loading.")
+        let reply = ConversationEvent(
+            turnID: request.eventID, role: .pace, origin: .assistant, text: "Completed while loading.")
         recorder.record(reply)
         for _ in 0..<100 where !session.hasLoadedHistory {
             try await Task.sleep(for: .milliseconds(10))
@@ -554,12 +587,16 @@ struct PaceConversationRecorderTests {
         let indexURL = directoryURL.appendingPathComponent("retrieval-index.json")
         let store = PaceInMemoryRetrievalStore(persistenceURL: indexURL)
         let retriever = PaceLocalRetriever(store: store, appliesPersistedSourcePreferences: false)
-        let legacyDocument = PaceRetrievalDocument(id: "legacy-turn", source: .paceHistory,
-            title: "Recent Pace turn", text: "User: Earlier question\nPace: Earlier answer", modifiedAt: Date(timeIntervalSince1970: 100))
+        let legacyDocument = PaceRetrievalDocument(
+            id: "legacy-turn", source: .paceHistory,
+            title: "Recent Pace turn", text: "User: Earlier question\nPace: Earlier answer",
+            modifiedAt: Date(timeIntervalSince1970: 100))
         store.upsertDocuments([legacyDocument])
-        let session = PaceChatSession(historySource: PaceLocalChatHistoryReader(indexURL: indexURL), transcriptSubmitter: FixtureSubmitter())
+        let session = PaceChatSession(
+            historySource: PaceLocalChatHistoryReader(indexURL: indexURL), transcriptSubmitter: FixtureSubmitter())
         let recorder = PaceConversationRecorder(persister: retriever, chatSession: session)
-        let event = ConversationEvent(role: .pace, origin: .reminder,
+        let event = ConversationEvent(
+            role: .pace, origin: .reminder,
             text: "Timer finished. User: literal text remains intact.", createdAt: Date(timeIntervalSince1970: 200))
         recorder.record(event)
         recorder.updateDeliveryState(.interrupted, eventIdentifier: event.eventID)
@@ -568,6 +605,8 @@ struct PaceConversationRecorderTests {
         #expect(session.messages.last?.id == event.eventID)
         let restoredStore = PaceInMemoryRetrievalStore(persistenceURL: indexURL)
         #expect(restoredStore.documents(withSource: .paceHistory).first { $0.id == "legacy-turn" } == legacyDocument)
-        #expect(restoredStore.documents(withSource: .paceHistory).first { $0.id == event.eventID }?.conversationEvent?.deliveryState == .interrupted)
+        #expect(
+            restoredStore.documents(withSource: .paceHistory).first { $0.id == event.eventID }?.conversationEvent?
+                .deliveryState == .interrupted)
     }
 }

@@ -60,8 +60,10 @@ final class PaceActiveCallDetector: ObservableObject {
     private var pollTimer: Timer?
 
     init(
-        runningApplicationBundleIdentifiersProvider: @escaping () -> Set<String> = PaceActiveCallDetector.liveRunningApplicationBundleIdentifiers,
-        processAudioSnapshotProvider: @escaping () -> ProcessAudioSnapshot = PaceActiveCallDetector.liveProcessAudioSnapshot
+        runningApplicationBundleIdentifiersProvider: @escaping () -> Set<String> = PaceActiveCallDetector
+            .liveRunningApplicationBundleIdentifiers,
+        processAudioSnapshotProvider: @escaping () -> ProcessAudioSnapshot = PaceActiveCallDetector
+            .liveProcessAudioSnapshot
     ) {
         self.runningApplicationBundleIdentifiersProvider = runningApplicationBundleIdentifiersProvider
         self.processAudioSnapshotProvider = processAudioSnapshotProvider
@@ -96,7 +98,9 @@ final class PaceActiveCallDetector: ObservableObject {
     /// next timer tick.
     func recomputeForTesting() {
         let currentlyRunningBundleIdentifiers = runningApplicationBundleIdentifiersProvider()
-        guard currentlyRunningBundleIdentifiers.contains(where: { Self.callBundleIdentifiers.contains($0.lowercased()) }) else {
+        guard
+            currentlyRunningBundleIdentifiers.contains(where: { Self.callBundleIdentifiers.contains($0.lowercased()) })
+        else {
             isOnActiveCall = false
             return
         }
@@ -110,7 +114,9 @@ final class PaceActiveCallDetector: ObservableObject {
         runningBundleIdentifiers: Set<String>,
         processAudioSnapshot: ProcessAudioSnapshot
     ) -> Bool {
-        guard runningBundleIdentifiers.contains(where: { callBundleIdentifiers.contains($0.lowercased()) }) else { return false }
+        guard runningBundleIdentifiers.contains(where: { callBundleIdentifiers.contains($0.lowercased()) }) else {
+            return false
+        }
         switch processAudioSnapshot {
         case .idle: return false
         case .active, .unavailable: return true
@@ -122,11 +128,14 @@ final class PaceActiveCallDetector: ObservableObject {
         var processListSize: UInt32 = 0
         let systemObject = AudioObjectID(kAudioObjectSystemObject)
         guard AudioObjectGetPropertyDataSize(systemObject, &processListAddress, 0, nil, &processListSize) == noErr,
-              processListSize % UInt32(MemoryLayout<AudioObjectID>.size) == 0 else { return .unavailable }
+            processListSize % UInt32(MemoryLayout<AudioObjectID>.size) == 0
+        else { return .unavailable }
         guard processListSize > 0 else { return .idle }
-        var processObjects = [AudioObjectID](repeating: 0, count: Int(processListSize) / MemoryLayout<AudioObjectID>.size)
+        var processObjects = [AudioObjectID](
+            repeating: 0, count: Int(processListSize) / MemoryLayout<AudioObjectID>.size)
         let processListStatus = processObjects.withUnsafeMutableBytes { processBytes in
-            AudioObjectGetPropertyData(systemObject, &processListAddress, 0, nil, &processListSize, processBytes.baseAddress!)
+            AudioObjectGetPropertyData(
+                systemObject, &processListAddress, 0, nil, &processListSize, processBytes.baseAddress!)
         }
         guard processListStatus == noErr else { return .unavailable }
         return processAudioSnapshot(
@@ -145,7 +154,10 @@ final class PaceActiveCallDetector: ObservableObject {
             do {
                 let activity = try processActivityProvider(processObject)
                 if activity.processIdentifier != ownProcessIdentifier,
-                   activity.inputIsRunning || activity.outputIsRunning { return .active }
+                    activity.inputIsRunning || activity.outputIsRunning
+                {
+                    return .active
+                }
             } catch ProcessAudioReadError.exited {
                 continue
             } catch {
@@ -155,22 +167,30 @@ final class PaceActiveCallDetector: ObservableObject {
         return .idle
     }
 
-    private nonisolated static func processAudioActivity(_ processObject: AudioObjectID) throws -> ProcessAudioActivity {
+    private nonisolated static func processAudioActivity(_ processObject: AudioObjectID) throws -> ProcessAudioActivity
+    {
         var processAddress = audioPropertyAddress(kAudioProcessPropertyPID)
         var processIdentifier: pid_t = 0
         var processSize = UInt32(MemoryLayout<pid_t>.size)
-        let processStatus = AudioObjectGetPropertyData(processObject, &processAddress, 0, nil, &processSize, &processIdentifier)
+        let processStatus = AudioObjectGetPropertyData(
+            processObject, &processAddress, 0, nil, &processSize, &processIdentifier)
         try validateProcessReadStatus(processStatus)
-        guard processSize == MemoryLayout<pid_t>.size, processIdentifier > 0 else { throw ProcessAudioReadError.unavailable }
+        guard processSize == MemoryLayout<pid_t>.size, processIdentifier > 0 else {
+            throw ProcessAudioReadError.unavailable
+        }
         if processIdentifier == ProcessInfo.processInfo.processIdentifier {
-            return ProcessAudioActivity(processIdentifier: processIdentifier, inputIsRunning: false, outputIsRunning: false)
+            return ProcessAudioActivity(
+                processIdentifier: processIdentifier, inputIsRunning: false, outputIsRunning: false)
         }
         let inputIsRunning = try audioActivity(processObject, selector: kAudioProcessPropertyIsRunningInput)
         let outputIsRunning = try audioActivity(processObject, selector: kAudioProcessPropertyIsRunningOutput)
-        return ProcessAudioActivity(processIdentifier: processIdentifier, inputIsRunning: inputIsRunning, outputIsRunning: outputIsRunning)
+        return ProcessAudioActivity(
+            processIdentifier: processIdentifier, inputIsRunning: inputIsRunning, outputIsRunning: outputIsRunning)
     }
 
-    private nonisolated static func audioActivity(_ processObject: AudioObjectID, selector: AudioObjectPropertySelector) throws -> Bool {
+    private nonisolated static func audioActivity(_ processObject: AudioObjectID, selector: AudioObjectPropertySelector)
+        throws -> Bool
+    {
         var propertyAddress = audioPropertyAddress(selector)
         var value: UInt32 = 0
         var valueSize = UInt32(MemoryLayout<UInt32>.size)
@@ -185,8 +205,11 @@ final class PaceActiveCallDetector: ObservableObject {
         guard status == noErr else { throw ProcessAudioReadError.unavailable }
     }
 
-    private nonisolated static func audioPropertyAddress(_ selector: AudioObjectPropertySelector) -> AudioObjectPropertyAddress {
-        AudioObjectPropertyAddress(mSelector: selector, mScope: kAudioObjectPropertyScopeGlobal, mElement: kAudioObjectPropertyElementMain)
+    private nonisolated static func audioPropertyAddress(_ selector: AudioObjectPropertySelector)
+        -> AudioObjectPropertyAddress
+    {
+        AudioObjectPropertyAddress(
+            mSelector: selector, mScope: kAudioObjectPropertyScopeGlobal, mElement: kAudioObjectPropertyElementMain)
     }
 
     /// Default live provider. Snapshots `NSWorkspace.runningApplications`

@@ -299,12 +299,14 @@ final class PaceIntentClassifier {
         let spokenNumber = "(?:\(units)|\(teens)|\(tens)(?:[ -]\(units))?)"
         let number = "(?:(?:negative|minus)\\s+|[+-])?(?:[0-9]+(?:\\.[0-9]+)?|\\.[0-9]+|\(spokenNumber))"
         // Unspaced dates and phone numbers must keep their context-dependent route.
-        let arithmeticOperator = "(?:\\s*[+*×÷^−]\\s*|\\s+[-/x]\\s+|(?<=[0-9])x(?=[0-9])|\\s+(?:plus|minus|times|multiplied by|divided by|over)\\s+)"
+        let arithmeticOperator =
+            "(?:\\s*[+*×÷^−]\\s*|\\s+[-/x]\\s+|(?<=[0-9])x(?=[0-9])|\\s+(?:plus|minus|times|multiplied by|divided by|over)\\s+)"
         // "More to" is an observed dictation lead-in; accepting it is safe only
         // when every remaining token is a complete arithmetic expression.
         let questionLeadIn = "(?:(?:what is|what's|what’s|what|calculate|compute|evaluate|more to)\\s+)?"
         return try? NSRegularExpression(
-            pattern: "\\A(?:please\\s+)?\(questionLeadIn)\(number)(?:\(arithmeticOperator)\(number))+(?:\\s+please)?[.!?]*\\z"
+            pattern:
+                "\\A(?:please\\s+)?\(questionLeadIn)\(number)(?:\(arithmeticOperator)\(number))+(?:\\s+please)?[.!?]*\\z"
         )
     }()
 
@@ -377,7 +379,8 @@ final class PaceIntentClassifier {
     // Match the complete current-screen question so generic knowledge and
     // historical screen questions keep their text-only route.
     nonisolated private static let currentScreenQuestionPattern = try? NSRegularExpression(
-        pattern: #"\A(?:what(?:['’]?s| is)\s+on\s+(?:(?:my|the)\s+)?screen(?:\s+(?:right\s+)?now)?|what am i looking at)[.!?]*\z"#
+        pattern:
+            #"\A(?:what(?:['’]?s| is)\s+on\s+(?:(?:my|the)\s+)?screen(?:\s+(?:right\s+)?now)?|what am i looking at)[.!?]*\z"#
     )
 
     nonisolated static func isCurrentScreenQuestion(_ transcript: String) -> Bool {

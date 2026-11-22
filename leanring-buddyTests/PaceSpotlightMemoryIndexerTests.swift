@@ -152,12 +152,15 @@ struct PaceSpotlightMemoryIndexerTests {
     @MainActor @Test func startupCleanupPurgesOnlyPaceDomainBeforeMirroringLatestAllowedSnapshot() {
         let fakeIndex = FakeIndex()
         var completedMigrations = 0
-        let indexer = PaceSpotlightMemoryIndexer(indexOperation: fakeIndex.index,
+        let indexer = PaceSpotlightMemoryIndexer(
+            indexOperation: fakeIndex.index,
             deleteDomainOperation: fakeIndex.deleteDomains, hasCompletedLegacyCleanup: { false },
             markLegacyCleanupComplete: { completedMigrations += 1 })
         var screenEntry = makeEntry(id: "private-screen", text: "Observed article text")
         screenEntry.source = .screenWatchHistory
-        indexer.prepareMirrorAfterUpgrade(toMatch: [screenEntry, makeEntry(id: "initial", text: "Allowed initial memory")])
+        indexer.prepareMirrorAfterUpgrade(toMatch: [
+            screenEntry, makeEntry(id: "initial", text: "Allowed initial memory"),
+        ])
         #expect(fakeIndex.operations == ["delete:com.pace.app.memory"])
         #expect(completedMigrations == 0)
         indexer.syncMirror(toMatch: [screenEntry, makeEntry(id: "latest", text: "Allowed latest memory")])
@@ -170,7 +173,8 @@ struct PaceSpotlightMemoryIndexerTests {
 
     @MainActor @Test func cleanupWaitsForPendingIndexCompletionSoLateWritesCannotRacePurge() {
         let fakeIndex = FakeIndex()
-        let indexer = PaceSpotlightMemoryIndexer(indexOperation: fakeIndex.index,
+        let indexer = PaceSpotlightMemoryIndexer(
+            indexOperation: fakeIndex.index,
             deleteDomainOperation: fakeIndex.deleteDomains, hasCompletedLegacyCleanup: { false },
             markLegacyCleanupComplete: {})
         indexer.syncMirror(toMatch: [makeEntry(id: "already-running", text: "Earlier allowed memory")])
@@ -187,7 +191,8 @@ struct PaceSpotlightMemoryIndexerTests {
     @MainActor @Test func failedCleanupDoesNotMarkMigrationOrMirrorAheadOfRetry() {
         let fakeIndex = FakeIndex()
         var completedMigrations = 0
-        let indexer = PaceSpotlightMemoryIndexer(indexOperation: fakeIndex.index,
+        let indexer = PaceSpotlightMemoryIndexer(
+            indexOperation: fakeIndex.index,
             deleteDomainOperation: fakeIndex.deleteDomains, hasCompletedLegacyCleanup: { false },
             markLegacyCleanupComplete: { completedMigrations += 1 })
         indexer.prepareMirrorAfterUpgrade(toMatch: [makeEntry(id: "initial", text: "Allowed initial memory")])
@@ -205,7 +210,8 @@ struct PaceSpotlightMemoryIndexerTests {
     @MainActor @Test func completedMigrationIsNotRepeatedAndIndexFailureDoesNotBlockLaterSync() {
         let fakeIndex = FakeIndex()
         var completedMigrations = 0
-        let indexer = PaceSpotlightMemoryIndexer(indexOperation: fakeIndex.index,
+        let indexer = PaceSpotlightMemoryIndexer(
+            indexOperation: fakeIndex.index,
             deleteDomainOperation: fakeIndex.deleteDomains, hasCompletedLegacyCleanup: { true },
             markLegacyCleanupComplete: { completedMigrations += 1 })
         indexer.prepareMirrorAfterUpgrade(toMatch: [makeEntry(id: "initial", text: "Allowed initial memory")])

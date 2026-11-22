@@ -33,8 +33,10 @@ actor PaceCodingAppServerTransport: PaceCodingTransport {
     private let stream: AsyncStream<PaceCodingTransportEvent>
     private let continuation: AsyncStream<PaceCodingTransportEvent>.Continuation
 
-    init(executable: URL? = PaceLocalCLIPlannerClient.resolveExecutable(named: "codex"), workingDirectory: URL,
-         discoverMCPOverrides: (@Sendable (URL, URL) async throws -> [String: PaceMCPJSONValue])? = nil) {
+    init(
+        executable: URL? = PaceLocalCLIPlannerClient.resolveExecutable(named: "codex"), workingDirectory: URL,
+        discoverMCPOverrides: (@Sendable (URL, URL) async throws -> [String: PaceMCPJSONValue])? = nil
+    ) {
         self.executable = executable
         self.workingDirectory = workingDirectory
         self.discoverMCPOverrides = discoverMCPOverrides
@@ -55,9 +57,15 @@ actor PaceCodingAppServerTransport: PaceCodingTransport {
         metadataTask = metadata
         let overrides: [String: PaceMCPJSONValue]
         do {
-            overrides = try await withTaskCancellationHandler { try await metadata.value } onCancel: { metadata.cancel() }
+            overrides = try await withTaskCancellationHandler {
+                try await metadata.value
+            } onCancel: {
+                metadata.cancel()
+            }
+        } catch {
+            metadataTask = nil
+            throw error
         }
-        catch { metadataTask = nil; throw error }
         metadataTask = nil
         try Task.checkCancellation()
         guard !isClosed, !hasDisconnected else { throw PaceCodingError.disconnected }
@@ -73,8 +81,7 @@ actor PaceCodingAppServerTransport: PaceCodingTransport {
         let (chunks, chunkContinuation) = AsyncStream<Data>.makeStream()
         outputPipe.fileHandleForReading.readabilityHandler = { handle in
             let data = handle.availableData
-            if data.isEmpty { chunkContinuation.finish() }
-            else { chunkContinuation.yield(data) }
+            if data.isEmpty { chunkContinuation.finish() } else { chunkContinuation.yield(data) }
         }
         process.terminationHandler = { _ in chunkContinuation.finish() }
         try processControl.launch(process)
@@ -86,10 +93,12 @@ actor PaceCodingAppServerTransport: PaceCodingTransport {
             await self?.didDisconnect()
         }
         do {
-            _ = try await request("initialize", params: [
-                "clientInfo": .object(["name": .string("pace_coding"), "version": .string("1")]),
-                "capabilities": .object(["experimentalApi": .bool(true)]),
-            ])
+            _ = try await request(
+                "initialize",
+                params: [
+                    "clientInfo": .object(["name": .string("pace_coding"), "version": .string("1")]),
+                    "capabilities": .object(["experimentalApi": .bool(true)]),
+                ])
             try write(["method": .string("initialized"), "params": .object([:])])
         } catch {
             await shutdown()
@@ -105,15 +114,21 @@ actor PaceCodingAppServerTransport: PaceCodingTransport {
         var outcome = "failed"
         var model = "configured"
         defer {
-            PaceAPIAuditLog.shared.record(subsystem: "coding.codex.appserver", operation: method,
+            PaceAPIAuditLog.shared.record(
+                subsystem: "coding.codex.appserver", operation: method,
                 target: "codex.app-server", durationMilliseconds: Int(Date().timeIntervalSince(startedAt) * 1000),
-                outcome: outcome, detail: "model=\(model) retained=true workspaceWrite=true network=false reviewer=user")
+                outcome: outcome, detail: "model=\(model) retained=true workspaceWrite=true network=false reviewer=user"
+            )
         }
         let response = try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
                 pending[identifier] = continuation
-                do { try write(["id": .string(identifier), "method": .string(method), "params": .object(params)]) }
-                catch { pending.removeValue(forKey: identifier)?.resume(throwing: error); return }
+                do {
+                    try write(["id": .string(identifier), "method": .string(method), "params": .object(params)])
+                } catch {
+                    pending.removeValue(forKey: identifier)?.resume(throwing: error)
+                    return
+                }
                 Task { [weak self] in
                     try? await Task.sleep(for: .seconds(30))
                     await self?.expire(identifier, error: PaceCodingError.timedOut)
@@ -123,14 +138,18 @@ actor PaceCodingAppServerTransport: PaceCodingTransport {
             Task { await self.expire(identifier, error: CancellationError()) }
         }
         outcome = "ok"
-        if let returnedModel = response.codingObject?["model"]?.codingString { model = String(returnedModel.prefix(120)) }
+        if let returnedModel = response.codingObject?["model"]?.codingString {
+            model = String(returnedModel.prefix(120))
+        }
         return response
     }
 
     func reply(id: PaceMCPJSONValue, result: PaceMCPJSONValue?, error: String?) throws {
         if let error {
             try write(["id": id, "error": .object(["code": .number(-32601), "message": .string(error)])])
-        } else { try write(["id": id, "result": result ?? .object([:])]) }
+        } else {
+            try write(["id": id, "result": result ?? .object([:])])
+        }
     }
 
     private func write(_ object: [String: PaceMCPJSONValue]) throws {
@@ -146,20 +165,31 @@ actor PaceCodingAppServerTransport: PaceCodingTransport {
 
     private func receive(_ data: Data) async {
         buffer.append(data)
-        guard buffer.count <= 4_194_304 else { await shutdown(); return }
+        guard buffer.count <= 4_194_304 else {
+            await shutdown()
+            return
+        }
         while let newline = buffer.firstIndex(of: 10) {
             let line = buffer.prefix(upTo: newline)
             buffer.removeSubrange(...newline)
             guard !line.isEmpty else { continue }
             guard let message = try? JSONDecoder().decode([String: PaceMCPJSONValue].self, from: line) else {
-                await shutdown(); return
+                await shutdown()
+                return
             }
             if let identifier = message["id"]?.codingString, message["method"] == nil,
-               let pendingRequest = pending.removeValue(forKey: identifier) {
-                if message["error"] != nil { pendingRequest.resume(throwing: PaceCodingError.invalidProtocol) }
-                else if let result = message["result"] { pendingRequest.resume(returning: result) }
-                else { pendingRequest.resume(throwing: PaceCodingError.invalidProtocol) }
-            } else if message["method"] != nil { continuation.yield(.message(message)) }
+                let pendingRequest = pending.removeValue(forKey: identifier)
+            {
+                if message["error"] != nil {
+                    pendingRequest.resume(throwing: PaceCodingError.invalidProtocol)
+                } else if let result = message["result"] {
+                    pendingRequest.resume(returning: result)
+                } else {
+                    pendingRequest.resume(throwing: PaceCodingError.invalidProtocol)
+                }
+            } else if message["method"] != nil {
+                continuation.yield(.message(message))
+            }
         }
     }
 
@@ -175,7 +205,10 @@ actor PaceCodingAppServerTransport: PaceCodingTransport {
     }
 
     private func reapOwnedProcess() async {
-        if let reapTask { await reapTask.value; return }
+        if let reapTask {
+            await reapTask.value
+            return
+        }
         guard let ownedProcess = process else { return }
         process = nil
         let control = processControl
@@ -225,13 +258,17 @@ actor PaceCodingAppServerTransport: PaceCodingTransport {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.withoutEscapingSlashes]
         for key in config.keys.sorted() {
-            guard let value = config[key], let data = try? encoder.encode(value), let text = String(data: data, encoding: .utf8) else { continue }
+            guard let value = config[key], let data = try? encoder.encode(value),
+                let text = String(data: data, encoding: .utf8)
+            else { continue }
             arguments += ["--config", key + "=" + text]
         }
         return arguments
     }
 
-    private nonisolated static func disabledMCPOverrides(executable: URL, cwd: URL) async throws -> [String: PaceMCPJSONValue] {
+    private nonisolated static func disabledMCPOverrides(executable: URL, cwd: URL) async throws -> [String:
+        PaceMCPJSONValue]
+    {
         // The CLI's metadata command supplies the effective server inventory. Only name and transport
         // are retained. Never persist or log its wire output, environment, URLs or credential fields.
         let process = Process()
@@ -248,7 +285,10 @@ actor PaceCodingAppServerTransport: PaceCodingTransport {
                 try? await Task.sleep(for: .seconds(5))
                 if !Task.isCancelled { control.stop(timedOut: true) }
             }
-            defer { timeout.cancel(); control.finished() }
+            defer {
+                timeout.cancel()
+                control.finished()
+            }
             let data = pipe.fileHandleForReading.readDataToEndOfFile()
             process.waitUntilExit()
             control.waitForStoppedProcessGroup()
@@ -256,14 +296,21 @@ actor PaceCodingAppServerTransport: PaceCodingTransport {
             guard process.terminationStatus == 0, data.count <= 1_048_576 else { throw PaceCodingError.invalidProtocol }
             return data
         }
-        let data = try await withTaskCancellationHandler { try await worker.value } onCancel: { control.stop(); worker.cancel() }
-        guard let servers = try JSONDecoder().decode(PaceMCPJSONValue.self, from: data).codingArray else { throw PaceCodingError.invalidProtocol }
+        let data = try await withTaskCancellationHandler {
+            try await worker.value
+        } onCancel: {
+            control.stop()
+            worker.cancel()
+        }
+        guard let servers = try JSONDecoder().decode(PaceMCPJSONValue.self, from: data).codingArray else {
+            throw PaceCodingError.invalidProtocol
+        }
         var config: [String: PaceMCPJSONValue] = [:]
         for server in servers {
             guard let object = server.codingObject, let name = object["name"]?.codingString,
-                  name.range(of: #"^[A-Za-z0-9_-]+$"#, options: .regularExpression) != nil,
-                  let transport = object["transport"]?.codingObject,
-                  let kind = transport["type"]?.codingString, ["stdio", "streamable_http"].contains(kind)
+                name.range(of: #"^[A-Za-z0-9_-]+$"#, options: .regularExpression) != nil,
+                let transport = object["transport"]?.codingObject,
+                let kind = transport["type"]?.codingString, ["stdio", "streamable_http"].contains(kind)
             else { throw PaceCodingError.invalidProtocol }
             config["mcp_servers.\(name).enabled"] = .bool(false)
             config["mcp_servers.\(name).\(kind == "stdio" ? "command" : "url")"] =

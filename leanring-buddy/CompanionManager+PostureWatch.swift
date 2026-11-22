@@ -61,13 +61,17 @@ extension CompanionManager {
         smokeAutoCancelAfter: TimeInterval? = nil
     ) -> Bool {
         let otherSteps = actionExecutionPlan.steps.compactMap { step -> PaceActionExecutionStep? in
-            let actions = step.actions.filter { action in if case .codingSession = action { return false }; return true }
+            let actions = step.actions.filter { action in
+                if case .codingSession = action { return false }
+                return true
+            }
             return actions.isEmpty ? nil : PaceActionExecutionStep(actions: actions)
         }
         let approvalPlan = PaceActionExecutionPlan(steps: otherSteps)
         guard !approvalPlan.flattenedActions.isEmpty else { return true }
         let hasBlockingPreflightIssue = preflightIssues.contains { $0.severity == .blocking }
-        let shouldRequestApproval = hasBlockingPreflightIssue
+        let shouldRequestApproval =
+            hasBlockingPreflightIssue
             || (requiresActionApproval && PaceActionApprovalPolicy.requiresExplicitApproval(for: approvalPlan))
         let approvalRequest = PaceActionApprovalRequest(
             approvalSummary: approvalPlan.approvalSummary,
@@ -84,9 +88,13 @@ extension CompanionManager {
         return presentActionApproval(approvalRequest, smokeAutoCancelAfter: smokeAutoCancelAfter)
     }
 
-    func presentActionApproval(_ approvalRequest: PaceActionApprovalRequest, smokeAutoCancelAfter: TimeInterval? = nil,
-        willPresent: ((NSWindow) -> Void)? = nil) -> Bool {
-        if let actionApprovalPresentationOverride { return actionApprovalPresentationOverride(approvalRequest) == .allowOnce }
+    func presentActionApproval(
+        _ approvalRequest: PaceActionApprovalRequest, smokeAutoCancelAfter: TimeInterval? = nil,
+        willPresent: ((NSWindow) -> Void)? = nil
+    ) -> Bool {
+        if let actionApprovalPresentationOverride {
+            return actionApprovalPresentationOverride(approvalRequest) == .allowOnce
+        }
         let alert = NSAlert()
         alert.alertStyle = .warning
         alert.messageText = approvalRequest.messageText
@@ -113,11 +121,12 @@ extension CompanionManager {
 
     func smokeRequestApprovalForSyntheticActionPlan() -> Bool {
         let syntheticActionPlan = PaceActionExecutionPlan.serial(actions: [
-            .composeMail(PaceMailDraft(
-                recipients: ["smoke@example.com"],
-                subject: "Pace approval smoke",
-                body: "Synthetic draft used only to verify approval cancellation."
-            ))
+            .composeMail(
+                PaceMailDraft(
+                    recipients: ["smoke@example.com"],
+                    subject: "Pace approval smoke",
+                    body: "Synthetic draft used only to verify approval cancellation."
+                ))
         ])
         return requestUserApprovalForActionPlan(
             syntheticActionPlan,
@@ -150,10 +159,12 @@ extension CompanionManager {
 
     func smokeResolveSyntheticClarification() -> String? {
         guard let pendingIntentClarification else { return nil }
-        guard let clarifiedTranscript = PaceIntentClarificationResolver.clarifiedTranscript(
-            for: pendingIntentClarification,
-            selectedOption: "Selected text"
-        ) else {
+        guard
+            let clarifiedTranscript = PaceIntentClarificationResolver.clarifiedTranscript(
+                for: pendingIntentClarification,
+                selectedOption: "Selected text"
+            )
+        else {
             return nil
         }
 
@@ -190,7 +201,8 @@ extension CompanionManager {
 
     func smokeResolveClickTargetClarification() -> String? {
         guard pendingClickTargetClarification != nil else { return nil }
-        let selectedLabel = pendingClickTargetClarification?
+        let selectedLabel =
+            pendingClickTargetClarification?
             .options
             .first?
             .label ?? "Save"
@@ -211,7 +223,7 @@ extension CompanionManager {
                     label: "Missing button",
                     confidence: 0.7,
                     expectStateChange: true
-                ),
+                )
             ],
             clickCount: 1
         )
@@ -323,7 +335,8 @@ extension CompanionManager {
     ) -> String {
         let parsedActions = executionPlan.flattenedActions
         guard !parsedActions.isEmpty else { return "no actions parsed" }
-        return parsedActions
+        return
+            parsedActions
             .map { "\($0.auditOperationName): \($0.approvalDescription)" }
             .joined(separator: "\n")
     }

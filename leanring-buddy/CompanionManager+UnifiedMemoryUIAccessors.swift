@@ -56,7 +56,8 @@ extension CompanionManager {
         var entryIdsAndTextsToEmbed: [(id: String, text: String)] = []
         for source in PaceRetrievalSource.allCases
         where source != .paceHistory && source != .episodicMemory
-            && (sourceSubset?.contains(source) ?? true) {
+            && (sourceSubset?.contains(source) ?? true)
+        {
             let documents = localRetriever.isSourceEnabled(source) ? localRetriever.documents(forSource: source) : []
             let entries: [PaceMemoryEntry] = documents.map { document in
                 let contextText =

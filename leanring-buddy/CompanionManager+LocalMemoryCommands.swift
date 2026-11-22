@@ -236,7 +236,8 @@ extension CompanionManager {
     ) async -> PaceDiscoveredAutomationCatalog {
         if let powerCatalogDiscoveryOverride { return await powerCatalogDiscoveryOverride() }
         let bundledDefinitions = PaceAutomationDefinitionLibrary.loadBundledDefinitions()
-        let userDefinitions = PaceUserAutomationStore(directoryURL: managedPowerStore.automationDirectoryURL).listValidDefinitions()
+        let userDefinitions = PaceUserAutomationStore(directoryURL: managedPowerStore.automationDirectoryURL)
+            .listValidDefinitions()
         let typedDefinitions = bundledDefinitions + userDefinitions
         let programs = PaceUserProgramStore(directoryURL: managedPowerStore.programDirectoryURL).listValidPrograms()
         let recordedFlows = flowStore.listAll()
@@ -362,7 +363,8 @@ extension CompanionManager {
                     if turnLeaseRegistry.isCurrent(turnLease) {
                         let powerIsAuthorized = managedPowerExecutionIsAuthorized
                         if voiceState == .processing || !powerIsAuthorized {
-                            currentTurnHUDState = powerIsAuthorized ? .idle : .failed("Power changed or disabled; stopped")
+                            currentTurnHUDState =
+                                powerIsAuthorized ? .idle : .failed("Power changed or disabled; stopped")
                             voiceState = .idle
                             responseOverlayManager.finishStreaming()
                         }
@@ -375,19 +377,25 @@ extension CompanionManager {
                     case .executionPlan(let executionPlan):
                         if program.nodes.containsJavaScript { try validateJavaScriptPowerMedia(executionPlan) }
                         guard isActiveTurn(turnLease) else { return }
-                        handleFastLocalActionPath(transcript: transcript,
-                            fastActionParseResult: PaceFastActionParseResult(spokenText: "running \(program.name).", executionPlan: executionPlan),
+                        handleFastLocalActionPath(
+                            transcript: transcript,
+                            fastActionParseResult: PaceFastActionParseResult(
+                                spokenText: "running \(program.name).", executionPlan: executionPlan),
                             shouldRecordConversationTurn: true)
                         await currentResponseTask?.value
                     case .noActionsMatched:
-                        handleImmediateLocalModeResponse(transcript: transcript,
-                            spokenText: "\(program.name) didn't have any actions for the current conditions.", shouldRecordConversationTurn: true)
+                        handleImmediateLocalModeResponse(
+                            transcript: transcript,
+                            spokenText: "\(program.name) didn't have any actions for the current conditions.",
+                            shouldRecordConversationTurn: true)
                         await currentResponseTask?.value
                     }
                 } catch {
                     guard isActiveTurn(turnLease) else { return }
-                    handleImmediateLocalModeResponse(transcript: transcript,
-                        spokenText: "I couldn't run that Power. " + error.localizedDescription, shouldRecordConversationTurn: true)
+                    handleImmediateLocalModeResponse(
+                        transcript: transcript,
+                        spokenText: "I couldn't run that Power. " + error.localizedDescription,
+                        shouldRecordConversationTurn: true)
                     await currentResponseTask?.value
                 }
             }
@@ -504,7 +512,8 @@ extension CompanionManager {
     }
 
     func publishCommandFeedback(transcript: String, spokenText: String, userEventIdentifier: String? = nil) async {
-        recordConversationTurn(userTranscript: transcript, assistantResponse: spokenText, userEventIdentifier: userEventIdentifier)
+        recordConversationTurn(
+            userTranscript: transcript, assistantResponse: spokenText, userEventIdentifier: userEventIdentifier)
         responseOverlayManager.showOverlayAndBeginStreaming()
         responseOverlayManager.updateStreamingText(spokenText)
         currentTurnHUDState = .done(spokenText)
@@ -559,7 +568,8 @@ extension CompanionManager {
                 let tools = try await actionExecutor.mcpClient.toolCatalog(
                     serverName: "peekaboo", allowedNames: ["window"])
                 guard tools != "[]" else {
-                    return userPrompt + "\nPeekaboo's window tool is unavailable. Report this blocker; do not guess tools or claim a completed inventory."
+                    return userPrompt
+                        + "\nPeekaboo's window tool is unavailable. Report this blocker; do not guess tools or claim a completed inventory."
                 }
                 return """
                     \(userPrompt)
@@ -569,7 +579,8 @@ extension CompanionManager {
                     \(tools)
                     """
             } catch {
-                return userPrompt + "\nPeekaboo window inventory is unavailable: \(error.localizedDescription). Report this blocker; do not guess tools or claim success."
+                return userPrompt
+                    + "\nPeekaboo window inventory is unavailable: \(error.localizedDescription). Report this blocker; do not guess tools or claim success."
             }
         }
         let configuredServerNames =

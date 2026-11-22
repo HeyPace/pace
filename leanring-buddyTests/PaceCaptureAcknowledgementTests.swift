@@ -2,6 +2,7 @@ import AVFoundation
 import Combine
 import Foundation
 import Testing
+
 @testable import Pace
 
 @MainActor @Suite(.serialized)
@@ -10,9 +11,11 @@ struct PaceCaptureAcknowledgementTests {
         let displayName = "Capture finalization fixture"
         let supportsImageInput = false
         var calls = 0
-        func generateResponseStreaming(images: [(data: Data, label: String)], systemPrompt: String,
+        func generateResponseStreaming(
+            images: [(data: Data, label: String)], systemPrompt: String,
             conversationHistory: [(userPlaceholder: String, assistantResponse: String)], userPrompt: String,
-            onTextChunk: @MainActor @Sendable (String) -> Void) async throws -> (text: String, duration: TimeInterval) {
+            onTextChunk: @MainActor @Sendable (String) -> Void
+        ) async throws -> (text: String, duration: TimeInterval) {
             calls += 1
             let reply = "This provisional command must not be submitted."
             onTextChunk(reply)
@@ -45,18 +48,23 @@ struct PaceCaptureAcknowledgementTests {
         }.value
         var callbacks: [String] = []
         var receipt: PaceCapturedAudio?
-        let outcome = gate.stop(identifier, recognizedText: " こんにちは。 ", removeTap: {
-            callbacks.append("tap removed")
-        }, acknowledge: {
-            callbacks.append("captured")
-            receipt = $0
-        })
+        let outcome = gate.stop(
+            identifier, recognizedText: " こんにちは。 ",
+            removeTap: {
+                callbacks.append("tap removed")
+            },
+            acknowledge: {
+                callbacks.append("captured")
+                receipt = $0
+            })
         #expect(callbacks == ["tap removed", "captured"])
         #expect(receipt == PaceCapturedAudio(captureIdentifier: identifier, frameCount: 128, recognizedText: "こんにちは。"))
         #expect(outcome == receipt.map { .captured($0) })
-        let duplicate = gate.stop(identifier, recognizedText: "", removeTap: {
-            callbacks.append("duplicate tap removal")
-        }, acknowledge: { _ in callbacks.append("duplicate receipt") })
+        let duplicate = gate.stop(
+            identifier, recognizedText: "",
+            removeTap: {
+                callbacks.append("duplicate tap removal")
+            }, acknowledge: { _ in callbacks.append("duplicate receipt") })
         #expect(duplicate == .ignored && callbacks.count == 2)
     }
 
@@ -66,7 +74,8 @@ struct PaceCaptureAcknowledgementTests {
         var tapRemovals = 0
         var receipts = 0
         func stop() -> PaceCaptureStopOutcome {
-            gate.stop(identifier, recognizedText: "", removeTap: { tapRemovals += 1 },
+            gate.stop(
+                identifier, recognizedText: "", removeTap: { tapRemovals += 1 },
                 acknowledge: { _ in receipts += 1 })
         }
         // Readiness/permission rejection never starts a capture identity or receives PCM.
@@ -91,14 +100,21 @@ struct PaceCaptureAcknowledgementTests {
         _ = gate.stop(oldIdentifier, recognizedText: "old words", removeTap: {}, acknowledge: { _ in })
         gate.begin(newIdentifier)
         gate.deliverRecognitionResult(for: newIdentifier) { draft = "new provisional words" }
-        gate.deliverRecognitionResult(for: oldIdentifier) { draft = "stale partial"; submitted.append("stale final") }
+        gate.deliverRecognitionResult(for: oldIdentifier) {
+            draft = "stale partial"
+            submitted.append("stale final")
+        }
         gate.receivedProcessedBuffer(try buffer(), captureIdentifier: oldIdentifier)
         var staleCallbacks = 0
-        #expect(gate.stop(oldIdentifier, recognizedText: "old", removeTap: { staleCallbacks += 1 },
-            acknowledge: { _ in staleCallbacks += 1 }) == .ignored)
+        #expect(
+            gate.stop(
+                oldIdentifier, recognizedText: "old", removeTap: { staleCallbacks += 1 },
+                acknowledge: { _ in staleCallbacks += 1 }) == .ignored)
         #expect(draft == "new provisional words" && submitted.isEmpty && staleCallbacks == 0)
         // Old PCM does not make a new, otherwise empty capture successful.
-        #expect(gate.stop(newIdentifier, recognizedText: draft, removeTap: {}, acknowledge: { _ in staleCallbacks += 1 }) == .empty)
+        #expect(
+            gate.stop(newIdentifier, recognizedText: draft, removeTap: {}, acknowledge: { _ in staleCallbacks += 1 })
+                == .empty)
         #expect(staleCallbacks == 0)
         gate.cancel(newIdentifier)
         gate.deliverRecognitionResult(for: newIdentifier) { submitted.append("cancelled final") }
@@ -133,7 +149,11 @@ struct PaceCaptureAcknowledgementTests {
 
     @Test func bothModesShowReceiptPreserveDraftAndHistoryAndRespectBothMutes() throws {
         let (root, manager, persister, speech) = try PacePowerManagerTests().fixture()
-        defer { manager.voiceStateCancellable?.cancel(); manager.cancelActiveTurnTasks(); try? FileManager.default.removeItem(at: root) }
+        defer {
+            manager.voiceStateCancellable?.cancel()
+            manager.cancelActiveTurnTasks()
+            try? FileManager.default.removeItem(at: root)
+        }
         manager.bindVoiceStateObservation()
         manager.voiceStateCancellable?.cancel()
         var cueCount = 0
@@ -145,17 +165,21 @@ struct PaceCaptureAcknowledgementTests {
             manager.conversationLanguageMode = mode
             manager.voiceState = .listening
             manager.liveSpeechDraft = "Recognized provisional words"
-            manager.buddyDictationManager.onAudioCaptured?(.init(captureIdentifier: UUID(), frameCount: 128,
-                recognizedText: "Recognized provisional words"))
+            manager.buddyDictationManager.onAudioCaptured?(
+                .init(
+                    captureIdentifier: UUID(), frameCount: 128,
+                    recognizedText: "Recognized provisional words"))
             #expect(manager.currentTurnHUDState.detail == "Audio captured")
             #expect(manager.liveSpeechDraft == "Recognized provisional words")
         }
         #expect(cueCount == 2)
         manager.chatSession.isChatTTSMuted = true
-        manager.buddyDictationManager.onAudioCaptured?(.init(captureIdentifier: UUID(), frameCount: 128, recognizedText: ""))
+        manager.buddyDictationManager.onAudioCaptured?(
+            .init(captureIdentifier: UUID(), frameCount: 128, recognizedText: ""))
         manager.chatSession.isChatTTSMuted = false
         manager.streamingSentenceTTSPipeline.setMutedForCurrentTurn(true)
-        manager.buddyDictationManager.onAudioCaptured?(.init(captureIdentifier: UUID(), frameCount: 128, recognizedText: ""))
+        manager.buddyDictationManager.onAudioCaptured?(
+            .init(captureIdentifier: UUID(), frameCount: 128, recognizedText: ""))
         #expect(cueCount == 2 && speech.spokenTexts.isEmpty)
         #expect(manager.chatSession.messages == originalMessages && persister.events.count == originalEventCount)
         #expect(manager.chatSession.draftMessageText == "Keep this typed draft")
@@ -167,7 +191,10 @@ struct PaceCaptureAcknowledgementTests {
 
     @Test func releaseWithoutRecordingIsTruthfulAndDoesNotDisturbRespondingTurn() throws {
         let (root, manager, persister, _) = try PacePowerManagerTests().fixture()
-        defer { manager.cancelActiveTurnTasks(); try? FileManager.default.removeItem(at: root) }
+        defer {
+            manager.cancelActiveTurnTasks()
+            try? FileManager.default.removeItem(at: root)
+        }
         var cueCount = 0
         manager.playCaptureAcknowledgementCue = { cueCount += 1 }
         manager.currentTurnHUDState = .listening
@@ -185,7 +212,12 @@ struct PaceCaptureAcknowledgementTests {
 
     @Test func emptyAndSpeculativelyConsumedFinalsDisarmFallbackWhilePreservingActiveReply() async throws {
         let (root, manager, persister, _) = try PacePowerManagerTests().fixture()
-        defer { manager.voiceStateCancellable?.cancel(); manager.transcriptSafetyTask?.cancel(); manager.cancelActiveTurnTasks(); try? FileManager.default.removeItem(at: root) }
+        defer {
+            manager.voiceStateCancellable?.cancel()
+            manager.transcriptSafetyTask?.cancel()
+            manager.cancelActiveTurnTasks()
+            try? FileManager.default.removeItem(at: root)
+        }
         let planner = RecordingPlanner()
         manager.plannerClient = planner
         manager.textOnlyPlannerClient = planner
@@ -233,7 +265,10 @@ struct PaceCaptureAcknowledgementTests {
 
     @Test func ordinaryUnreadyModelRetainsItsRejectionCauseAfterReleaseWithoutCaptureCue() throws {
         let (root, manager, _, _) = try PacePowerManagerTests().fixture()
-        defer { manager.cancelActiveTurnTasks(); try? FileManager.default.removeItem(at: root) }
+        defer {
+            manager.cancelActiveTurnTasks()
+            try? FileManager.default.removeItem(at: root)
+        }
         manager.isTranscriptionModelReady = false
         manager.buddyDictationManager.usesJapanesePracticeTranscription = false
         manager.fastEverydayAnswersEnabled = false
@@ -252,7 +287,11 @@ struct PaceCaptureAcknowledgementTests {
 
     @Test func explicitStopAndCloseCancelPendingCaptureAndAllowNextSimulatedPress() async throws {
         let (root, manager, persister, _) = try PacePowerManagerTests().fixture()
-        defer { manager.transcriptSafetyTask?.cancel(); manager.cancelActiveTurnTasks(); try? FileManager.default.removeItem(at: root) }
+        defer {
+            manager.transcriptSafetyTask?.cancel()
+            manager.cancelActiveTurnTasks()
+            try? FileManager.default.removeItem(at: root)
+        }
         let planner = RecordingPlanner()
         manager.plannerClient = planner
         manager.textOnlyPlannerClient = planner
@@ -261,7 +300,8 @@ struct PaceCaptureAcknowledgementTests {
         manager.fastEverydayAnswersEnabled = false
         manager.useLocalVLMForScreenContext = false
         manager.actionExecutor = PaceActionExecutor(actionsAreEnabledOverride: false)
-        manager.conversationRecorder.record(ConversationEvent(role: .pace, origin: .assistant, text: "Already completed reply."))
+        manager.conversationRecorder.record(
+            ConversationEvent(role: .pace, origin: .assistant, text: "Already completed reply."))
         let originalMessages = manager.chatSession.messages
         let originalEventCount = persister.events.count
         manager.chatSession.draftMessageText = "Keep this typed draft"
@@ -270,7 +310,10 @@ struct PaceCaptureAcknowledgementTests {
         let transitionObserver = shortcutMonitor.shortcutTransitionPublisher.sink { transition in
             if case .pressed = transition { pressCount += 1 }
         }
-        defer { transitionObserver.cancel(); shortcutMonitor.discardSimulatedPress() }
+        defer {
+            transitionObserver.cancel()
+            shortcutMonitor.discardSimulatedPress()
+        }
         for trigger in [CompanionManager.DictationTrigger.avatar, .microphoneButton, .wakeWord, .bargeIn] {
             for closesSurface in [false, true] {
                 manager.currentDictationTrigger = trigger
@@ -287,8 +330,11 @@ struct PaceCaptureAcknowledgementTests {
                 manager.pendingKeyboardShortcutStartTask = pendingStartTask
                 let wakeReleaseTask = Task<Void, Never> { try? await Task.sleep(for: .seconds(60)) }
                 manager.wakeWordListeningWindowReleaseTask = wakeReleaseTask
-                if closesSurface { manager.handleExplanationDismissal(.userInitiated) }
-                else { manager.cancelCurrentTurnFromPanel() }
+                if closesSurface {
+                    manager.handleExplanationDismissal(.userInitiated)
+                } else {
+                    manager.cancelCurrentTurnFromPanel()
+                }
                 await safetyTask.value
                 await pendingStartTask.value
                 await wakeReleaseTask.value
@@ -296,14 +342,16 @@ struct PaceCaptureAcknowledgementTests {
                 #expect(!shortcutMonitor.isSimulatedPressActive && !shortcutMonitor.isShortcutCurrentlyPressed)
                 #expect(safetyTask.isCancelled && pendingStartTask.isCancelled)
                 #expect(manager.transcriptSafetyTask == nil && manager.pendingKeyboardShortcutStartTask == nil)
-                #expect(manager.transcriptArrivedSinceRelease && manager.lastPartialTranscriptFromActiveDictation == nil)
+                #expect(
+                    manager.transcriptArrivedSinceRelease && manager.lastPartialTranscriptFromActiveDictation == nil)
                 #expect(manager.liveSpeechDraft.isEmpty && manager.voiceState == .idle)
                 #expect(manager.currentDictationTrigger.captureMode == .pushToTalk)
                 switch manager.currentDictationTrigger {
                 case .keyboard: break
                 default: Issue.record("Explicit capture teardown must restore the keyboard trigger.")
                 }
-                #expect(manager.chatSession.messages == originalMessages && persister.events.count == originalEventCount)
+                #expect(
+                    manager.chatSession.messages == originalMessages && persister.events.count == originalEventCount)
                 #expect(manager.chatSession.draftMessageText == "Keep this typed draft" && planner.calls == 0)
                 manager.beginListeningFromDeepLink()
                 #expect(shortcutMonitor.isSimulatedPressActive && shortcutMonitor.isShortcutCurrentlyPressed)
@@ -315,11 +363,17 @@ struct PaceCaptureAcknowledgementTests {
 
     @Test func oldVisualClosePreservesNewerPendingCaptureAndCurrentVisualCloseStopsOwnedReply() async throws {
         let (root, manager, persister, speech) = try PacePowerManagerTests().fixture()
-        defer { manager.cancelCurrentTurnFromPanel(); try? FileManager.default.removeItem(at: root) }
+        defer {
+            manager.cancelCurrentTurnFromPanel()
+            try? FileManager.default.removeItem(at: root)
+        }
         for isDiagram in [true, false] {
             _ = manager.turnLeaseRegistry.beginTurn()
-            if isDiagram { manager.diagramOverlayController.onDidPresent?() }
-            else { manager.imageOverlayController.onWillGenerate?() }
+            if isDiagram {
+                manager.diagramOverlayController.onDidPresent?()
+            } else {
+                manager.imageOverlayController.onWillGenerate?()
+            }
             let newLease = manager.turnLeaseRegistry.beginTurn()
             manager.voiceState = .listening
             manager.currentTurnHUDState = .listening
@@ -331,8 +385,11 @@ struct PaceCaptureAcknowledgementTests {
             let pendingStartTask = Task<Void, Never> { try? await Task.sleep(for: .seconds(60)) }
             manager.pendingKeyboardShortcutStartTask = pendingStartTask
             let stopCount = speech.stopCount
-            if isDiagram { manager.diagramOverlayController.dismiss(intent: .userInitiated) }
-            else { manager.imageOverlayController.dismiss(intent: .userInitiated) }
+            if isDiagram {
+                manager.diagramOverlayController.dismiss(intent: .userInitiated)
+            } else {
+                manager.imageOverlayController.dismiss(intent: .userInitiated)
+            }
             #expect(!pendingStartTask.isCancelled && !safetyTask.isCancelled)
             #expect(manager.turnLeaseRegistry.isCurrent(newLease) && manager.voiceState == .listening)
             #expect(manager.currentTurnHUDState == .listening && manager.liveSpeechDraft == "new capture words")
@@ -343,14 +400,20 @@ struct PaceCaptureAcknowledgementTests {
             await safetyTask.value
 
             _ = manager.turnLeaseRegistry.beginTurn()
-            if isDiagram { manager.diagramOverlayController.onDidPresent?() }
-            else { manager.imageOverlayController.onWillGenerate?() }
+            if isDiagram {
+                manager.diagramOverlayController.onDidPresent?()
+            } else {
+                manager.imageOverlayController.onWillGenerate?()
+            }
             let ownedReplyTask = Task<Void, Never> { try? await Task.sleep(for: .seconds(60)) }
             manager.currentResponseTask = ownedReplyTask
             manager.voiceState = .responding
             let precedingStopCount = speech.stopCount
-            if isDiagram { manager.diagramOverlayController.dismiss(intent: .userInitiated) }
-            else { manager.imageOverlayController.dismiss(intent: .userInitiated) }
+            if isDiagram {
+                manager.diagramOverlayController.dismiss(intent: .userInitiated)
+            } else {
+                manager.imageOverlayController.dismiss(intent: .userInitiated)
+            }
             await ownedReplyTask.value
             #expect(ownedReplyTask.isCancelled && manager.voiceState == .idle)
             #expect(speech.stopCount > precedingStopCount && persister.events.isEmpty)
@@ -359,7 +422,11 @@ struct PaceCaptureAcknowledgementTests {
 
     @Test func diagramFollowupCloseOwnsImmediateAndDrainedRequestsButPreservesUnrelatedQueue() async throws {
         let (root, manager, persister, _) = try PacePowerManagerTests().fixture()
-        defer { manager.cancelCurrentTurnFromPanel(); manager.clearQueuedChatTurns(); try? FileManager.default.removeItem(at: root) }
+        defer {
+            manager.cancelCurrentTurnFromPanel()
+            manager.clearQueuedChatTurns()
+            try? FileManager.default.removeItem(at: root)
+        }
         let planner = RecordingPlanner()
         manager.plannerClient = planner
         manager.textOnlyPlannerClient = planner
@@ -382,12 +449,14 @@ struct PaceCaptureAcknowledgementTests {
             let ownedEventIdentifier = try #require(manager.activeConversationUserEvent?.eventID)
             let dispatchTask = try #require(manager.currentTurnDispatchTask)
             manager.submitChatTranscriptFromDeepLink("An unrelated queued question")
-            let unrelatedIdentifier = try #require(manager.chatTurnQueue.pendingTurns.first?.optimisticMessageIdentifier)
+            let unrelatedIdentifier = try #require(
+                manager.chatTurnQueue.pendingTurns.first?.optimisticMessageIdentifier)
             manager.diagramOverlayController.dismiss(intent: .userInitiated)
             await dispatchTask.value
             #expect(dispatchTask.isCancelled && manager.voiceState == .idle)
             #expect(persister.events[ownedEventIdentifier]?.deliveryState == .cancelled)
-            #expect(manager.chatTurnQueue.pendingTurns.compactMap(\.optimisticMessageIdentifier) == [unrelatedIdentifier])
+            #expect(
+                manager.chatTurnQueue.pendingTurns.compactMap(\.optimisticMessageIdentifier) == [unrelatedIdentifier])
             #expect(persister.events[unrelatedIdentifier]?.deliveryState != .cancelled)
             manager.clearQueuedChatTurns()
         }
@@ -396,7 +465,11 @@ struct PaceCaptureAcknowledgementTests {
 
     @Test func closingDiagramRemovesOnlyItsQueuedFollowupWithoutCancellingUnrelatedResponse() async throws {
         let (root, manager, persister, _) = try PacePowerManagerTests().fixture()
-        defer { manager.cancelCurrentTurnFromPanel(); manager.clearQueuedChatTurns(); try? FileManager.default.removeItem(at: root) }
+        defer {
+            manager.cancelCurrentTurnFromPanel()
+            manager.clearQueuedChatTurns()
+            try? FileManager.default.removeItem(at: root)
+        }
         _ = manager.turnLeaseRegistry.beginTurn()
         manager.diagramOverlayController.onDidPresent?()
         manager.beginConversationRequest("Unrelated current answer")
@@ -407,11 +480,13 @@ struct PaceCaptureAcknowledgementTests {
         manager.diagramOverlayController.onAskAboutPart?("Explain this selected part")
         let diagramIdentifier = try #require(manager.chatTurnQueue.pendingTurns.first?.optimisticMessageIdentifier)
         manager.submitChatTranscriptFromDeepLink("Keep this unrelated queued question")
-        let unrelatedQueuedIdentifier = try #require(manager.chatTurnQueue.pendingTurns.last?.optimisticMessageIdentifier)
+        let unrelatedQueuedIdentifier = try #require(
+            manager.chatTurnQueue.pendingTurns.last?.optimisticMessageIdentifier)
         manager.diagramOverlayController.dismiss(intent: .userInitiated)
         #expect(!unrelatedResponse.isCancelled && manager.voiceState == .responding)
         #expect(manager.turnLeaseRegistry.isCurrent(unrelatedLease))
-        #expect(manager.chatTurnQueue.pendingTurns.compactMap(\.optimisticMessageIdentifier) == [unrelatedQueuedIdentifier])
+        #expect(
+            manager.chatTurnQueue.pendingTurns.compactMap(\.optimisticMessageIdentifier) == [unrelatedQueuedIdentifier])
         #expect(persister.events[diagramIdentifier]?.deliveryState == .cancelled)
         #expect(persister.events[unrelatedQueuedIdentifier]?.deliveryState != .cancelled)
         manager.cancelCurrentTurnFromPanel()
@@ -420,7 +495,11 @@ struct PaceCaptureAcknowledgementTests {
 
     @Test func cancellingOldFinalizationTimerCannotOverwriteNextCaptureFeedback() async throws {
         let (root, manager, persister, _) = try PacePowerManagerTests().fixture()
-        defer { manager.transcriptSafetyTask?.cancel(); manager.cancelActiveTurnTasks(); try? FileManager.default.removeItem(at: root) }
+        defer {
+            manager.transcriptSafetyTask?.cancel()
+            manager.cancelActiveTurnTasks()
+            try? FileManager.default.removeItem(at: root)
+        }
         manager.transcriptArrivedSinceRelease = false
         manager.scheduleTranscriptSafetyFallback()
         let oldSafetyTask = try #require(manager.transcriptSafetyTask)

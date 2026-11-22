@@ -176,7 +176,8 @@ nonisolated enum PaceChatTranscriptModel {
             speechRequest: chatMessage.speechRequest,
             turnIdentifier: chatMessage.turnIdentifier ?? chatMessage.persistedTurnIdentifier,
             origin: chatMessage.origin,
-            originalResponse: displayedBodyText(forChatMessage: chatMessage) == chatMessage.body ? nil : chatMessage.body,
+            originalResponse: displayedBodyText(forChatMessage: chatMessage) == chatMessage.body
+                ? nil : chatMessage.body,
             deliveryState: chatMessage.deliveryState,
             generatedImagePreviewID: chatMessage.generatedImagePreviewID
         )

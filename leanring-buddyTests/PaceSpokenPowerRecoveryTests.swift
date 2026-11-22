@@ -1,12 +1,17 @@
 import Foundation
 import Testing
+
 @testable import Pace
 
 @MainActor @Suite(.serialized)
 struct PaceSpokenPowerRecoveryTests {
-    func savePower(_ name: String, identifier: String, manager: CompanionManager, invocationPhrases: [String]? = nil) async throws -> PaceManagedPower {
-        let definition = PaceAutomationDefinition(schemaVersion: 1, identifier: identifier, name: name,
-            description: "Saved spoken Power fixture", category: "custom", invocationPhrases: invocationPhrases ?? ["run power " + name],
+    func savePower(_ name: String, identifier: String, manager: CompanionManager, invocationPhrases: [String]? = nil)
+        async throws -> PaceManagedPower
+    {
+        let definition = PaceAutomationDefinition(
+            schemaVersion: 1, identifier: identifier, name: name,
+            description: "Saved spoken Power fixture", category: "custom",
+            invocationPhrases: invocationPhrases ?? ["run power " + name],
             source: .user, executionMode: .deterministicLocal, requiredPreferences: [],
             steps: [.init(toolCalls: [.init(tool: "speak", arguments: ["text": .string("Selected " + name)])])])
         let discovered = await manager.discoverAutomationCatalog()
@@ -16,12 +21,17 @@ struct PaceSpokenPowerRecoveryTests {
 
     @Test func unfamiliarNamesRecoverWithoutMatchingOrdinaryRequests() async throws {
         let (root, manager, _, _) = try PacePowerManagerTests().fixture()
-        defer { manager.cancelActiveTurnTasks(); try? FileManager.default.removeItem(at: root) }
+        defer {
+            manager.cancelActiveTurnTasks()
+            try? FileManager.default.removeItem(at: root)
+        }
         var powers: [PaceManagedPower] = []
-        for (name, identifier) in [("Meeting Digest", "meeting-digest"), ("Café Notes", "cafe-notes"),
+        for (name, identifier) in [
+            ("Meeting Digest", "meeting-digest"), ("Café Notes", "cafe-notes"),
             ("Daily Brief", "daily-brief"), ("Daily Breeze", "daily-breeze"), ("Go", "go-power"),
             ("Weekly Forecast", "weekly-forecast"), ("Invoice Summary", "invoice-summary"),
-            ("Inbox Sweep", "inbox-sweep")] {
+            ("Inbox Sweep", "inbox-sweep"),
+        ] {
             powers.append(try await savePower(name, identifier: identifier, manager: manager))
         }
         for (transcript, expected) in [
@@ -33,17 +43,21 @@ struct PaceSpokenPowerRecoveryTests {
             ("Run meeting digest through the summarizer", []),
             ("Run daily brief and send it to everyone", []),
             ("Run power get", []),
-            ("Power washing the driveway", [])
+            ("Power washing the driveway", []),
         ] {
             let target = transcript == "Run power get" ? "get" : nil
-            let candidates = PaceSpokenPowerRecovery.candidates(for: transcript, powers: powers, explicitRunTarget: target)
+            let candidates = PaceSpokenPowerRecovery.candidates(
+                for: transcript, powers: powers, explicitRunTarget: target)
             #expect(Set(candidates.map(\.name)) == Set(expected), "Unexpected matches for \(transcript)")
         }
     }
 
     @Test func aMisheardExplicitPowerRequestOffersTheSavedNameWithoutRunningIt() async throws {
         let (root, manager, _, speech) = try PacePowerManagerTests().fixture()
-        defer { manager.cancelActiveTurnTasks(); try? FileManager.default.removeItem(at: root) }
+        defer {
+            manager.cancelActiveTurnTasks()
+            try? FileManager.default.removeItem(at: root)
+        }
         _ = try await savePower("Bouncing Ball", identifier: "bouncing-ball", manager: manager)
         PacePowerManagerTests().begin("Run Power Bombs and Boy.", manager: manager)
         await manager.handlePowerCommand(.run("Bombs and Boy."), transcript: "Run Power Bombs and Boy.")
@@ -54,7 +68,10 @@ struct PaceSpokenPowerRecoveryTests {
     }
     @Test func observedMishearingsRankTheNearestSavedNameBeforeAnyGeneralAgentRoute() async throws {
         let (root, manager, _, speech) = try PacePowerManagerTests().fixture()
-        defer { manager.cancelActiveTurnTasks(); try? FileManager.default.removeItem(at: root) }
+        defer {
+            manager.cancelActiveTurnTasks()
+            try? FileManager.default.removeItem(at: root)
+        }
         _ = try await savePower("Bouncing Ball", identifier: "bouncing-ball", manager: manager)
         _ = try await savePower("Bounce Coach", identifier: "bounce-coach", manager: manager)
         #expect(manager.buddyDictationManager.additionalContextualPhrases?().contains("Bouncing Ball") == true)
@@ -71,25 +88,37 @@ struct PaceSpokenPowerRecoveryTests {
 
     @Test func nearMatchesNeverInterceptTypedMutationSystemOrUnrelatedRequests() async throws {
         let (root, manager, _, _) = try PacePowerManagerTests().fixture()
-        defer { manager.cancelActiveTurnTasks(); try? FileManager.default.removeItem(at: root) }
+        defer {
+            manager.cancelActiveTurnTasks()
+            try? FileManager.default.removeItem(at: root)
+        }
         _ = try await savePower("Bouncing Ball", identifier: "bouncing-ball", manager: manager)
-        for transcript in ["delete power Bouncing Bow", "disable power Bouncing Bow", "update power Bouncing Bow: change it", "Power supply settings", "run power nap", "click the ball", "run a script in terminal", "What is a bouncing ball?"] {
+        for transcript in [
+            "delete power Bouncing Bow", "disable power Bouncing Bow", "update power Bouncing Bow: change it",
+            "Power supply settings", "run power nap", "click the ball", "run a script in terminal",
+            "What is a bouncing ball?",
+        ] {
             PacePowerManagerTests().begin(transcript, manager: manager)
             #expect(!(await manager.handleSpokenPowerRecoveryIfNeeded(transcript)))
             #expect(manager.pendingSpokenPowerClarification == nil)
         }
-        for transcript in ["run automation Bouncing Ball", "run shortcut Bouncing Ball", "run the Bouncing Ball skill", "run flow Bouncing Ball", "run power weather report"] {
+        for transcript in [
+            "run automation Bouncing Ball", "run shortcut Bouncing Ball", "run the Bouncing Ball skill",
+            "run flow Bouncing Ball", "run power weather report",
+        ] {
             PacePowerManagerTests().begin(transcript, manager: manager)
             #expect(!(await manager.handleSpokenPowerRecoveryIfNeeded(transcript)))
             #expect(manager.pendingSpokenPowerClarification == nil)
         }
-        let exact = try manager.managedPowerStore.resolve("Bouncing Ball", catalog: await manager.discoverAutomationCatalog().catalog)
+        let exact = try manager.managedPowerStore.resolve(
+            "Bouncing Ball", catalog: await manager.discoverAutomationCatalog().catalog)
         let exactRequest = "run power " + exact.identifier
         PacePowerManagerTests().begin(exactRequest, manager: manager)
         #expect(!(await manager.handleSpokenPowerRecoveryIfNeeded(exactRequest)))
         #expect(manager.pendingSpokenPowerClarification == nil)
         let typed = "Power Bouncing Bow."
-        manager.pendingTypedConversationEventIdentifier = manager.acceptConversationRequest(typed, origin: .typed).eventID
+        manager.pendingTypedConversationEventIdentifier =
+            manager.acceptConversationRequest(typed, origin: .typed).eventID
         PacePowerManagerTests().begin(typed, manager: manager)
         #expect(!(await manager.handleSpokenPowerRecoveryIfNeeded(typed)))
         #expect(PacePowerCommandParser.parse("run power Bouncing Bow") == .run("Bouncing Bow"))
@@ -97,7 +126,10 @@ struct PaceSpokenPowerRecoveryTests {
 
     @Test func confirmationSurvivesCaptureCancellationButRequiresCurrentExactUnchangedPower() async throws {
         let (root, manager, _, speech) = try PacePowerManagerTests().fixture()
-        defer { manager.cancelActiveTurnTasks(); try? FileManager.default.removeItem(at: root) }
+        defer {
+            manager.cancelActiveTurnTasks()
+            try? FileManager.default.removeItem(at: root)
+        }
         let power = try await savePower("Bouncing Ball", identifier: "bouncing-ball", manager: manager)
         PacePowerManagerTests().begin("Power Bouncing Bow", manager: manager)
         #expect(await manager.handleSpokenPowerRecoveryIfNeeded("Power Bouncing Bow"))
@@ -107,7 +139,8 @@ struct PaceSpokenPowerRecoveryTests {
         manager.resolveSpokenPowerClarification(option: "Bouncing Ball", expectedIdentifier: UUID())
         #expect(manager.pendingSpokenPowerClarification == pending)
         manager.pendingSpokenPowerClarification = nil
-        manager.pendingIntentClarification = .init(originalTranscript: "older question",
+        manager.pendingIntentClarification = .init(
+            originalTranscript: "older question",
             clarification: .init(question: "Choose", options: ["Bouncing Ball"]))
         manager.resolveClarification(option: "Bouncing Ball", powerClarificationIdentifier: pending.identifier)
         #expect(manager.pendingIntentClarification != nil)
@@ -126,8 +159,10 @@ struct PaceSpokenPowerRecoveryTests {
         let replacementPending = try #require(manager.pendingSpokenPowerClarification)
         let artifactURL = try #require(power.ownedArtifactURL)
         let original = try String(contentsOf: artifactURL, encoding: .utf8)
-        try original.replacingOccurrences(of: "Selected Bouncing Ball", with: "Changed implementation").write(to: artifactURL, atomically: true, encoding: .utf8)
-        manager.resolveSpokenPowerClarification(option: "Bouncing Ball", expectedIdentifier: replacementPending.identifier)
+        try original.replacingOccurrences(of: "Selected Bouncing Ball", with: "Changed implementation").write(
+            to: artifactURL, atomically: true, encoding: .utf8)
+        manager.resolveSpokenPowerClarification(
+            option: "Bouncing Ball", expectedIdentifier: replacementPending.identifier)
         await manager.currentTurnDispatchTask?.value
         await manager.currentResponseTask?.value
         #expect(!speech.spokenTexts.contains("Changed implementation"))
@@ -136,7 +171,10 @@ struct PaceSpokenPowerRecoveryTests {
 
     @Test func oneOfferedPowerNeedsExplicitConfirmationAndRunsExactlyOnce() async throws {
         let (root, manager, _, speech) = try PacePowerManagerTests().fixture()
-        defer { manager.cancelActiveTurnTasks(); try? FileManager.default.removeItem(at: root) }
+        defer {
+            manager.cancelActiveTurnTasks()
+            try? FileManager.default.removeItem(at: root)
+        }
         _ = try await savePower("Bouncing Ball", identifier: "bouncing-ball", manager: manager)
         PacePowerManagerTests().begin("Power Bouncing Bow", manager: manager)
         #expect(await manager.handleSpokenPowerRecoveryIfNeeded("Power Bouncing Bow"))
@@ -150,7 +188,10 @@ struct PaceSpokenPowerRecoveryTests {
 
     @Test func ambiguityExpiryCancellationAndUnrelatedRepliesDoNotRunAnything() async throws {
         let (root, manager, _, speech) = try PacePowerManagerTests().fixture()
-        defer { manager.cancelActiveTurnTasks(); try? FileManager.default.removeItem(at: root) }
+        defer {
+            manager.cancelActiveTurnTasks()
+            try? FileManager.default.removeItem(at: root)
+        }
         let first = try await savePower("Bouncing Ball", identifier: "bouncing-ball", manager: manager)
         let second = try await savePower("Bouncing Bell", identifier: "bouncing-bell", manager: manager)
         let now = Date(timeIntervalSince1970: 1000)
@@ -177,7 +218,10 @@ struct PaceSpokenPowerRecoveryTests {
 
     @Test func confirmationControlsAndPunctuationNeverSelectTheWrongPower() async throws {
         let (root, manager, _, _) = try PacePowerManagerTests().fixture()
-        defer { manager.cancelActiveTurnTasks(); try? FileManager.default.removeItem(at: root) }
+        defer {
+            manager.cancelActiveTurnTasks()
+            try? FileManager.default.removeItem(at: root)
+        }
         let yesPower = try await savePower("Yes", identifier: "yes-power", manager: manager)
         let cancelPower = try await savePower("Cancel", identifier: "cancel-power", manager: manager)
         let now = Date()
@@ -198,12 +242,16 @@ struct PaceSpokenPowerRecoveryTests {
 
     @Test func aTypedYesConfirmsAnExistingVoiceQuestionWithoutFuzzyMatchingTypedCommands() async throws {
         let (root, manager, _, speech) = try PacePowerManagerTests().fixture()
-        defer { manager.cancelActiveTurnTasks(); try? FileManager.default.removeItem(at: root) }
+        defer {
+            manager.cancelActiveTurnTasks()
+            try? FileManager.default.removeItem(at: root)
+        }
         _ = try await savePower("Bouncing Ball", identifier: "bouncing-ball", manager: manager)
         PacePowerManagerTests().begin("Power Bouncing Bow", manager: manager)
         #expect(await manager.handleSpokenPowerRecoveryIfNeeded("Power Bouncing Bow"))
         await manager.currentResponseTask?.value
-        manager.pendingTypedConversationEventIdentifier = manager.acceptConversationRequest("yes", origin: .typed).eventID
+        manager.pendingTypedConversationEventIdentifier =
+            manager.acceptConversationRequest("yes", origin: .typed).eventID
         PacePowerManagerTests().begin("yes", manager: manager)
         #expect(await manager.handleSpokenPowerRecoveryIfNeeded("yes"))
         await manager.currentResponseTask?.value
@@ -216,14 +264,19 @@ struct PaceSpokenPowerRecoveryTests {
             calls += 1
             return .init(intent: .chitchat, confidence: 1)
         }
-        func classify(_ transcript: String, conversationHistory: [(userTranscript: String, assistantResponse: String)]) async -> PaceIntentPrediction {
+        func classify(_ transcript: String, conversationHistory: [(userTranscript: String, assistantResponse: String)])
+            async -> PaceIntentPrediction
+        {
             await classify(transcript)
         }
     }
 
     @Test func realTranscriptDispatchConsumesMisheardPowersBeforeTheClassifier() async throws {
         let (root, manager, _, speech) = try PacePowerManagerTests().fixture()
-        defer { manager.cancelActiveTurnTasks(); try? FileManager.default.removeItem(at: root) }
+        defer {
+            manager.cancelActiveTurnTasks()
+            try? FileManager.default.removeItem(at: root)
+        }
         _ = try await savePower("Bouncing Ball", identifier: "bouncing-ball", manager: manager)
         _ = try await savePower("Bounce Coach", identifier: "bounce-coach", manager: manager)
         let classifier = CountingIntentClassifier()
@@ -231,7 +284,8 @@ struct PaceSpokenPowerRecoveryTests {
         for transcript in ["Run Power Bombs and Boy.", "Power Bouncing Bow.", "Run, forward, bounce and board."] {
             manager.pendingSpokenPowerClarification = nil
             PacePowerManagerTests().begin(transcript, manager: manager)
-            await manager.sendTranscriptToPlannerWithScreenshotAsync(transcript: transcript,
+            await manager.sendTranscriptToPlannerWithScreenshotAsync(
+                transcript: transcript,
                 turnLease: manager.turnLeaseRegistry.currentLease)
             await manager.currentResponseTask?.value
             #expect(classifier.calls == 0)
@@ -243,8 +297,12 @@ struct PaceSpokenPowerRecoveryTests {
 
     @Test func exactInvocationAliasesKeepTheirExistingRoute() async throws {
         let (root, manager, _, _) = try PacePowerManagerTests().fixture()
-        defer { manager.cancelActiveTurnTasks(); try? FileManager.default.removeItem(at: root) }
-        _ = try await savePower("Bouncing Ball", identifier: "bouncing-ball", manager: manager,
+        defer {
+            manager.cancelActiveTurnTasks()
+            try? FileManager.default.removeItem(at: root)
+        }
+        _ = try await savePower(
+            "Bouncing Ball", identifier: "bouncing-ball", manager: manager,
             invocationPhrases: ["Run Bouncing Ball"])
         PacePowerManagerTests().begin("Run Bouncing Ball", manager: manager)
         #expect(!(await manager.handleSpokenPowerRecoveryIfNeeded("Run Bouncing Ball")))
@@ -253,13 +311,17 @@ struct PaceSpokenPowerRecoveryTests {
 
     @Test func exactOfferedLabelsOwnTheConfirmationBeforeOtherNamespaces() async throws {
         let (root, manager, _, speech) = try PacePowerManagerTests().fixture()
-        defer { manager.cancelActiveTurnTasks(); try? FileManager.default.removeItem(at: root) }
+        defer {
+            manager.cancelActiveTurnTasks()
+            try? FileManager.default.removeItem(at: root)
+        }
         for (name, identifier) in [("Skill Tracker", "skill-tracker"), ("Daily Shortcut", "daily-shortcut")] {
             let power = try await savePower(name, identifier: identifier, manager: manager)
             manager.offerSpokenPowerClarification([power], transcript: "Near match")
             await manager.currentResponseTask?.value
             let label = "Run " + name
-            manager.pendingTypedConversationEventIdentifier = manager.acceptConversationRequest(label, origin: .typed).eventID
+            manager.pendingTypedConversationEventIdentifier =
+                manager.acceptConversationRequest(label, origin: .typed).eventID
             PacePowerManagerTests().begin(label, manager: manager)
             #expect(await manager.handleSpokenPowerRecoveryIfNeeded(label))
             await manager.currentResponseTask?.value

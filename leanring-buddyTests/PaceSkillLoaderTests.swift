@@ -17,11 +17,15 @@ struct PaceSkillLoaderTests {
         let emptyUserDirectory = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("pace-no-user-skills-\(UUID().uuidString)")
         let skills = PaceSkillLoader.loadAllSkills(userSkillsDirectoryURL: emptyUserDirectory)
-        let expected = Set(["standup-notes", "computer-use", "browser-use", "teach-on-screen", "coding-session", "research"])
+        let expected = Set([
+            "standup-notes", "computer-use", "browser-use", "teach-on-screen", "coding-session", "research",
+        ])
         #expect(expected.isSubset(of: Set(skills.map(\.slug))))
         let resourceDirectory = try #require(Bundle.main.resourceURL?.appendingPathComponent("skills"))
-        let resourceFiles = try FileManager.default.contentsOfDirectory(at: resourceDirectory,
-            includingPropertiesForKeys: nil).filter { $0.lastPathComponent.hasSuffix(".skill.md") }
+        let resourceFiles = try FileManager.default.contentsOfDirectory(
+            at: resourceDirectory,
+            includingPropertiesForKeys: nil
+        ).filter { $0.lastPathComponent.hasSuffix(".skill.md") }
         let bundledSkills = try resourceFiles.map { resourceFile in
             try #require(PaceSkillLoader.parse(skillMarkdown: String(contentsOf: resourceFile, encoding: .utf8)))
         }
@@ -29,8 +33,10 @@ struct PaceSkillLoaderTests {
         #expect(Set(bundledSkills.map { $0.slug.lowercased() }).count == bundledSkills.count)
         #expect(skills.allSatisfy { !$0.steps.isEmpty && !$0.description.isEmpty })
         for skill in skills {
-            #expect(PaceSkillLoader.resolveSkillForRunRequest(requestedSlug: skill.slug,
-                requestedName: skill.name, in: skills)?.slug == skill.slug)
+            #expect(
+                PaceSkillLoader.resolveSkillForRunRequest(
+                    requestedSlug: skill.slug,
+                    requestedName: skill.name, in: skills)?.slug == skill.slug)
         }
     }
 
@@ -45,19 +51,25 @@ struct PaceSkillLoaderTests {
         }
         func writeSkill(_ name: String, slug: String, instruction: String, directory: URL) throws {
             let markdown = "---\nname: \"\(name)\"\nslug: \"\(slug)\"\n---\n\n## Steps\n\n1. \(instruction)\n"
-            try markdown.write(to: directory.appendingPathComponent(name + ".skill.md"), atomically: true, encoding: .utf8)
+            try markdown.write(
+                to: directory.appendingPathComponent(name + ".skill.md"), atomically: true, encoding: .utf8)
         }
         try writeSkill("Use Apps", slug: "computer-use", instruction: "Bundled task", directory: bundledDirectory)
         try writeSkill("My Apps", slug: "computer-use", instruction: "User task", directory: userDirectory)
         try writeSkill("Research", slug: "research", instruction: "Bundled research", directory: bundledDirectory)
         try writeSkill("Research", slug: "my-research", instruction: "User research", directory: userDirectory)
-        let skills = PaceSkillLoader.loadAllSkills(bundledSkillsDirectoryURL: bundledDirectory,
+        let skills = PaceSkillLoader.loadAllSkills(
+            bundledSkillsDirectoryURL: bundledDirectory,
             userSkillsDirectoryURL: userDirectory)
         #expect(skills.count == 3)
-        #expect(PaceSkillLoader.resolveSkillForRunRequest(requestedSlug: "computer-use",
-            requestedName: "Use Apps", in: skills)?.steps.first?.instruction == "User task")
-        #expect(PaceSkillLoader.resolveSkillForRunRequest(requestedSlug: "research",
-            requestedName: "Research", in: skills)?.steps.first?.instruction == "User research")
+        #expect(
+            PaceSkillLoader.resolveSkillForRunRequest(
+                requestedSlug: "computer-use",
+                requestedName: "Use Apps", in: skills)?.steps.first?.instruction == "User task")
+        #expect(
+            PaceSkillLoader.resolveSkillForRunRequest(
+                requestedSlug: "research",
+                requestedName: "Research", in: skills)?.steps.first?.instruction == "User research")
     }
 
     @Test func mixedCaseUserSkillOverridesActualBundledDefault() throws {
@@ -66,15 +78,21 @@ struct PaceSkillLoaderTests {
         defer { try? FileManager.default.removeItem(at: userDirectory) }
         try FileManager.default.createDirectory(at: userDirectory, withIntermediateDirectories: true)
         let markdown = "---\nname: My Apps\nslug: Computer-Use\n---\n\n## Steps\n\n1. Ask for my current task\n"
-        try markdown.write(to: userDirectory.appendingPathComponent("my-apps.skill.md"), atomically: true, encoding: .utf8)
+        try markdown.write(
+            to: userDirectory.appendingPathComponent("my-apps.skill.md"), atomically: true, encoding: .utf8)
         let skills = PaceSkillLoader.loadAllSkills(userSkillsDirectoryURL: userDirectory)
         #expect(skills.filter { $0.slug.lowercased() == "computer-use" }.count == 1)
-        #expect(PaceSkillLoader.resolveSkillForRunRequest(requestedSlug: "computer-use",
-            requestedName: "use apps", in: skills)?.name == "My Apps")
-        #expect(PaceSkillLoader.resolveSkillForRunRequest(requestedSlug: "COMPUTER",
-            requestedName: "no matching name", in: skills)?.name == "My Apps")
-        #expect(Set(["standup-notes", "browser-use", "teach-on-screen", "coding-session", "research"])
-            .isSubset(of: Set(skills.map(\.slug))))
+        #expect(
+            PaceSkillLoader.resolveSkillForRunRequest(
+                requestedSlug: "computer-use",
+                requestedName: "use apps", in: skills)?.name == "My Apps")
+        #expect(
+            PaceSkillLoader.resolveSkillForRunRequest(
+                requestedSlug: "COMPUTER",
+                requestedName: "no matching name", in: skills)?.name == "My Apps")
+        #expect(
+            Set(["standup-notes", "browser-use", "teach-on-screen", "coding-session", "research"])
+                .isSubset(of: Set(skills.map(\.slug))))
     }
 
     // MARK: - Parsing

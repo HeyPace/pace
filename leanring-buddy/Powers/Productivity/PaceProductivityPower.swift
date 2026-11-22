@@ -59,7 +59,8 @@ nonisolated enum PaceProductivityPower {
             kind: .calendarCreate,
             canonicalName: "calendar_create",
             aliases: ["calendar_event", "cal_event"],
-            schemaExample: #"{"tool":"calendar_create","title":"Design review","start":"2026-06-10T15:00:00-07:00","end":"2026-06-10T16:00:00-07:00"}"#,
+            schemaExample:
+                #"{"tool":"calendar_create","title":"Design review","start":"2026-06-10T15:00:00-07:00","end":"2026-06-10T16:00:00-07:00"}"#,
             description: "create a local calendar event. start is required; date-only values create all-day events.",
             riskLevel: .appOrSystemMutation,
             executionSummary: "Creates an EventKit calendar event after permission.",
@@ -71,7 +72,8 @@ nonisolated enum PaceProductivityPower {
             canonicalName: "reminder",
             aliases: [],
             schemaExample: #"{"tool":"reminder","title":"follow up with Alex"}"#,
-            description: "Create one Apple Reminders task. Use due for an ISO 8601 timestamp with its UTC offset, or YYYY-MM-DD for an all-day due date.",
+            description:
+                "Create one Apple Reminders task. Use due for an ISO 8601 timestamp with its UTC offset, or YYYY-MM-DD for an all-day due date.",
             riskLevel: .appOrSystemMutation,
             executionSummary: "Creates an EventKit reminder after permission.",
             observationSummary: "Reports reminder creation or permission errors.",
@@ -126,11 +128,13 @@ nonisolated enum PaceProductivityPower {
             canonicalName: "start_timer",
             aliases: ["timer", "set_timer"],
             schemaExample: #"{"tool":"start_timer","duration":"3 minutes","label":"tea"}"#,
-            description: "schedule a spoken nudge after a duration. duration accepts \"3 minutes\", \"30s\", \"2 hours\", or a plain seconds number.",
+            description:
+                "schedule a spoken nudge after a duration. duration accepts \"3 minutes\", \"30s\", \"2 hours\", or a plain seconds number.",
             riskLevel: .appOrSystemMutation,
             executionSummary: "Schedules an in-process Timer that fires a spoken nudge through TTS.",
-            observationSummary: "Reports the scheduled fire time, or a validation error if the duration was unparseable.",
+            observationSummary:
+                "Reports the scheduled fire time, or a validation error if the duration was unparseable.",
             exampleUtterance: "set a 5 minute timer for tea"
-        )
+        ),
     ]
 }

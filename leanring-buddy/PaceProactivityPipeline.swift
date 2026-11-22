@@ -121,7 +121,8 @@ final class PaceProactivityPipeline {
     private lazy var calendarPreMeetingNudgeGenerator: PaceCalendarPreMeetingNudgeGenerator = {
         return PaceCalendarPreMeetingNudgeGenerator(
             restraintContextProvider: { [weak self] in
-                self?.buildProactiveRestraintContext(proactiveSource: .calendarEvent) ?? PaceProactivityPipeline
+                self?.buildProactiveRestraintContext(proactiveSource: .calendarEvent)
+                    ?? PaceProactivityPipeline
                     .defaultRestraintContext(proactiveSource: .calendarEvent)
             },
             calendarConnector: calendarRetrievalConnector
@@ -219,7 +220,8 @@ final class PaceProactivityPipeline {
         proactiveUtteranceQueue.append(utterance)
         // Calendar reminders have short, mandatory deadlines. The advisory cap
         // must not evict them just because several appointments overlap.
-        var excessAdvisoryCount = proactiveUtteranceQueue.filter { $0.source != .calendarEvent }.count
+        var excessAdvisoryCount =
+            proactiveUtteranceQueue.filter { $0.source != .calendarEvent }.count
             - Self.maximumQueuedAdvisoryCount
         if excessAdvisoryCount > 0 {
             proactiveUtteranceQueue.removeAll { queuedUtterance in

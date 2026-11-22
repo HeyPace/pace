@@ -59,13 +59,15 @@ struct PaceCLIProcessRunnerTests {
     @MainActor
     @Test func sealedCodexTurnReturnsBeforeLateCleanupAndReapsTheOwnedProcess() async throws {
         for delivery in [PaceCodexTextDelivery.completedMessage, .completedTurn] {
-            let directory = try makePlannerFixture(lines: [codexMessage, codexCompletion],
+            let directory = try makePlannerFixture(
+                lines: [codexMessage, codexCompletion],
                 cleanupDelay: 3, ignoresTermination: true)
             defer { try? FileManager.default.removeItem(at: directory) }
             let planner = fixturePlanner(directory: directory, textDelivery: delivery)
             var deliveredTexts: [String] = []
             let startedAt = ProcessInfo.processInfo.systemUptime
-            let response = try await planner.generateResponseStreaming(images: [], systemPrompt: "Synthetic",
+            let response = try await planner.generateResponseStreaming(
+                images: [], systemPrompt: "Synthetic",
                 conversationHistory: [], userPrompt: "Synthetic", onTextChunk: { deliveredTexts.append($0) })
             #expect(response.text == "Accepted answer.")
             #expect(deliveredTexts == ["Accepted answer."])
@@ -90,11 +92,11 @@ struct PaceCLIProcessRunnerTests {
             let planner = fixturePlanner(directory: directory, textDelivery: .completedTurn)
             var deliveredTexts: [String] = []
             do {
-                _ = try await planner.generateResponseStreaming(images: [], systemPrompt: "Synthetic",
+                _ = try await planner.generateResponseStreaming(
+                    images: [], systemPrompt: "Synthetic",
                     conversationHistory: [], userPrompt: "Synthetic", onTextChunk: { deliveredTexts.append($0) })
                 Issue.record("Invalid or unsealed Codex output must not succeed")
-            } catch is CancellationError { throw CancellationError() }
-            catch {}
+            } catch is CancellationError { throw CancellationError() } catch {}
             #expect(deliveredTexts.isEmpty)
             #expect(FileManager.default.fileExists(atPath: directory.appendingPathComponent("late-cleanup").path))
             try expectPlannerExitedAndWorkDirectoryRemoved(directory)
@@ -103,12 +105,16 @@ struct PaceCLIProcessRunnerTests {
 
     @MainActor
     @Test func refusalBeforeSealRemainsARejection() async throws {
-        let directory = try makePlannerFixture(lines: [codexMessage,
-            #"{"type":"turn.failed","error":{"code":"invalid_api_key"}}"#, codexCompletion], cleanupDelay: 0.25)
+        let directory = try makePlannerFixture(
+            lines: [
+                codexMessage,
+                #"{"type":"turn.failed","error":{"code":"invalid_api_key"}}"#, codexCompletion,
+            ], cleanupDelay: 0.25)
         defer { try? FileManager.default.removeItem(at: directory) }
         let planner = fixturePlanner(directory: directory, textDelivery: .completedTurn)
         do {
-            _ = try await planner.generateResponseStreaming(images: [], systemPrompt: "Synthetic",
+            _ = try await planner.generateResponseStreaming(
+                images: [], systemPrompt: "Synthetic",
                 conversationHistory: [], userPrompt: "Synthetic", onTextChunk: { _ in })
             Issue.record("Expected authentication rejection")
         } catch PaceLocalCLIPlannerError.rejected(let category) {
@@ -120,13 +126,15 @@ struct PaceCLIProcessRunnerTests {
 
     @MainActor
     @Test func cancellationBeforeSealCannotSucceedOrLeaveTheOwnedProcessRunning() async throws {
-        let directory = try makePlannerFixture(lines: [codexMessage, codexCompletion], sealDelay: 3,
+        let directory = try makePlannerFixture(
+            lines: [codexMessage, codexCompletion], sealDelay: 3,
             cleanupDelay: 3, ignoresTermination: true)
         defer { try? FileManager.default.removeItem(at: directory) }
         let planner = fixturePlanner(directory: directory)
         var receivedMessage = false
         let consumer = Task {
-            try await planner.generateResponseStreaming(images: [], systemPrompt: "Synthetic",
+            try await planner.generateResponseStreaming(
+                images: [], systemPrompt: "Synthetic",
                 conversationHistory: [], userPrompt: "Synthetic", onTextChunk: { _ in receivedMessage = true })
         }
         for _ in 0..<100 {
@@ -145,13 +153,15 @@ struct PaceCLIProcessRunnerTests {
 
     @MainActor
     @Test func cancellationStopsOwnedRootAndDescendantHoldingStdout() async throws {
-        let directory = try makePlannerFixture(lines: [codexMessage, codexCompletion], sealDelay: 3,
+        let directory = try makePlannerFixture(
+            lines: [codexMessage, codexCompletion], sealDelay: 3,
             cleanupDelay: 3, ignoresTermination: true, inheritsStdoutInDescendant: true)
         defer { try? FileManager.default.removeItem(at: directory) }
         let planner = fixturePlanner(directory: directory)
         var receivedMessage = false
         let consumer = Task {
-            try await planner.generateResponseStreaming(images: [], systemPrompt: "Synthetic",
+            try await planner.generateResponseStreaming(
+                images: [], systemPrompt: "Synthetic",
                 conversationHistory: [], userPrompt: "Synthetic", onTextChunk: { _ in receivedMessage = true })
         }
         for _ in 0..<100 {
@@ -159,8 +169,11 @@ struct PaceCLIProcessRunnerTests {
             try await Task.sleep(for: .milliseconds(20))
         }
         #expect(receivedMessage)
-        let descendantIdentifier = try #require(Int32(String(contentsOf:
-            directory.appendingPathComponent("descendant-pid"), encoding: .utf8)))
+        let descendantIdentifier = try #require(
+            Int32(
+                String(
+                    contentsOf:
+                        directory.appendingPathComponent("descendant-pid"), encoding: .utf8)))
         defer { kill(descendantIdentifier, SIGKILL) }
         let cancelledAt = ProcessInfo.processInfo.systemUptime
         consumer.cancel()
@@ -181,18 +194,23 @@ struct PaceCLIProcessRunnerTests {
     @MainActor
     @Test func naturalCLIExitAlsoStopsDescendantsWithClosedStdout() async throws {
         for exitStatus in [0, 23] {
-            let directory = try makePlannerFixture(lines: [codexMessage, codexCompletion],
+            let directory = try makePlannerFixture(
+                lines: [codexMessage, codexCompletion],
                 cleanupDelay: 0, exitStatus: exitStatus, ignoresTermination: true,
                 inheritsStdoutInDescendant: true, descendantClosesStdout: true)
             defer { try? FileManager.default.removeItem(at: directory) }
             let planner = fixturePlanner(directory: directory, completionPolicy: .processExit)
             do {
-                let response = try await planner.generateResponseStreaming(images: [], systemPrompt: "Synthetic",
+                let response = try await planner.generateResponseStreaming(
+                    images: [], systemPrompt: "Synthetic",
                     conversationHistory: [], userPrompt: "Synthetic", onTextChunk: { _ in })
                 #expect(exitStatus == 0 && response.text == "Accepted answer.")
             } catch { #expect(exitStatus != 0) }
-            let descendantIdentifier = try #require(Int32(String(contentsOf:
-                directory.appendingPathComponent("descendant-pid"), encoding: .utf8)))
+            let descendantIdentifier = try #require(
+                Int32(
+                    String(
+                        contentsOf:
+                            directory.appendingPathComponent("descendant-pid"), encoding: .utf8)))
             defer { kill(descendantIdentifier, SIGKILL) }
             for _ in 0..<50 {
                 if kill(descendantIdentifier, 0) != 0 { break }
@@ -206,16 +224,21 @@ struct PaceCLIProcessRunnerTests {
     @MainActor
     @Test func claudeAndExplicitProcessExitPolicyKeepNormalCleanup() async throws {
         for upstream in [PaceLocalCLIUpstream.claude, .codex] {
-            let lines = upstream == .claude
-                ? [#"{"type":"assistant","message":{"content":[{"type":"text","text":"Accepted answer."}]}}"#,
-                   codexCompletion]
+            let lines =
+                upstream == .claude
+                ? [
+                    #"{"type":"assistant","message":{"content":[{"type":"text","text":"Accepted answer."}]}}"#,
+                    codexCompletion,
+                ]
                 : [codexMessage, codexCompletion]
             let directory = try makePlannerFixture(lines: lines, cleanupDelay: 0.25, exitStatus: 0)
             defer { try? FileManager.default.removeItem(at: directory) }
-            let planner = fixturePlanner(directory: directory, upstream: upstream,
+            let planner = fixturePlanner(
+                directory: directory, upstream: upstream,
                 completionPolicy: upstream == .codex ? .processExit : .completedTurn)
             var deliveredTexts: [String] = []
-            let response = try await planner.generateResponseStreaming(images: [], systemPrompt: "Synthetic",
+            let response = try await planner.generateResponseStreaming(
+                images: [], systemPrompt: "Synthetic",
                 conversationHistory: [], userPrompt: "Synthetic", onTextChunk: { deliveredTexts.append($0) })
             #expect(response.text == "Accepted answer.")
             #expect(deliveredTexts == ["Accepted answer."])
@@ -237,7 +260,8 @@ struct PaceCLIProcessRunnerTests {
         completionPolicy: PaceCodexCompletionPolicy = .completedTurn
     ) -> PaceLocalCLIPlannerClient {
         let executableURL = directory.appendingPathComponent("fake-cli")
-        return PaceLocalCLIPlannerClient(upstream: upstream, modelIdentifier: nil,
+        return PaceLocalCLIPlannerClient(
+            upstream: upstream, modelIdentifier: nil,
             codexTextDelivery: textDelivery, requestTimeout: 10, codexCompletionPolicy: completionPolicy,
             executableResolver: { _ in executableURL })
     }
@@ -251,35 +275,35 @@ struct PaceCLIProcessRunnerTests {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let encodedLines = try JSONEncoder().encode(lines).base64EncodedString()
         let script = """
-        #!/usr/bin/python3
-        import base64, json, os, signal, sys, time
-        from pathlib import Path
-        directory = Path(__file__).parent
-        (directory / 'pid').write_text(str(os.getpid()))
-        (directory / 'working-directory').write_text(str(Path.cwd()))
-        if \(ignoresTermination ? "True" : "False"):
-            signal.signal(signal.SIGTERM, signal.SIG_IGN)
-        sys.stdin.read()
-        if \(inheritsStdoutInDescendant ? "True" : "False"):
-            descendant = os.fork()
-            if descendant == 0:
-                if \(descendantClosesStdout ? "True" : "False"):
-                    os.close(1)
-                    os.close(2)
-                time.sleep(4)
-                os._exit(0)
-            (directory / 'descendant-pid').write_text(str(descendant))
-        lines = json.loads(base64.b64decode('\(encodedLines)'))
-        for index, line in enumerate(lines):
-            if index > 0:
-                time.sleep(\(sealDelay))
-            print(line, flush=True)
-        time.sleep(\(cleanupDelay))
-        (directory / 'late-cleanup').write_text('done')
-        if \(exitStatus) != 0:
-            print('Synthetic late cleanup failure', file=sys.stderr, flush=True)
-        sys.exit(\(exitStatus))
-        """
+            #!/usr/bin/python3
+            import base64, json, os, signal, sys, time
+            from pathlib import Path
+            directory = Path(__file__).parent
+            (directory / 'pid').write_text(str(os.getpid()))
+            (directory / 'working-directory').write_text(str(Path.cwd()))
+            if \(ignoresTermination ? "True" : "False"):
+                signal.signal(signal.SIGTERM, signal.SIG_IGN)
+            sys.stdin.read()
+            if \(inheritsStdoutInDescendant ? "True" : "False"):
+                descendant = os.fork()
+                if descendant == 0:
+                    if \(descendantClosesStdout ? "True" : "False"):
+                        os.close(1)
+                        os.close(2)
+                    time.sleep(4)
+                    os._exit(0)
+                (directory / 'descendant-pid').write_text(str(descendant))
+            lines = json.loads(base64.b64decode('\(encodedLines)'))
+            for index, line in enumerate(lines):
+                if index > 0:
+                    time.sleep(\(sealDelay))
+                print(line, flush=True)
+            time.sleep(\(cleanupDelay))
+            (directory / 'late-cleanup').write_text('done')
+            if \(exitStatus) != 0:
+                print('Synthetic late cleanup failure', file=sys.stderr, flush=True)
+            sys.exit(\(exitStatus))
+            """
         let executableURL = directory.appendingPathComponent("fake-cli")
         try script.write(to: executableURL, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executableURL.path)
@@ -287,10 +311,14 @@ struct PaceCLIProcessRunnerTests {
     }
 
     private func expectPlannerExitedAndWorkDirectoryRemoved(_ directory: URL) throws {
-        let processIdentifier = try #require(Int32(String(contentsOf: directory.appendingPathComponent("pid"),
-            encoding: .utf8)))
+        let processIdentifier = try #require(
+            Int32(
+                String(
+                    contentsOf: directory.appendingPathComponent("pid"),
+                    encoding: .utf8)))
         #expect(kill(processIdentifier, 0) == -1 && errno == ESRCH)
-        let workingDirectoryPath = try String(contentsOf: directory.appendingPathComponent("working-directory"),
+        let workingDirectoryPath = try String(
+            contentsOf: directory.appendingPathComponent("working-directory"),
             encoding: .utf8)
         #expect(!FileManager.default.fileExists(atPath: workingDirectoryPath))
     }

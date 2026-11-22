@@ -310,8 +310,10 @@ final class PaceMorningTriageScheduler: ObservableObject {
         // existing recordPaceHistory method. Tests inject a recorder
         // closure so the live retriever is never touched.
         if let liveRetriever = retriever as? PaceLocalRetriever {
-            liveRetriever.upsertConversationEvent(ConversationEvent(role: .pace,
-                origin: .proactive, text: trimmedBriefText, createdAt: now))
+            liveRetriever.upsertConversationEvent(
+                ConversationEvent(
+                    role: .pace,
+                    origin: .proactive, text: trimmedBriefText, createdAt: now))
         }
     }
 }

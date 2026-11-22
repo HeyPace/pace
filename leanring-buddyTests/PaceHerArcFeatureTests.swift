@@ -51,7 +51,10 @@ final class PaceRestraintGateTests: XCTestCase {
     }
 
     func testIdleSupportedAppDoesNotPretendToBeAnActiveCall() {
-        for applicationBundleIdentifier in ["com.google.Chrome", "com.apple.Safari", "com.tinyspeck.slackmacgap", "us.zoom.xos", "com.microsoft.teams2", "com.apple.FaceTime"] {
+        for applicationBundleIdentifier in [
+            "com.google.Chrome", "com.apple.Safari", "com.tinyspeck.slackmacgap", "us.zoom.xos", "com.microsoft.teams2",
+            "com.apple.FaceTime",
+        ] {
             let context = PaceRestraintContext(
                 now: Date(),
                 lastProactiveUtteranceAt: nil,
@@ -277,22 +280,25 @@ final class PaceProactiveQueueDrainTests: XCTestCase {
             initiallyEnabledGeneratorIdentifiers: []
         )
         for index in 0..<4 {
-            pipeline.enqueueProactiveUtterance(PaceProactiveUtterance(
-                spokenText: "Suggestion \(index)", source: .watchNudge, confidence: 0.9,
-                relevanceWindowExpiresAt: nil
-            ))
+            pipeline.enqueueProactiveUtterance(
+                PaceProactiveUtterance(
+                    spokenText: "Suggestion \(index)", source: .watchNudge, confidence: 0.9,
+                    relevanceWindowExpiresAt: nil
+                ))
         }
         for index in 0..<4 {
-            pipeline.enqueueProactiveUtterance(PaceProactiveUtterance(
-                spokenText: "Calendar \(index)", source: .calendarEvent, confidence: 0.9,
-                relevanceWindowExpiresAt: now.addingTimeInterval(180)
-            ))
+            pipeline.enqueueProactiveUtterance(
+                PaceProactiveUtterance(
+                    spokenText: "Calendar \(index)", source: .calendarEvent, confidence: 0.9,
+                    relevanceWindowExpiresAt: now.addingTimeInterval(180)
+                ))
         }
         for expiry in [Optional<Date>.none, now.addingTimeInterval(-1)] {
-            pipeline.enqueueProactiveUtterance(PaceProactiveUtterance(
-                spokenText: "Invalid calendar reminder", source: .calendarEvent, confidence: 0.9,
-                relevanceWindowExpiresAt: expiry
-            ))
+            pipeline.enqueueProactiveUtterance(
+                PaceProactiveUtterance(
+                    spokenText: "Invalid calendar reminder", source: .calendarEvent, confidence: 0.9,
+                    relevanceWindowExpiresAt: expiry
+                ))
         }
         XCTAssertEqual(pipeline.proactiveUtteranceQueueSnapshot().filter { $0.source == .calendarEvent }.count, 4)
         XCTAssertEqual(pipeline.proactiveUtteranceQueueSnapshot().filter { $0.source == .watchNudge }.count, 3)
@@ -301,12 +307,15 @@ final class PaceProactiveQueueDrainTests: XCTestCase {
         for _ in 0..<4 { pipeline.drainProactiveQueueIfIdle(now: now) }
 
         XCTAssertEqual(spoken, ["Calendar 0", "Calendar 1", "Calendar 2", "Calendar 3"])
-        XCTAssertEqual(pipeline.proactiveUtteranceQueueSnapshot().map(\.spokenText), ["Suggestion 1", "Suggestion 2", "Suggestion 3"])
+        XCTAssertEqual(
+            pipeline.proactiveUtteranceQueueSnapshot().map(\.spokenText),
+            ["Suggestion 1", "Suggestion 2", "Suggestion 3"])
 
-        pipeline.enqueueProactiveUtterance(PaceProactiveUtterance(
-            spokenText: "Soon expired", source: .calendarEvent, confidence: 0.9,
-            relevanceWindowExpiresAt: now.addingTimeInterval(60)
-        ))
+        pipeline.enqueueProactiveUtterance(
+            PaceProactiveUtterance(
+                spokenText: "Soon expired", source: .calendarEvent, confidence: 0.9,
+                relevanceWindowExpiresAt: now.addingTimeInterval(60)
+            ))
         pipeline.drainProactiveQueueIfIdle(now: now.addingTimeInterval(61))
         XCTAssertFalse(pipeline.proactiveUtteranceQueueSnapshot().contains { $0.source == .calendarEvent })
         XCTAssertEqual(spoken.count, 4)
@@ -316,21 +325,26 @@ final class PaceProactiveQueueDrainTests: XCTestCase {
         let preferenceKey = PaceUserPreferenceKey.areCalendarNudgesEnabled.rawValue
         let previousValue = UserDefaults.standard.object(forKey: preferenceKey)
         defer {
-            if let previousValue { UserDefaults.standard.set(previousValue, forKey: preferenceKey) }
-            else { UserDefaults.standard.removeObject(forKey: preferenceKey) }
+            if let previousValue {
+                UserDefaults.standard.set(previousValue, forKey: preferenceKey)
+            } else {
+                UserDefaults.standard.removeObject(forKey: preferenceKey)
+            }
         }
         let companionManager = CompanionManager()
         for source in [PaceProactiveSource.calendarEvent, .backgroundReminder, .timerFire] {
-            companionManager.enqueueProactiveUtterance(PaceProactiveUtterance(
-                spokenText: source.rawValue, source: source, confidence: 0.9,
-                relevanceWindowExpiresAt: source == .calendarEvent ? Date().addingTimeInterval(180) : nil
-            ))
+            companionManager.enqueueProactiveUtterance(
+                PaceProactiveUtterance(
+                    spokenText: source.rawValue, source: source, confidence: 0.9,
+                    relevanceWindowExpiresAt: source == .calendarEvent ? Date().addingTimeInterval(180) : nil
+                ))
         }
 
         companionManager.setCalendarNudgesEnabled(false)
 
         XCTAssertFalse(companionManager.areCalendarNudgesEnabled)
-        XCTAssertEqual(companionManager.proactiveUtteranceQueueSnapshot().map(\.source), [.backgroundReminder, .timerFire])
+        XCTAssertEqual(
+            companionManager.proactiveUtteranceQueueSnapshot().map(\.source), [.backgroundReminder, .timerFire])
     }
 
     func testExpiredQueuedUtteranceIsDiscardedWithoutBlockingNextEntry() {
@@ -604,11 +618,12 @@ final class PaceProactiveNudgeDecisionTests: XCTestCase {
 
     func testCalendarNudgeRejectsStartedOutOfWindowAndInvalidLeadTimes() {
         for startsInSeconds in [-60.0, 0, 301, .infinity, -.infinity, .nan] {
-            XCTAssertNil(PaceCalendarPreMeetingNudgeDecision.utterance(
-                eventTitle: "Dentist",
-                startsInSeconds: startsInSeconds,
-                now: Date()
-            ), "Must stay quiet for lead time \(startsInSeconds)")
+            XCTAssertNil(
+                PaceCalendarPreMeetingNudgeDecision.utterance(
+                    eventTitle: "Dentist",
+                    startsInSeconds: startsInSeconds,
+                    now: Date()
+                ), "Must stay quiet for lead time \(startsInSeconds)")
         }
     }
 
@@ -619,9 +634,10 @@ final class PaceProactiveNudgeDecisionTests: XCTestCase {
             now: Date()
         )
         XCTAssertEqual(utterance?.spokenText, "Flight is in 1 minute.")
-        XCTAssertNil(PaceCalendarPreMeetingNudgeDecision.utterance(
-            eventTitle: " \n ", startsInSeconds: 60, now: Date()
-        ))
+        XCTAssertNil(
+            PaceCalendarPreMeetingNudgeDecision.utterance(
+                eventTitle: " \n ", startsInSeconds: 60, now: Date()
+            ))
     }
 
     func testWatchObservationNudgeTriggersOnBuildFailure() {
@@ -801,7 +817,9 @@ final class PaceFlowReplayTests: XCTestCase {
             .startRecording(name: "morning standup")
         )
         XCTAssertEqual(PaceFlowCommandParser.parse("stop recording"), .stopRecording)
-        XCTAssertEqual(PaceFlowCommandParser.parse("run morning standup", isRecordedFlow: { $0 == "morning standup" }), .run(name: "morning standup"))
+        XCTAssertEqual(
+            PaceFlowCommandParser.parse("run morning standup", isRecordedFlow: { $0 == "morning standup" }),
+            .run(name: "morning standup"))
         XCTAssertEqual(PaceFlowCommandParser.parse("delete the flow morning standup"), .delete(name: "morning standup"))
     }
 
@@ -821,13 +839,17 @@ final class PaceFlowReplayTests: XCTestCase {
             XCTFail("skill parser should claim 'run the cat search skill'")
         }
         // Plain flow runs (no "skill" mention) are untouched.
-        XCTAssertEqual(PaceFlowCommandParser.parse("run email zero", isRecordedFlow: { $0 == "email zero" }), .run(name: "email zero"))
+        XCTAssertEqual(
+            PaceFlowCommandParser.parse("run email zero", isRecordedFlow: { $0 == "email zero" }),
+            .run(name: "email zero"))
     }
 
     func testUnmatchedReplayAliasesLeaveQuestionsAndTasksForTheAssistant() {
-        for transcript in ["Do you see my screen? This is the competition.", "Do you see my screen?",
-                           "Do I need to change this?", "Do these numbers make sense?",
-                           "run the tests for this project", "do a comparison of these products"] {
+        for transcript in [
+            "Do you see my screen? This is the competition.", "Do you see my screen?",
+            "Do I need to change this?", "Do these numbers make sense?",
+            "run the tests for this project", "do a comparison of these products",
+        ] {
             XCTAssertNil(PaceFlowCommandParser.parse(transcript), transcript)
         }
     }
@@ -836,17 +858,22 @@ final class PaceFlowReplayTests: XCTestCase {
         let store = PaceFlowStore(directoryURL: temporaryDirectoryURL)
         try store.save(PaceRecordedFlow(name: "Morning Standup", createdAt: Date(), steps: []))
         for transcript in ["run Morning Standup", "do Morning Standup"] {
-            XCTAssertEqual(PaceFlowCommandParser.parse(transcript, isRecordedFlow: { store.load(named: $0) != nil }),
-                           .run(name: "Morning Standup"))
+            XCTAssertEqual(
+                PaceFlowCommandParser.parse(transcript, isRecordedFlow: { store.load(named: $0) != nil }),
+                .run(name: "Morning Standup"))
         }
-        XCTAssertNil(PaceFlowCommandParser.parse("Do you see my screen? This is the competition.",
-                                                isRecordedFlow: { store.load(named: $0) != nil }))
+        XCTAssertNil(
+            PaceFlowCommandParser.parse(
+                "Do you see my screen? This is the competition.",
+                isRecordedFlow: { store.load(named: $0) != nil }))
         XCTAssertNil(PaceFlowCommandParser.parse("run the cat search skill", isRecordedFlow: { _ in true }))
     }
 
     func testExplicitReplayRequestsStillNameMissingFlows() {
-        for transcript in ["run the flow Morning Standup", "run flow Morning Standup",
-                           "do the flow Morning Standup", "play back Morning Standup"] {
+        for transcript in [
+            "run the flow Morning Standup", "run flow Morning Standup",
+            "do the flow Morning Standup", "play back Morning Standup",
+        ] {
             XCTAssertEqual(PaceFlowCommandParser.parse(transcript), .run(name: "Morning Standup"))
         }
         XCTAssertNil(PaceFlowCommandParser.parse("run flow "))

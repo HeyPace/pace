@@ -282,7 +282,10 @@ enum BuddyPlannerClientFactory {
             if bridge.hasUserAcceptedConsent, bridge.mode != .off {
                 return (CloudBridgePlannerClient(configuration: bridge), true)
             }
-            guard !PaceBundledModelsSettings.isUsingMLXInProcessPlanner() || PaceMLXPlannerClient.hasResidentModelContainer else {
+            guard
+                !PaceBundledModelsSettings.isUsingMLXInProcessPlanner()
+                    || PaceMLXPlannerClient.hasResidentModelContainer
+            else {
                 throw PaceScreenSuggestionBoundary.BoundaryError.plannerUnavailable
             }
             return (makeLocalOrFoundationModelsPlanner(requestsStructuredActionOutput: false), false)

@@ -137,7 +137,8 @@ enum PaceFlowCommandParser {
                 }
             }
             for prefix in ["run ", "do "] where normalizedTranscript.hasPrefix(prefix) {
-                let name = String(trimmedTranscript.dropFirst(prefix.count)).trimmingCharacters(in: .whitespacesAndNewlines)
+                let name = String(trimmedTranscript.dropFirst(prefix.count)).trimmingCharacters(
+                    in: .whitespacesAndNewlines)
                 return !name.isEmpty && isRecordedFlow(name) ? .run(name: name) : nil
             }
         }

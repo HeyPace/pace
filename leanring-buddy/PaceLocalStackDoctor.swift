@@ -477,7 +477,9 @@ final class PaceLocalStackDoctor {
         let vlmBaseURL = Self.configString("LocalVLMBaseURL", fallback: "http://127.0.0.1:1234/v1")
         let vlmModelIdentifier = Self.configString("LocalVLMModelIdentifier", fallback: "ui-venus-1.5-2b")
 
-        let useLocalVLMForScreenContext = readMyScreenEnabled ?? PaceUserPreferencesStore
+        let useLocalVLMForScreenContext =
+            readMyScreenEnabled
+            ?? PaceUserPreferencesStore
             .boolWithInfoPlistSeed(.useLocalVLMForScreenContext, infoPlistKey: "UseLocalVLMForScreenContext")
 
         let ttsServerBaseURL = Self.configString("LocalTTSServerBaseURL", fallback: "http://127.0.0.1:8880/v1")
@@ -492,46 +494,72 @@ final class PaceLocalStackDoctor {
         if selectedTier == .cliDirect {
             let binaryAvailable = PaceLocalCLIPlannerClient.isUpstreamBinaryOnPath(selectedUpstream)
             let consented = PaceCloudBridgeConsent.canRunDirectSpawnTurn(now: Date())
-            checks.append(PaceDoctorCheck(title: "\(selectedUpstream.displayLabel) planner",
-                status: !binaryAvailable ? .fail : (consented ? .ok : .warn),
-                detail: !binaryAvailable ? "The selected CLI is not installed or cannot be found."
-                    : (consented ? "CLI available and planning consent enabled. Sign-in and service availability are checked when a request runs. LM Studio is not required for this planner."
-                       : "CLI available, but direct-planning consent is not enabled."),
-                fixHint: !binaryAvailable ? PaceLocalCLIPlannerClient.missingBinaryPreflightMessage(for: selectedUpstream)
-                    : (consented ? nil : "Enable the selected planner in Settings → Planner.")))
+            checks.append(
+                PaceDoctorCheck(
+                    title: "\(selectedUpstream.displayLabel) planner",
+                    status: !binaryAvailable ? .fail : (consented ? .ok : .warn),
+                    detail: !binaryAvailable
+                        ? "The selected CLI is not installed or cannot be found."
+                        : (consented
+                            ? "CLI available and planning consent enabled. Sign-in and service availability are checked when a request runs. LM Studio is not required for this planner."
+                            : "CLI available, but direct-planning consent is not enabled."),
+                    fixHint: !binaryAvailable
+                        ? PaceLocalCLIPlannerClient.missingBinaryPreflightMessage(for: selectedUpstream)
+                        : (consented ? nil : "Enable the selected planner in Settings → Planner.")))
         } else if selectedTier == .local && !PaceBundledModelsSettings.isUsingMLXInProcessPlanner() {
             checks.append(await Self.checkLMStudioServer(plannerBaseURL: plannerBaseURL, urlSession: urlSession))
-            checks.append(await Self.checkPlannerModelLoaded(plannerBaseURL: plannerBaseURL,
-                plannerModelIdentifier: plannerModelIdentifier, urlSession: urlSession))
+            checks.append(
+                await Self.checkPlannerModelLoaded(
+                    plannerBaseURL: plannerBaseURL,
+                    plannerModelIdentifier: plannerModelIdentifier, urlSession: urlSession))
         } else {
-            checks.append(PaceDoctorCheck(title: "Selected planner", status: .info,
-                detail: "This planner is checked in Planner settings and when a request runs. Local LM Studio planner probes are skipped here.",
-                fixHint: nil))
+            checks.append(
+                PaceDoctorCheck(
+                    title: "Selected planner", status: .info,
+                    detail:
+                        "This planner is checked in Planner settings and when a request runs. Local LM Studio planner probes are skipped here.",
+                    fixHint: nil))
         }
 
         // 3. Embedding model actually serving /v1/embeddings.
         if PaceBundledModelsSettings.isUsingMLXInProcessEmbedder() {
-            checks.append(PaceDoctorCheck(title: "Semantic recall", status: .info,
-                detail: "On-device embeddings selected; no LM Studio embedding service is required. Model readiness is checked during recall.", fixHint: nil))
+            checks.append(
+                PaceDoctorCheck(
+                    title: "Semantic recall", status: .info,
+                    detail:
+                        "On-device embeddings selected; no LM Studio embedding service is required. Model readiness is checked during recall.",
+                    fixHint: nil))
         } else {
-            let embeddingCheck = await Self.checkEmbeddingModelServing(embeddingBaseURL: embeddingBaseURL,
+            let embeddingCheck = await Self.checkEmbeddingModelServing(
+                embeddingBaseURL: embeddingBaseURL,
                 embeddingModelIdentifier: embeddingModelIdentifier, urlSession: urlSession)
-            checks.append(PaceDoctorCheck(title: "Semantic recall (optional)",
-                status: embeddingCheck.status == .ok ? .ok : .warn,
-                detail: embeddingCheck.status == .ok ? embeddingCheck.detail
-                    : "Semantic embeddings are unavailable. Keyword recall remains available; this does not block the assistant.",
-                fixHint: embeddingCheck.status == .ok ? nil : "Optional: start the configured embedding service to enable semantic recall."))
+            checks.append(
+                PaceDoctorCheck(
+                    title: "Semantic recall (optional)",
+                    status: embeddingCheck.status == .ok ? .ok : .warn,
+                    detail: embeddingCheck.status == .ok
+                        ? embeddingCheck.detail
+                        : "Semantic embeddings are unavailable. Keyword recall remains available; this does not block the assistant.",
+                    fixHint: embeddingCheck.status == .ok
+                        ? nil : "Optional: start the configured embedding service to enable semantic recall."))
         }
 
         // 4. VLM loaded — only when the Read My Screen toggle is on.
         if useLocalVLMForScreenContext && selectedTier == .cliDirect {
-            checks.append(PaceDoctorCheck(title: "Screen reading", status: .info,
-                detail: selectedUpstream == .codex
-                    ? "Screen questions can send captured images to Codex with screen permission and planning consent. This route skips local VLM and native OCR."
-                    : "Screen questions use accessibility and on-device text recognition for text-only context sent to Claude. Captured images are not sent by this planner; local VLM is skipped.", fixHint: nil))
+            checks.append(
+                PaceDoctorCheck(
+                    title: "Screen reading", status: .info,
+                    detail: selectedUpstream == .codex
+                        ? "Screen questions can send captured images to Codex with screen permission and planning consent. This route skips local VLM and native OCR."
+                        : "Screen questions use accessibility and on-device text recognition for text-only context sent to Claude. Captured images are not sent by this planner; local VLM is skipped.",
+                    fixHint: nil))
         } else if useLocalVLMForScreenContext && PaceBundledModelsSettings.isUsingMLXInProcessVLM() {
-            checks.append(PaceDoctorCheck(title: "Screen reading", status: .info,
-                detail: "On-device vision selected; no LM Studio vision service is required. Model readiness is checked during screen analysis.", fixHint: nil))
+            checks.append(
+                PaceDoctorCheck(
+                    title: "Screen reading", status: .info,
+                    detail:
+                        "On-device vision selected; no LM Studio vision service is required. Model readiness is checked during screen analysis.",
+                    fixHint: nil))
         } else if useLocalVLMForScreenContext {
             let vlmCheck = await Self.checkVLMLoaded(
                 vlmBaseURL: vlmBaseURL,

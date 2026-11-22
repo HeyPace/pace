@@ -24,30 +24,42 @@ struct PersistedVoiceSettingsTests {
         defer { preferences.removePersistentDomain(forName: suiteName) }
         preferences.set(" localServer ", forKey: "pace.voice.provider")
         let reloadedPreferences = UserDefaults(suiteName: suiteName)!
-        #expect(AppBundleConfiguration.stringValue(forKey: "TTSProvider", preferences: reloadedPreferences) == "localserver")
+        #expect(
+            AppBundleConfiguration.stringValue(forKey: "TTSProvider", preferences: reloadedPreferences) == "localserver"
+        )
     }
 
     @Test func invalidProviderCannotReplaceTheConfiguredFallback() {
         withPreferences { preferences in
             for invalidProvider in ["", " ", "remote", "unsupported"] {
                 preferences.set(invalidProvider, forKey: "pace.voice.provider")
-                #expect(AppBundleConfiguration.persistedVoiceSetting(forKey: "TTSProvider", preferences: preferences) == nil)
+                #expect(
+                    AppBundleConfiguration.persistedVoiceSetting(forKey: "TTSProvider", preferences: preferences) == nil
+                )
             }
             preferences.set("apple", forKey: "pace.voice.provider")
-            #expect(AppBundleConfiguration.persistedVoiceSetting(forKey: "TTSProvider", preferences: preferences) == "apple")
+            #expect(
+                AppBundleConfiguration.persistedVoiceSetting(forKey: "TTSProvider", preferences: preferences) == "apple"
+            )
         }
     }
 
     @Test func voiceOverridesAreTrimmedAndSpeedIsValidated() {
         withPreferences { preferences in
             preferences.set(" af_heart ", forKey: "pace.voice.kokoro.voice")
-            #expect(AppBundleConfiguration.persistedVoiceSetting(forKey: "LocalTTSServerVoice", preferences: preferences) == "af_heart")
+            #expect(
+                AppBundleConfiguration.persistedVoiceSetting(forKey: "LocalTTSServerVoice", preferences: preferences)
+                    == "af_heart")
             for invalidSpeed in ["0", "0.25", "4", "nan", "infinity", "bad"] {
                 preferences.set(invalidSpeed, forKey: "pace.voice.kokoro.speed")
-                #expect(AppBundleConfiguration.persistedVoiceSetting(forKey: "LocalTTSServerSpeed", preferences: preferences) == nil)
+                #expect(
+                    AppBundleConfiguration.persistedVoiceSetting(
+                        forKey: "LocalTTSServerSpeed", preferences: preferences) == nil)
             }
             preferences.set("1.0", forKey: "pace.voice.kokoro.speed")
-            #expect(AppBundleConfiguration.persistedVoiceSetting(forKey: "LocalTTSServerSpeed", preferences: preferences) == "1.0")
+            #expect(
+                AppBundleConfiguration.persistedVoiceSetting(forKey: "LocalTTSServerSpeed", preferences: preferences)
+                    == "1.0")
         }
     }
 
@@ -68,15 +80,21 @@ struct PersistedVoiceSettingsTests {
     }
 
     @Test func anotherLocalModelIsNotMislabeledAsKokoro() {
-        let summary = PaceTTSVoiceSummary.localServerSummary(voiceIdentifier: "Ryan", modelIdentifier: "local-Qwen3-TTS")
+        let summary = PaceTTSVoiceSummary.localServerSummary(
+            voiceIdentifier: "Ryan", modelIdentifier: "local-Qwen3-TTS")
         #expect(summary.displayText == "Ryan · Local model")
         #expect(summary.recommendationText == "Speech runs locally on this Mac.")
     }
 
     @Test func voiceSummaryAndFactoryShareTheSameProviderPrecedence() {
-        #expect(BuddyTTSClientFactory.selectedProvider(configuredProvider: "localServer", useBundledQwen3: true) == .bundledQwen3)
-        #expect(BuddyTTSClientFactory.selectedProvider(configuredProvider: "apple", useBundledQwen3: true) == .bundledQwen3)
-        #expect(BuddyTTSClientFactory.selectedProvider(configuredProvider: "localServer", useBundledQwen3: false) == .localServer)
+        #expect(
+            BuddyTTSClientFactory.selectedProvider(configuredProvider: "localServer", useBundledQwen3: true)
+                == .bundledQwen3)
+        #expect(
+            BuddyTTSClientFactory.selectedProvider(configuredProvider: "apple", useBundledQwen3: true) == .bundledQwen3)
+        #expect(
+            BuddyTTSClientFactory.selectedProvider(configuredProvider: "localServer", useBundledQwen3: false)
+                == .localServer)
         #expect(BuddyTTSClientFactory.selectedProvider(configuredProvider: " APPLE ", useBundledQwen3: false) == .apple)
     }
 }
@@ -115,8 +133,9 @@ private final class TestSpeechSynthesizer: LocalTTSSpeechSynthesizing {
 @MainActor
 struct LocalTTSPlaybackStateTests {
     private func makeAuditLog() -> PaceAPIAuditLog {
-        PaceAPIAuditLog(logFileURL: FileManager.default.temporaryDirectory
-            .appendingPathComponent("pace-speech-tests-\(UUID().uuidString).jsonl"))
+        PaceAPIAuditLog(
+            logFileURL: FileManager.default.temporaryDirectory
+                .appendingPathComponent("pace-speech-tests-\(UUID().uuidString).jsonl"))
     }
 
     private func waitForSubmission(_ synthesizer: TestSpeechSynthesizer, count: Int = 1) async throws {
@@ -127,7 +146,6 @@ struct LocalTTSPlaybackStateTests {
         #expect(synthesizer.utterances.count >= count)
         throw CancellationError()
     }
-
 
     @Test func unsupportedExplicitProfileFailsBeforeNativeSpeechOrOnset() async {
         let synthesizer = TestSpeechSynthesizer()
@@ -189,8 +207,12 @@ struct LocalTTSPlaybackStateTests {
         let oldUtterance = try #require(synthesizer.utterances.first)
         synthesizer.start(oldUtterance)
         client.stopPlayback()
-        do { try await old.value; Issue.record("Stop must cancel actual utterance completion.") }
-        catch { #expect(error is CancellationError) }
+        do {
+            try await old.value
+            Issue.record("Stop must cancel actual utterance completion.")
+        } catch {
+            #expect(error is CancellationError)
+        }
         var freshFinished = false
         let fresh = Task {
             try await client.speakUtterance("Fresh exact utterance.", onStarted: {})
@@ -252,7 +274,8 @@ struct LocalTTSPlaybackStateTests {
         let client = LocalTTSClient(speechSynthesizer: synthesizer, auditLog: makeAuditLog())
         var failureNoticeCount = 0
         let submission = Task {
-            try await client.speakText("Native cancellation before playback.", onPlaybackFailure: { failureNoticeCount += 1 })
+            try await client.speakText(
+                "Native cancellation before playback.", onPlaybackFailure: { failureNoticeCount += 1 })
         }
         try await waitForSubmission(synthesizer)
         synthesizer.cancel(try #require(synthesizer.utterances.first))
@@ -325,7 +348,8 @@ struct LocalTTSPlaybackStateTests {
         let firstUtterance = try #require(synthesizer.utterances.first)
         synthesizer.start(firstUtterance)
         try await firstSubmission.value
-        try await client.speakText("This sentence waits in the native queue.", onPlaybackFailure: { failureNoticeCount += 1 })
+        try await client.speakText(
+            "This sentence waits in the native queue.", onPlaybackFailure: { failureNoticeCount += 1 })
         try await Task.sleep(for: .milliseconds(70))
         #expect(client.isPlaying)
         #expect(synthesizer.stopCount == 0)
@@ -419,7 +443,8 @@ struct LocalTTSPlaybackStateTests {
 
     @Test func directSpeechFailureCannotNotifyAnUnrelatedPipeline() async {
         let synthesizer = TestSpeechSynthesizer()
-        let client = LocalTTSClient(speechSynthesizer: synthesizer, playbackStartTimeout: 0.02, auditLog: makeAuditLog())
+        let client = LocalTTSClient(
+            speechSynthesizer: synthesizer, playbackStartTimeout: 0.02, auditLog: makeAuditLog())
         let pipeline = StreamingSentenceTTSPipeline(ttsClient: client)
         var failureNoticeCount = 0
         pipeline.onPlaybackFailure = { failureNoticeCount += 1 }
@@ -435,7 +460,8 @@ struct LocalTTSPlaybackStateTests {
 
     @Test func pipelineReportsStartupFailureOnceAndKeepsAnswerTextVisible() async {
         let synthesizer = TestSpeechSynthesizer()
-        let client = LocalTTSClient(speechSynthesizer: synthesizer, playbackStartTimeout: 0.02, auditLog: makeAuditLog())
+        let client = LocalTTSClient(
+            speechSynthesizer: synthesizer, playbackStartTimeout: 0.02, auditLog: makeAuditLog())
         let pipeline = StreamingSentenceTTSPipeline(ttsClient: client)
         var failureNoticeCount = 0
         pipeline.onPlaybackFailure = { failureNoticeCount += 1 }
@@ -534,21 +560,33 @@ struct LocalServerTTSConfigurationTests {
     }
 
     @Test func japaneseRequestUsesItsOwnVoiceAndLanguageWithoutChangingTheDefault() throws {
-        let configuration = LocalServerTTSConfiguration(configuredBaseURLString: nil, configuredModelIdentifier: nil,
+        let configuration = LocalServerTTSConfiguration(
+            configuredBaseURLString: nil, configuredModelIdentifier: nil,
             configuredVoiceIdentifier: "af_bella", configuredSpeedString: "1.2")
-        let before = try JSONSerialization.jsonObject(with: #require(configuration.speechRequest(for: "hello").httpBody)) as? NSDictionary
-        let japanese = try JSONSerialization.jsonObject(with: #require(configuration.speechRequest(for: "こんにちは。", profile: .japaneseFemale).httpBody)) as? [String: Any]
-        let after = try JSONSerialization.jsonObject(with: #require(configuration.speechRequest(for: "hello").httpBody)) as? NSDictionary
+        let before =
+            try JSONSerialization.jsonObject(with: #require(configuration.speechRequest(for: "hello").httpBody))
+            as? NSDictionary
+        let japanese =
+            try JSONSerialization.jsonObject(
+                with: #require(configuration.speechRequest(for: "こんにちは。", profile: .japaneseFemale).httpBody))
+            as? [String: Any]
+        let after =
+            try JSONSerialization.jsonObject(with: #require(configuration.speechRequest(for: "hello").httpBody))
+            as? NSDictionary
         #expect(before == after)
         #expect(before?["voice"] as? String == "af_bella")
         #expect(before?["lang_code"] == nil)
         #expect(japanese?["voice"] as? String == "jf_alpha")
         #expect(japanese?["lang_code"] as? String == "j")
         #expect(japanese?["speed"] as? Double == 1.2)
-        #expect(configuration.synthesisIdentity(profile: nil) != configuration.synthesisIdentity(profile: .japaneseFemale))
-        let anotherConfiguration = LocalServerTTSConfiguration(configuredBaseURLString: nil, configuredModelIdentifier: "another-model",
+        #expect(
+            configuration.synthesisIdentity(profile: nil) != configuration.synthesisIdentity(profile: .japaneseFemale))
+        let anotherConfiguration = LocalServerTTSConfiguration(
+            configuredBaseURLString: nil, configuredModelIdentifier: "another-model",
             configuredVoiceIdentifier: "af_bella", configuredSpeedString: "1.3")
-        #expect(configuration.synthesisIdentity(profile: .japaneseFemale) != anotherConfiguration.synthesisIdentity(profile: .japaneseFemale))
+        #expect(
+            configuration.synthesisIdentity(profile: .japaneseFemale)
+                != anotherConfiguration.synthesisIdentity(profile: .japaneseFemale))
     }
 
     @Test func speechRequestCarriesAllFields() async throws {
@@ -561,9 +599,10 @@ struct LocalServerTTSConfigurationTests {
         let request = configuration.speechRequest(for: "hello pace")
         #expect(request.url?.absoluteString == "http://localhost:9999/v1/audio/speech")
         #expect(request.httpMethod == "POST")
-        let body = try JSONSerialization.jsonObject(
-            with: try #require(request.httpBody)
-        ) as? [String: Any]
+        let body =
+            try JSONSerialization.jsonObject(
+                with: try #require(request.httpBody)
+            ) as? [String: Any]
         #expect(body?["input"] as? String == "hello pace")
         #expect(body?["voice"] as? String == "af_bella")
         #expect(body?["model"] as? String == "kokoro")
@@ -582,7 +621,7 @@ struct LocalServerTTSClientIntegrationTests {
         .path
 
     private nonisolated static let pythonThreeExecutablePath: String? = [
-        "/usr/bin/python3", "/opt/homebrew/bin/python3", "/usr/local/bin/python3"
+        "/usr/bin/python3", "/opt/homebrew/bin/python3", "/usr/local/bin/python3",
     ].first { FileManager.default.isExecutableFile(atPath: $0) }
 
     private nonisolated static var isFixtureRunnable: Bool {

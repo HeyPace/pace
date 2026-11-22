@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+
 @testable import Pace
 
 @MainActor @Suite(.serialized)
@@ -29,8 +30,15 @@ struct StreamingSentenceTTSPipelineProfileOnsetTests {
         pipeline.setBilingualReplyForCurrentTurn(.init(speechRequest: speech, englishSubtitle: "Hello."))
         let budget = PaceLatencyBudget.shared.startTurn(trigger: .chatSubmit)
         let dispatch = Task { await pipeline.flushFinal(finalSpokenText: speech.text) }
-        defer { dispatch.cancel(); client.completion?.resume(); client.completion = nil }
-        for _ in 0..<1000 { if client.completion != nil { break }; await Task.yield() }
+        defer {
+            dispatch.cancel()
+            client.completion?.resume()
+            client.completion = nil
+        }
+        for _ in 0..<1000 {
+            if client.completion != nil { break }
+            await Task.yield()
+        }
         let start = try #require(client.onStarted)
         #expect(pipeline.firstSpokenWordCharacterCount == 0)
         start()
@@ -54,8 +62,15 @@ struct StreamingSentenceTTSPipelineProfileOnsetTests {
         let speech = PaceSpeechRequest(text: "こんにちは。", profile: .japaneseFemale, englishSubtitle: "Hello.")
         pipeline.setBilingualReplyForCurrentTurn(.init(speechRequest: speech, englishSubtitle: "Hello."))
         let dispatch = Task { await pipeline.flushFinal(finalSpokenText: speech.text) }
-        defer { dispatch.cancel(); client.completion?.resume(); client.completion = nil }
-        for _ in 0..<1000 { if client.completion != nil { break }; await Task.yield() }
+        defer {
+            dispatch.cancel()
+            client.completion?.resume()
+            client.completion = nil
+        }
+        for _ in 0..<1000 {
+            if client.completion != nil { break }
+            await Task.yield()
+        }
         let oldStart = try #require(client.onStarted)
         dispatch.cancel()
         pipeline.stopForUserDismissal()

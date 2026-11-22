@@ -118,7 +118,9 @@ nonisolated struct PaceDiagramDocument: Codable, Equatable, Sendable {
         }
         if let issue = lesson?.validationIssue(nodeIDs: Set(identifiers), figure: figure) { return issue }
         if let illustration {
-            guard figure == nil, connections.isEmpty else { return "uses either an array illustration, a 3D figure or a flowchart" }
+            guard figure == nil, connections.isEmpty else {
+                return "uses either an array illustration, a 3D figure or a flowchart"
+            }
             return illustration.validationIssue(nodeIDs: Set(identifiers))
         }
         if let figure {
@@ -168,15 +170,17 @@ nonisolated struct PaceDiagramDocument: Codable, Equatable, Sendable {
             diagramArguments = arguments
         }
         guard let originalArguments = try? JSONEncoder().encode(diagramArguments),
-            originalArguments.count <= 64_000 else { return nil }
+            originalArguments.count <= 64_000
+        else { return nil }
         if case .object(let figureArguments) = diagramArguments["figure"],
-           case .string(let templateName) = figureArguments["template"],
-           let template = PaceFigureScene.Template(rawValue: templateName),
-           let definition = PaceTeachingTemplateCatalog.definition(for: template) {
+            case .string(let templateName) = figureArguments["template"],
+            let template = PaceFigureScene.Template(rawValue: templateName),
+            let definition = PaceTeachingTemplateCatalog.definition(for: template)
+        {
             // Only absent fields select trusted defaults. Explicit null or invalid values must still fail.
             if diagramArguments["nodes"] == nil {
                 guard let encodedNodes = try? JSONEncoder().encode(definition.nodes),
-                      let nodes = try? JSONDecoder().decode(PaceMCPJSONValue.self, from: encodedNodes)
+                    let nodes = try? JSONDecoder().decode(PaceMCPJSONValue.self, from: encodedNodes)
                 else { return nil }
                 diagramArguments["nodes"] = nodes
             }
@@ -260,7 +264,6 @@ nonisolated struct PaceDiagramDocument: Codable, Equatable, Sendable {
     }
 }
 
-
 nonisolated struct PaceTeachingLesson: Codable, Equatable, Sendable {
     let steps: [Step]
     var writtenExplanation: String { steps.map { $0.title + "\n" + $0.narration }.joined(separator: "\n\n") }
@@ -281,13 +284,15 @@ nonisolated struct PaceTeachingLesson: Codable, Equatable, Sendable {
         }
         for step in steps {
             guard !step.id.isEmpty, step.id.count <= 40,
-                  step.id.unicodeScalars.allSatisfy({ CharacterSet.alphanumerics.contains($0) || $0 == "-" || $0 == "_" }),
-                  !step.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, step.title.count <= 100,
-                  !step.narration.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, step.narration.count <= 700,
-                  !step.revealedNodeIDs.isEmpty,
-                  Set(step.revealedNodeIDs).count == step.revealedNodeIDs.count,
-                  Set(step.revealedNodeIDs).isSubset(of: nodeIDs),
-                  step.focusNodeID.map({ step.revealedNodeIDs.contains($0) }) ?? true else {
+                step.id.unicodeScalars.allSatisfy({ CharacterSet.alphanumerics.contains($0) || $0 == "-" || $0 == "_" }
+                ),
+                !step.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, step.title.count <= 100,
+                !step.narration.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, step.narration.count <= 700,
+                !step.revealedNodeIDs.isEmpty,
+                Set(step.revealedNodeIDs).count == step.revealedNodeIDs.count,
+                Set(step.revealedNodeIDs).isSubset(of: nodeIDs),
+                step.focusNodeID.map({ step.revealedNodeIDs.contains($0) }) ?? true
+            else {
                 return "requires bounded lesson text and unique existing revealed parts, including the focused part"
             }
             if step.viewpoint != nil && figure == nil { return "requires a 3D figure for a lesson viewpoint" }

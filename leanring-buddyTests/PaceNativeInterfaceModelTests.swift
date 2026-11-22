@@ -11,18 +11,23 @@ import XCTest
 final class PaceNativeInterfaceModelTests: XCTestCase {
     @MainActor
     func testPhysicalNotchRemainsAvailableWhenWorkingOnExternalDisplay() throws {
-        guard let notchedScreen = NSScreen.screens.first(where: {
-            PaceLivingNotchScreenGeometryResolver.geometry(for: $0, displayMode: .resting) != nil
-        }) else { throw XCTSkip("Requires a display with a physical camera notch.") }
+        guard
+            let notchedScreen = NSScreen.screens.first(where: {
+                PaceLivingNotchScreenGeometryResolver.geometry(for: $0, displayMode: .resting) != nil
+            })
+        else { throw XCTSkip("Requires a display with a physical camera notch.") }
         let externalScreen = NSScreen.screens.first {
             PaceLivingNotchScreenGeometryResolver.geometry(for: $0, displayMode: .resting) == nil
         }
-        XCTAssertTrue(PaceLivingNotchScreenGeometryResolver.ambientTargetScreen(
-            preferredScreen: externalScreen) === notchedScreen)
-        XCTAssertTrue(PaceLivingNotchScreenGeometryResolver.ambientTargetScreen(
-            preferredScreen: notchedScreen) === notchedScreen)
-        XCTAssertTrue(PaceLivingNotchScreenGeometryResolver.ambientTargetScreen(
-            preferredScreen: nil) === notchedScreen)
+        XCTAssertTrue(
+            PaceLivingNotchScreenGeometryResolver.ambientTargetScreen(
+                preferredScreen: externalScreen) === notchedScreen)
+        XCTAssertTrue(
+            PaceLivingNotchScreenGeometryResolver.ambientTargetScreen(
+                preferredScreen: notchedScreen) === notchedScreen)
+        XCTAssertTrue(
+            PaceLivingNotchScreenGeometryResolver.ambientTargetScreen(
+                preferredScreen: nil) === notchedScreen)
     }
 
     @MainActor
@@ -49,8 +54,10 @@ final class PaceNativeInterfaceModelTests: XCTestCase {
         let housing = CGRect(x: 770, y: 1085, width: 185, height: 32)
         let controls = CGRect(x: 726, y: 1085, width: 273, height: 32)
         var occupancy = PaceMenuBarOccupancy(
-            itemFrames: [CGRect(x: 0, y: 1085, width: 700, height: 32),
-                         CGRect(x: 1020, y: 1085, width: 700, height: 32)],
+            itemFrames: [
+                CGRect(x: 0, y: 1085, width: 700, height: 32),
+                CGRect(x: 1020, y: 1085, width: 700, height: 32),
+            ],
             isReliable: true)
         XCTAssertFalse(occupancy.overlaps(controls, housingFrame: housing))
         occupancy.itemFrames.append(CGRect(x: 710, y: 1085, width: 35, height: 32))
@@ -393,10 +400,11 @@ final class PaceNativeInterfaceModelTests: XCTestCase {
                 let leftArea = CGRect(x: menuRow.minX, y: menuRow.minY, width: 751.5, height: menuHeight)
                 let rightArea = CGRect(x: menuRow.minX + 976.5, y: menuRow.minY, width: 751.5, height: menuHeight)
                 for displayMode in [PaceLivingNotchDisplayMode.resting, .hover, .active] {
-                    let geometry = try XCTUnwrap(PaceLivingNotchGeometry.resolve(
-                        screenFrame: screenFrame, safeAreaTopInset: menuHeight,
-                        auxiliaryTopLeftArea: leftArea, auxiliaryTopRightArea: rightArea,
-                        displayMode: displayMode))
+                    let geometry = try XCTUnwrap(
+                        PaceLivingNotchGeometry.resolve(
+                            screenFrame: screenFrame, safeAreaTopInset: menuHeight,
+                            auxiliaryTopLeftArea: leftArea, auxiliaryTopRightArea: rightArea,
+                            displayMode: displayMode))
                     XCTAssertEqual(geometry.presentationFrame.maxY, screenFrame.maxY)
                     XCTAssertTrue(geometry.presentationFrame.contains(geometry.physicalHousingFrame))
 
@@ -434,7 +442,8 @@ final class PaceNativeInterfaceModelTests: XCTestCase {
             ("wide-housing-hover", .hover, .ready, "Ready", false, 300),
         ]
         for (name, mode, signalState, label, isOffDeviceTurn, housingWidth) in examples {
-            let screenReadIdentifier = name == "screen-reading"
+            let screenReadIdentifier =
+                name == "screen-reading"
                 ? PaceScreenReadActivity.shared.beginReading() : nil
             defer {
                 if let screenReadIdentifier { PaceScreenReadActivity.shared.endReading(screenReadIdentifier) }
@@ -479,17 +488,28 @@ final class PaceNativeInterfaceModelTests: XCTestCase {
         let output = URL(fileURLWithPath: "/tmp/pace-suggestion-native-20261031", isDirectory: true)
         try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
         let examples = [
-            ("compact", "Climbing grades & strength", "Want to understand why climbing grades in V5 vs V12 strength don’t map directly to raw strength?"),
-            ("long", "Why moving more air at a lower exhaust speed improves propulsive efficiency in high-bypass turbofans",
-             "Would you like a visual explanation of why moving more air at a lower exhaust speed improves propulsive efficiency in high-bypass turbofans, with the fan, core and bypass airflow labeled so you can explore each part?")
+            (
+                "compact", "Climbing grades & strength",
+                "Want to understand why climbing grades in V5 vs V12 strength don’t map directly to raw strength?"
+            ),
+            (
+                "long",
+                "Why moving more air at a lower exhaust speed improves propulsive efficiency in high-bypass turbofans",
+                "Would you like a visual explanation of why moving more air at a lower exhaust speed improves propulsive efficiency in high-bypass turbofans, with the fan, core and bypass airflow labeled so you can explore each part?"
+            ),
         ]
         for (name, subject, offer) in examples {
-            let suggestion = PaceScreenSuggestion(identifier: UUID(), subject: subject, evidence: subject,
-                offer: offer, sceneIdentity: .init(displayIdentifier: 1, applicationProcessIdentifier: 42,
-                    applicationBundleIdentifier: "com.apple.Safari"), observedAt: Date(), expiresAt: Date().addingTimeInterval(45))
+            let suggestion = PaceScreenSuggestion(
+                identifier: UUID(), subject: subject, evidence: subject,
+                offer: offer,
+                sceneIdentity: .init(
+                    displayIdentifier: 1, applicationProcessIdentifier: 42,
+                    applicationBundleIdentifier: "com.apple.Safari"), observedAt: Date(),
+                expiresAt: Date().addingTimeInterval(45))
             // ImageRenderer substitutes placeholders for the AppKit cursor views.
             // Cache the hosting view so the export uses the actual native hierarchy.
-            let hostingView = NSHostingView(rootView: PaceScreenSuggestionNotificationView(suggestion: suggestion, onAction: { _ in }))
+            let hostingView = NSHostingView(
+                rootView: PaceScreenSuggestionNotificationView(suggestion: suggestion, onAction: { _ in }))
             hostingView.setFrameSize(hostingView.fittingSize)
             hostingView.layoutSubtreeIfNeeded()
             let bitmap = try XCTUnwrap(hostingView.bitmapImageRepForCachingDisplay(in: hostingView.bounds))
@@ -497,7 +517,8 @@ final class PaceNativeInterfaceModelTests: XCTestCase {
             XCTAssertEqual(hostingView.bounds.width, 360)
             XCTAssertGreaterThan(hostingView.bounds.height, 150)
             XCTAssertLessThan(hostingView.bounds.height, 425)
-            XCTAssertGreaterThan(bitmap.colorAt(x: bitmap.pixelsWide / 2, y: bitmap.pixelsHigh / 2)?.alphaComponent ?? 0, 0.9)
+            XCTAssertGreaterThan(
+                bitmap.colorAt(x: bitmap.pixelsWide / 2, y: bitmap.pixelsHigh / 2)?.alphaComponent ?? 0, 0.9)
             let data = try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
             try data.write(to: output.appendingPathComponent("\(name).png"))
         }

@@ -53,8 +53,10 @@ nonisolated final class PaceCaptureAcknowledgementGate: @unchecked Sendable {
             guard captureIdentifier == identifier, !hasStopped else { return .ignored }
             hasStopped = true
             guard receivedFrameCount > 0 else { return .empty }
-            return .captured(PaceCapturedAudio(captureIdentifier: identifier, frameCount: receivedFrameCount,
-                recognizedText: recognizedText.trimmingCharacters(in: .whitespacesAndNewlines)))
+            return .captured(
+                PaceCapturedAudio(
+                    captureIdentifier: identifier, frameCount: receivedFrameCount,
+                    recognizedText: recognizedText.trimmingCharacters(in: .whitespacesAndNewlines)))
         }
         if case .captured(let captured) = outcome { acknowledge(captured) }
         return outcome

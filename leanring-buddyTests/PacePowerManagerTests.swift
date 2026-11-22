@@ -17,7 +17,10 @@ struct PacePowerManagerTests {
         var failingUtteranceIndex: Int?
         private var utteranceCount = 0
         struct PlaybackFailure: Error {}
-        func speakText(_ text: String) async throws { try Task.checkCancellation(); spokenTexts.append(text) }
+        func speakText(_ text: String) async throws {
+            try Task.checkCancellation()
+            spokenTexts.append(text)
+        }
         func speakUtterance(_ text: String, onStarted: @escaping @MainActor () -> Void) async throws {
             try await speakUtterance(.init(text: text), onStarted: onStarted)
         }
@@ -29,7 +32,10 @@ struct PacePowerManagerTests {
             spokenTexts.append(request.text)
             onStarted()
         }
-        func stopPlayback() { stopCount += 1; isPlaying = false }
+        func stopPlayback() {
+            stopCount += 1
+            isPlaying = false
+        }
         func recordExpectedStopReason(_ reason: PaceTTSStopReason) { lastStopReason = reason }
     }
     final class Author: BuddyPlannerClient {
@@ -39,10 +45,13 @@ struct PacePowerManagerTests {
         var suspends = false
         var continuation: CheckedContinuation<Void, Never>?
         var capturedUserPrompts: [String] = []
-        var response = #"{"name":"Thank You","description":"Present a dancing original character and speak thank you","category":"custom","invocationPhrases":["thank me"],"steps":[{"toolCalls":[{"tool":"present_media","arguments":{"assetID":"thank-you-dance","durationSeconds":4}}]},{"toolCalls":[{"tool":"speak","arguments":{"text":"thank you"}}]}]}"#
-        func generateResponseStreaming(images: [(data: Data, label: String)], systemPrompt: String,
+        var response =
+            #"{"name":"Thank You","description":"Present a dancing original character and speak thank you","category":"custom","invocationPhrases":["thank me"],"steps":[{"toolCalls":[{"tool":"present_media","arguments":{"assetID":"thank-you-dance","durationSeconds":4}}]},{"toolCalls":[{"tool":"speak","arguments":{"text":"thank you"}}]}]}"#
+        func generateResponseStreaming(
+            images: [(data: Data, label: String)], systemPrompt: String,
             conversationHistory: [(userPlaceholder: String, assistantResponse: String)], userPrompt: String,
-            onTextChunk: @MainActor @Sendable (String) -> Void) async throws -> (text: String, duration: TimeInterval) {
+            onTextChunk: @MainActor @Sendable (String) -> Void
+        ) async throws -> (text: String, duration: TimeInterval) {
             calls += 1
             capturedUserPrompts.append(userPrompt)
             if suspends { await withCheckedContinuation { continuation = $0 } }
@@ -55,38 +64,55 @@ struct PacePowerManagerTests {
         func embed(_ texts: [String]) async throws -> [[Float]] { throw Unavailable() }
     }
 
-    func fixture(recordsDerivedMemory: Bool = false) throws -> (URL, CompanionManager, PaceConversationRecorderTests.FixturePersister, LocalSpeech) {
-        let root = FileManager.default.temporaryDirectory.resolvingSymlinksInPath().appendingPathComponent("pace-power-manager-" + UUID().uuidString)
+    func fixture(recordsDerivedMemory: Bool = false) throws -> (
+        URL, CompanionManager, PaceConversationRecorderTests.FixturePersister, LocalSpeech
+    ) {
+        let root = FileManager.default.temporaryDirectory.resolvingSymlinksInPath().appendingPathComponent(
+            "pace-power-manager-" + UUID().uuidString)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         let (persister, session, recorder) = PaceConversationRecorderTests().makeFixture()
         let defaults = UserDefaults(suiteName: "PacePowerMemoryTests." + UUID().uuidString)!
-        let spotlight = PaceSpotlightMemoryIndexer(indexOperation: { _, completion in completion(nil) },
-            deleteDomainOperation: { _, completion in completion(nil) }, hasCompletedLegacyCleanup: { true }, markLegacyCleanupComplete: {})
-        let manager = CompanionManager(watchModeDefaults: defaults, recordsDerivedConversationMemory: recordsDerivedMemory, persistsDebugTraces: false,
+        let spotlight = PaceSpotlightMemoryIndexer(
+            indexOperation: { _, completion in completion(nil) },
+            deleteDomainOperation: { _, completion in completion(nil) }, hasCompletedLegacyCleanup: { true },
+            markLegacyCleanupComplete: {})
+        let manager = CompanionManager(
+            watchModeDefaults: defaults, recordsDerivedConversationMemory: recordsDerivedMemory,
+            persistsDebugTraces: false,
             threadMemoryStore: PaceThreadMemoryStore(fileURL: root.appendingPathComponent("thread.json")),
-            memoryStore: PaceMemoryStore(fileURL: root.appendingPathComponent("memory.json")), spotlightMemoryIndexer: spotlight)
+            memoryStore: PaceMemoryStore(fileURL: root.appendingPathComponent("memory.json")),
+            spotlightMemoryIndexer: spotlight)
         manager.chatSession = session
         manager.conversationRecorder = recorder
         manager.bindVisualExplanationCallbacks()
-        manager.threadMemory = PaceThreadMemory(configuration: .init(verbatimWindowSize: 8, sessionIdleThreshold: 1200, summaryMaxTokenEstimate: 400))
+        manager.threadMemory = PaceThreadMemory(
+            configuration: .init(verbatimWindowSize: 8, sessionIdleThreshold: 1200, summaryMaxTokenEstimate: 400))
         manager.lastIntentRouteForEpisodicExtraction = .screenAction
-        manager.lazyEmbeddingScheduler = PaceLazyEmbeddingScheduler(memoryIndex: manager.memoryIndex,
+        manager.lazyEmbeddingScheduler = PaceLazyEmbeddingScheduler(
+            memoryIndex: manager.memoryIndex,
             embeddingClientFactory: { NoEmbeddingClient() }, onEmbeddingsPersisted: {})
-        let store = PaceManagedPowerStore(automationDirectoryURL: root.appendingPathComponent("automations"),
-            programDirectoryURL: root.appendingPathComponent("programs"), skillDirectoryURL: root.appendingPathComponent("skills"),
+        let store = PaceManagedPowerStore(
+            automationDirectoryURL: root.appendingPathComponent("automations"),
+            programDirectoryURL: root.appendingPathComponent("programs"),
+            skillDirectoryURL: root.appendingPathComponent("skills"),
             stateDirectoryURL: root.appendingPathComponent("management"), recordsAudit: false)
         manager.managedPowerStore = store
         manager.powerCatalogDiscoveryOverride = {
             let definitions = PaceUserAutomationStore(directoryURL: store.automationDirectoryURL).listValidDefinitions()
             let programs = PaceUserProgramStore(directoryURL: store.programDirectoryURL).listValidPrograms()
             let skills = PaceSkillLoader.listUserSkills(in: store.skillDirectoryURL)
-            return PaceDiscoveredAutomationCatalog(catalog: PaceAutomationCatalog(typedDefinitions: definitions,
-                recordedFlows: [], skills: skills, shortcutNames: [], programs: programs), typedDefinitions: definitions,
+            return PaceDiscoveredAutomationCatalog(
+                catalog: PaceAutomationCatalog(
+                    typedDefinitions: definitions,
+                    recordedFlows: [], skills: skills, shortcutNames: [], programs: programs),
+                typedDefinitions: definitions,
                 programs: programs, recordedFlows: [], skills: skills)
         }
         let image = NSImage(size: NSSize(width: 2, height: 2))
-        image.addRepresentation(NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 2, pixelsHigh: 2, bitsPerSample: 8, samplesPerPixel: 4,
-            hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 8, bitsPerPixel: 32)!)
+        image.addRepresentation(
+            NSBitmapImageRep(
+                bitmapDataPlanes: nil, pixelsWide: 2, pixelsHigh: 2, bitsPerSample: 8, samplesPerPixel: 4,
+                hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 8, bitsPerPixel: 32)!)
         manager.mediaOverlayController = PaceMediaOverlayController(showsWindows: false, resolveImage: { _ in image })
         let speech = LocalSpeech()
         manager.ttsClient = speech
@@ -105,11 +131,16 @@ struct PacePowerManagerTests {
 
     @Test func createdPowerRunsThroughExistingPipelineAndLogsSpeechExactlyOnce() async throws {
         let (root, manager, persister, speech) = try fixture()
-        defer { manager.cancelActiveTurnTasks(); try? FileManager.default.removeItem(at: root) }
+        defer {
+            manager.cancelActiveTurnTasks()
+            try? FileManager.default.removeItem(at: root)
+        }
         let author = Author()
         manager.reusableWorkAuthoringPlannerOverride = author
         begin("create power Thank You", manager: manager)
-        await manager.handlePowerCommand(.create("called Thank You that presents thank-you-dance for four seconds and says thank you"), transcript: "create power Thank You")
+        await manager.handlePowerCommand(
+            .create("called Thank You that presents thank-you-dance for four seconds and says thank you"),
+            transcript: "create power Thank You")
         await manager.currentResponseTask?.value
         #expect(author.calls == 1)
         let discovered = await manager.discoverAutomationCatalog()
@@ -121,7 +152,8 @@ struct PacePowerManagerTests {
         #expect(manager.mediaOverlayController.isVisible)
         #expect(speech.spokenTexts.filter { $0 == "thank you" }.count == 1)
         #expect(persister.events.values.filter { $0.role == .pace && $0.text == "thank you" }.count == 1)
-        #expect(!speech.spokenTexts.contains { $0.contains("Spoke the requested") || $0.contains("Presented local media") })
+        #expect(
+            !speech.spokenTexts.contains { $0.contains("Spoke the requested") || $0.contains("Presented local media") })
         #expect(author.calls == 1)
         #expect(persister.events[runUserEventIdentifier]?.deliveryState == .completed)
         begin("a later unrelated question", manager: manager)
@@ -131,14 +163,19 @@ struct PacePowerManagerTests {
 
     @Test func authoredJapanesePowerPreservesProfileAndRecordsOneLineWithoutGenericCompletionSpeech() async throws {
         let (root, manager, persister, speech) = try fixture()
-        defer { manager.cancelActiveTurnTasks(); try? FileManager.default.removeItem(at: root) }
+        defer {
+            manager.cancelActiveTurnTasks()
+            try? FileManager.default.removeItem(at: root)
+        }
         let japaneseText = "こんにちは。会えてうれしいです。ありがとうございます。"
         let author = Author()
-        author.response = author.response.replacingOccurrences(of: #""text":"thank you""#,
+        author.response = author.response.replacingOccurrences(
+            of: #""text":"thank you""#,
             with: #""text":"こんにちは。会えてうれしいです。ありがとうございます。","profile":"japanese_female""#)
         manager.reusableWorkAuthoringPlannerOverride = author
         begin("create power Thank You", manager: manager)
-        await manager.handlePowerCommand(.create("called Thank You that greets in Japanese"), transcript: "create power Thank You")
+        await manager.handlePowerCommand(
+            .create("called Thank You that greets in Japanese"), transcript: "create power Thank You")
         await manager.currentResponseTask?.value
         let discovered = await manager.discoverAutomationCatalog()
         let saved = try #require(discovered.typedDefinitions.first)
@@ -148,13 +185,19 @@ struct PacePowerManagerTests {
         await manager.handlePowerCommand(.run("Thank You"), transcript: "run power Thank You")
         await manager.currentResponseTask?.value
         #expect(Array(speech.spokenTexts.dropFirst(speechCountBeforeRun)) == [japaneseText])
-        #expect(speech.requests.filter { $0.profile == .japaneseFemale } == [.init(text: japaneseText, profile: .japaneseFemale)])
+        #expect(
+            speech.requests.filter { $0.profile == .japaneseFemale } == [
+                .init(text: japaneseText, profile: .japaneseFemale)
+            ])
         #expect(persister.events.values.filter { $0.role == .pace && $0.text == japaneseText }.count == 1)
     }
 
     @Test func bothMutePathsPreventJapaneseSynthesisAndHistory() async throws {
         let (root, manager, persister, speech) = try fixture()
-        defer { manager.cancelActiveTurnTasks(); try? FileManager.default.removeItem(at: root) }
+        defer {
+            manager.cancelActiveTurnTasks()
+            try? FileManager.default.removeItem(at: root)
+        }
         let request = PaceSpeechRequest(text: "こんにちは。", profile: .japaneseFemale)
         for muteChat in [false, true] {
             begin("greet in Japanese", manager: manager)
@@ -170,27 +213,39 @@ struct PacePowerManagerTests {
 
     @Test func staleAuthoringReplyCannotSaveAfterItsTurnIsCancelled() async throws {
         let (root, manager, _, _) = try fixture()
-        defer { manager.cancelActiveTurnTasks(); try? FileManager.default.removeItem(at: root) }
+        defer {
+            manager.cancelActiveTurnTasks()
+            try? FileManager.default.removeItem(at: root)
+        }
         let author = Author()
         author.suspends = true
         manager.reusableWorkAuthoringPlannerOverride = author
         begin("create power Thank You", manager: manager)
         await manager.handlePowerCommand(.create("called Thank You"), transcript: "create power Thank You")
         let authoringTask = manager.currentResponseTask
-        for _ in 0..<1000 { if author.continuation != nil { break }; await Task.yield() }
+        for _ in 0..<1000 {
+            if author.continuation != nil { break }
+            await Task.yield()
+        }
         #expect(author.continuation != nil)
         manager.cancelActiveTurnTasks()
         author.continuation?.resume()
         author.continuation = nil
         await authoringTask?.value
-        #expect(PaceUserAutomationStore(directoryURL: manager.managedPowerStore.automationDirectoryURL).listValidDefinitions().isEmpty)
+        #expect(
+            PaceUserAutomationStore(directoryURL: manager.managedPowerStore.automationDirectoryURL)
+                .listValidDefinitions().isEmpty)
     }
 
     @Test func disabledPowerCannotRunThroughCatalogNaturalAliasOrExplicitSkillRoute() async throws {
         let (root, manager, _, speech) = try fixture()
-        defer { manager.cancelActiveTurnTasks(); try? FileManager.default.removeItem(at: root) }
+        defer {
+            manager.cancelActiveTurnTasks()
+            try? FileManager.default.removeItem(at: root)
+        }
         let author = Author()
-        let definition = try #require(PaceNaturalLanguageAutomationStructurer.definition(fromStructuredJSON: author.response))
+        let definition = try #require(
+            PaceNaturalLanguageAutomationStructurer.definition(fromStructuredJSON: author.response))
         let empty = await manager.discoverAutomationCatalog()
         _ = try manager.managedPowerStore.commit(.automation(definition), catalog: empty.catalog)
         begin("disable power Thank You", manager: manager)
@@ -204,7 +259,9 @@ struct PacePowerManagerTests {
         let entry = try #require(catalog.catalog.entries.first)
         begin("thank me", manager: manager)
         #expect(!manager.authorizeManagedPower(entry, transcript: "thank me"))
-        let skill = try #require(PaceSkillLoader.skillFromForm(name: "Flexible Thanks", stepsText: "Say welcome", trigger: "flexible thanks", notes: nil))
+        let skill = try #require(
+            PaceSkillLoader.skillFromForm(
+                name: "Flexible Thanks", stepsText: "Say welcome", trigger: "flexible thanks", notes: nil))
         _ = try manager.managedPowerStore.commit(.skill(skill), catalog: catalog.catalog)
         let withSkill = await manager.discoverAutomationCatalog()
         let power = try manager.managedPowerStore.resolve("skill:flexible-thanks", catalog: withSkill.catalog)
@@ -218,8 +275,12 @@ struct PacePowerManagerTests {
 
     @Test func revokedSnapshotFencesLateOutputAndOldMediaCloseCannotCancelAnotherTurn() async throws {
         let (root, manager, _, speech) = try fixture()
-        defer { manager.cancelActiveTurnTasks(); try? FileManager.default.removeItem(at: root) }
-        let definition = try #require(PaceNaturalLanguageAutomationStructurer.definition(fromStructuredJSON: Author().response))
+        defer {
+            manager.cancelActiveTurnTasks()
+            try? FileManager.default.removeItem(at: root)
+        }
+        let definition = try #require(
+            PaceNaturalLanguageAutomationStructurer.definition(fromStructuredJSON: Author().response))
         let empty = await manager.discoverAutomationCatalog()
         _ = try manager.managedPowerStore.commit(.automation(definition), catalog: empty.catalog)
         let discovered = await manager.discoverAutomationCatalog()
@@ -231,7 +292,8 @@ struct PacePowerManagerTests {
         try manager.managedPowerStore.setEnabled(false, power: power)
         #expect(!manager.isActiveTurn(oldLease))
         manager.activeManagedPower = nil
-        _ = await manager.actionExecutor.presentLocalMedia?(.init(assetID: "thank-you-dance", durationSeconds: 4, motion: nil))
+        _ = await manager.actionExecutor.presentLocalMedia?(
+            .init(assetID: "thank-you-dance", durationSeconds: 4, motion: nil))
         let oldGeneration = manager.mediaOverlayController.presentationGeneration
         let retainedOldClose = manager.mediaOverlayController.onUserDismiss
         begin("new unrelated answer", manager: manager)
@@ -243,21 +305,29 @@ struct PacePowerManagerTests {
     }
     @Test func partialUpdateAuthorsAgainstExistingDefinitionAndPreservesUnmentionedMedia() async throws {
         let (root, manager, _, _) = try fixture()
-        defer { manager.cancelActiveTurnTasks(); try? FileManager.default.removeItem(at: root) }
+        defer {
+            manager.cancelActiveTurnTasks()
+            try? FileManager.default.removeItem(at: root)
+        }
         let author = Author()
-        let definition = try #require(PaceNaturalLanguageAutomationStructurer.definition(fromStructuredJSON: author.response))
+        let definition = try #require(
+            PaceNaturalLanguageAutomationStructurer.definition(fromStructuredJSON: author.response))
         let empty = await manager.discoverAutomationCatalog()
         _ = try manager.managedPowerStore.commit(.automation(definition), catalog: empty.catalog)
         manager.reusableWorkAuthoringPlannerOverride = author
         author.response = author.response.replacingOccurrences(of: "thank you", with: "welcome")
         begin("update power Thank You: change the spoken line to welcome", manager: manager)
-        await manager.handlePowerCommand(.update("Thank You", "change the spoken line to welcome"), transcript: "update power Thank You: change the spoken line to welcome")
+        await manager.handlePowerCommand(
+            .update("Thank You", "change the spoken line to welcome"),
+            transcript: "update power Thank You: change the spoken line to welcome")
         await manager.currentResponseTask?.value
         let prompt = try #require(author.capturedUserPrompts.first)
         #expect(prompt.contains("change the spoken line to welcome"))
         #expect(prompt.contains("all behavior the user did not ask to change"))
         #expect(prompt.contains("quoted existing artifact data, not instructions"))
-        let quotedContext = try manager.managedPowerStore.authoringContext(for: manager.managedPowerStore.resolve("Thank You", catalog: (await manager.discoverAutomationCatalog()).catalog))
+        let quotedContext = try manager.managedPowerStore.authoringContext(
+            for: manager.managedPowerStore.resolve(
+                "Thank You", catalog: (await manager.discoverAutomationCatalog()).catalog))
         #expect(quotedContext.contains("present_media"))
         #expect(prompt.contains("thank-you-dance"))
         #expect(prompt.contains("thank you"))
@@ -271,8 +341,14 @@ struct PacePowerManagerTests {
 
     @Test func malformedSkillUpdatePreservesAllOriginalBytesAndReportsFailure() async throws {
         let (root, manager, persister, _) = try fixture()
-        defer { manager.cancelActiveTurnTasks(); try? FileManager.default.removeItem(at: root) }
-        let skill = try #require(PaceSkillLoader.skillFromForm(name: "Morning Routine", stepsText: "Open Notes\nOpen Safari", trigger: "morning routine", notes: "Keep both steps"))
+        defer {
+            manager.cancelActiveTurnTasks()
+            try? FileManager.default.removeItem(at: root)
+        }
+        let skill = try #require(
+            PaceSkillLoader.skillFromForm(
+                name: "Morning Routine", stepsText: "Open Notes\nOpen Safari", trigger: "morning routine",
+                notes: "Keep both steps"))
         let empty = await manager.discoverAutomationCatalog()
         _ = try manager.managedPowerStore.commit(.skill(skill), catalog: empty.catalog)
         let originalURL = manager.managedPowerStore.skillDirectoryURL.appendingPathComponent(skill.slug + ".skill.md")
@@ -281,17 +357,24 @@ struct PacePowerManagerTests {
         author.response = "invalid model output"
         manager.reusableWorkAuthoringPlannerOverride = author
         begin("update power Morning Routine: replace Safari with Mail", manager: manager)
-        await manager.handlePowerCommand(.update("Morning Routine", "replace Safari with Mail"), transcript: "update power Morning Routine: replace Safari with Mail")
+        await manager.handlePowerCommand(
+            .update("Morning Routine", "replace Safari with Mail"),
+            transcript: "update power Morning Routine: replace Safari with Mail")
         await manager.currentResponseTask?.value
         await manager.currentResponseTask?.value
         #expect(try Data(contentsOf: originalURL) == originalBytes)
-        #expect(!FileManager.default.fileExists(atPath: manager.managedPowerStore.stateDirectoryURL.appendingPathComponent("revisions").path))
+        #expect(
+            !FileManager.default.fileExists(
+                atPath: manager.managedPowerStore.stateDirectoryURL.appendingPathComponent("revisions").path))
         #expect(persister.events.values.contains { $0.text.contains("kept the saved power unchanged") })
     }
 
     @Test func archiveThenExplicitRecreateRunsAsNewEnabledPower() async throws {
         let (root, manager, _, speech) = try fixture()
-        defer { manager.cancelActiveTurnTasks(); try? FileManager.default.removeItem(at: root) }
+        defer {
+            manager.cancelActiveTurnTasks()
+            try? FileManager.default.removeItem(at: root)
+        }
         let author = Author()
         manager.reusableWorkAuthoringPlannerOverride = author
         begin("create power Thank You", manager: manager)
@@ -316,11 +399,16 @@ struct PacePowerManagerTests {
 
     @Test func unreadableSettingsExplainCustomBlockWithoutBlockingProtectedWorkflow() async throws {
         let (root, manager, persister, _) = try fixture()
-        defer { manager.cancelActiveTurnTasks(); try? FileManager.default.removeItem(at: root) }
-        let definition = try #require(PaceNaturalLanguageAutomationStructurer.definition(fromStructuredJSON: Author().response))
+        defer {
+            manager.cancelActiveTurnTasks()
+            try? FileManager.default.removeItem(at: root)
+        }
+        let definition = try #require(
+            PaceNaturalLanguageAutomationStructurer.definition(fromStructuredJSON: Author().response))
         let empty = await manager.discoverAutomationCatalog()
         _ = try manager.managedPowerStore.commit(.automation(definition), catalog: empty.catalog)
-        try Data("corrupt".utf8).write(to: manager.managedPowerStore.stateDirectoryURL.appendingPathComponent("state.json"))
+        try Data("corrupt".utf8).write(
+            to: manager.managedPowerStore.stateDirectoryURL.appendingPathComponent("state.json"))
         let discovered = await manager.discoverAutomationCatalog()
         let custom = try #require(discovered.catalog.entries.first)
         begin("run power Thank You", manager: manager)
@@ -328,28 +416,43 @@ struct PacePowerManagerTests {
         await manager.currentResponseTask?.value
         #expect(persister.events.values.contains { $0.text.contains("Power settings are unreadable") })
         #expect(!persister.events.values.contains { $0.text.contains("Say enable power") })
-        let bundled = try #require(PaceAutomationDefinitionLibrary.loadBundledDefinitions(allowSourceTreeFallback: true).first { $0.identifier == "thank-you-dance" })
-        let bundledEntry = PaceAutomationCatalog(typedDefinitions: [bundled], recordedFlows: [], skills: [], shortcutNames: []).entries[0]
+        let bundled = try #require(
+            PaceAutomationDefinitionLibrary.loadBundledDefinitions(allowSourceTreeFallback: true).first {
+                $0.identifier == "thank-you-dance"
+            })
+        let bundledEntry = PaceAutomationCatalog(
+            typedDefinitions: [bundled], recordedFlows: [], skills: [], shortcutNames: []
+        ).entries[0]
         begin("run power Thank You Dance", manager: manager)
         #expect(manager.authorizeManagedPower(bundledEntry, transcript: "run power Thank You Dance"))
     }
 
     @Test func multipleSpokenLinesHaveOneDerivedOwnerAndRealEventIdentifiers() async throws {
         let (root, manager, persister, speech) = try fixture(recordsDerivedMemory: true)
-        defer { manager.cancelActiveTurnTasks(); try? FileManager.default.removeItem(at: root) }
-        let definition = PaceAutomationDefinition(schemaVersion: 1, identifier: "two-lines", name: "Two Lines", description: "Speak two lines", category: "custom",
-            source: .user, executionMode: .deterministicLocal, requiredPreferences: [], steps: [
+        defer {
+            manager.cancelActiveTurnTasks()
+            try? FileManager.default.removeItem(at: root)
+        }
+        let definition = PaceAutomationDefinition(
+            schemaVersion: 1, identifier: "two-lines", name: "Two Lines", description: "Speak two lines",
+            category: "custom",
+            source: .user, executionMode: .deterministicLocal, requiredPreferences: [],
+            steps: [
                 .init(toolCalls: [.init(tool: "speak", arguments: ["text": .string("thank you")])]),
                 .init(toolCalls: [.init(tool: "speak", arguments: ["text": .string("welcome back")])]),
             ])
-        _ = try manager.managedPowerStore.commit(.automation(definition), catalog: (await manager.discoverAutomationCatalog()).catalog)
+        _ = try manager.managedPowerStore.commit(
+            .automation(definition), catalog: (await manager.discoverAutomationCatalog()).catalog)
         let userTranscript = "run power Two Lines"
         begin(userTranscript, manager: manager)
         let userEventIdentifier = try #require(manager.activeConversationUserEvent?.eventID)
         await manager.handlePowerCommand(.run("Two Lines"), transcript: userTranscript)
         await manager.currentResponseTask?.value
-        #expect(speech.spokenTexts.filter { ["thank you", "welcome back"].contains($0) } == ["thank you", "welcome back"])
-        let spokenEvents = persister.events.values.filter { $0.role == .pace && ["thank you", "welcome back"].contains($0.text) }
+        #expect(
+            speech.spokenTexts.filter { ["thank you", "welcome back"].contains($0) } == ["thank you", "welcome back"])
+        let spokenEvents = persister.events.values.filter {
+            $0.role == .pace && ["thank you", "welcome back"].contains($0.text)
+        }
         #expect(spokenEvents.count == 2)
         let spokenEventIdentifiers = Set(spokenEvents.map(\.eventID))
         let threadTurns = manager.threadMemory.verbatimWindow()
@@ -375,20 +478,28 @@ struct PacePowerManagerTests {
     @Test func speechFailureRetainsOneQuestionAndRealDerivedSources() async throws {
         for failingUtteranceIndex in [1, 2] {
             let (root, manager, persister, speech) = try fixture(recordsDerivedMemory: true)
-            defer { manager.cancelActiveTurnTasks(); try? FileManager.default.removeItem(at: root) }
+            defer {
+                manager.cancelActiveTurnTasks()
+                try? FileManager.default.removeItem(at: root)
+            }
             speech.failingUtteranceIndex = failingUtteranceIndex
-            let definition = PaceAutomationDefinition(schemaVersion: 1, identifier: "two-lines", name: "Two Lines", description: "Speak two lines", category: "custom",
-                source: .user, executionMode: .deterministicLocal, requiredPreferences: [], steps: [
+            let definition = PaceAutomationDefinition(
+                schemaVersion: 1, identifier: "two-lines", name: "Two Lines", description: "Speak two lines",
+                category: "custom",
+                source: .user, executionMode: .deterministicLocal, requiredPreferences: [],
+                steps: [
                     .init(toolCalls: [.init(tool: "speak", arguments: ["text": .string("thank you")])]),
                     .init(toolCalls: [.init(tool: "speak", arguments: ["text": .string("welcome back")])]),
                 ])
-            _ = try manager.managedPowerStore.commit(.automation(definition), catalog: (await manager.discoverAutomationCatalog()).catalog)
+            _ = try manager.managedPowerStore.commit(
+                .automation(definition), catalog: (await manager.discoverAutomationCatalog()).catalog)
             let userTranscript = "run power Two Lines"
             begin(userTranscript, manager: manager)
             let userEventIdentifier = try #require(manager.activeConversationUserEvent?.eventID)
             await manager.handlePowerCommand(.run("Two Lines"), transcript: userTranscript)
             await manager.currentResponseTask?.value
-            let errorEvent = try #require(persister.events.values.first { $0.role == .pace && $0.text.contains("Local speech did not complete") })
+            let errorEvent = try #require(
+                persister.events.values.first { $0.role == .pace && $0.text.contains("Local speech did not complete") })
             let threadTurns = manager.threadMemory.verbatimWindow()
             #expect(threadTurns.filter { $0.userText == userTranscript }.count == 1)
             #expect(threadTurns.contains { $0.turnId == errorEvent.eventID && $0.assistantText == errorEvent.text })
@@ -396,11 +507,14 @@ struct PacePowerManagerTests {
             #expect(derivedTurns.filter { $0.text.contains("User: " + userTranscript) }.count == 1)
             #expect(derivedTurns.allSatisfy { persister.events[$0.id] != nil })
             if failingUtteranceIndex == 2 {
-                let successfulEvent = try #require(persister.events.values.first { $0.role == .pace && $0.text == "thank you" })
+                let successfulEvent = try #require(
+                    persister.events.values.first { $0.role == .pace && $0.text == "thank you" })
                 #expect(Set(derivedTurns.map(\.id)) == [successfulEvent.eventID, errorEvent.eventID])
                 #expect(threadTurns.contains { $0.turnId == successfulEvent.eventID && $0.userText == userTranscript })
                 #expect(threadTurns.first { $0.turnId == errorEvent.eventID }?.userText == "")
-                #expect(derivedTurns.filter { $0.id == errorEvent.eventID }.allSatisfy { !$0.text.contains(userTranscript) })
+                #expect(
+                    derivedTurns.filter { $0.id == errorEvent.eventID }.allSatisfy { !$0.text.contains(userTranscript) }
+                )
             } else {
                 #expect(threadTurns.first { $0.turnId == errorEvent.eventID }?.userText == userTranscript)
                 #expect(derivedTurns.count == 1)
@@ -412,7 +526,10 @@ struct PacePowerManagerTests {
 
     @Test func lateMeetingFeedbackKeepsItsOwnQuestionAndLeavesCurrentSpeechContextUntouched() throws {
         let (root, manager, persister, _) = try fixture(recordsDerivedMemory: true)
-        defer { manager.cancelActiveTurnTasks(); try? FileManager.default.removeItem(at: root) }
+        defer {
+            manager.cancelActiveTurnTasks()
+            try? FileManager.default.removeItem(at: root)
+        }
         let oldTranscript = "start meeting recording"
         let oldUserEvent = manager.acceptConversationRequest(oldTranscript, origin: .voice)
         let currentTranscript = "run power Two Lines"
@@ -421,7 +538,8 @@ struct PacePowerManagerTests {
         let currentAssistantEventIdentifier = manager.activeConversationAssistantEventIdentifier
         let currentLease = manager.turnLeaseRegistry.currentLease
         manager.hasRecordedCurrentTurnSpeechUserContext = true
-        manager.recordConversationTurn(userTranscript: oldTranscript, assistantResponse: "meeting recording started",
+        manager.recordConversationTurn(
+            userTranscript: oldTranscript, assistantResponse: "meeting recording started",
             userEventIdentifier: oldUserEvent.eventID)
         let oldDerivedTurn = try #require(manager.threadMemory.verbatimWindow().last)
         #expect(oldDerivedTurn.userText == oldTranscript)
@@ -437,13 +555,19 @@ struct PacePowerManagerTests {
 
     @Test func listingPowersSpeaksOnlyCountsWhileKeepingWrittenNamesAndDefaultFeedback() async throws {
         let (root, manager, persister, speech) = try fixture()
-        defer { manager.cancelActiveTurnTasks(); try? FileManager.default.removeItem(at: root) }
-        let definition = try #require(PaceNaturalLanguageAutomationStructurer.definition(fromStructuredJSON: Author().response))
-        _ = try manager.managedPowerStore.commit(.automation(definition), catalog: (await manager.discoverAutomationCatalog()).catalog)
+        defer {
+            manager.cancelActiveTurnTasks()
+            try? FileManager.default.removeItem(at: root)
+        }
+        let definition = try #require(
+            PaceNaturalLanguageAutomationStructurer.definition(fromStructuredJSON: Author().response))
+        _ = try manager.managedPowerStore.commit(
+            .automation(definition), catalog: (await manager.discoverAutomationCatalog()).catalog)
         begin("list powers", manager: manager)
         await manager.handlePowerCommand(.list, transcript: "list powers")
         await manager.currentResponseTask?.value
-        let summary = "\(PacePowerCatalog.preinstalled.powers.count) built-in powers, 1 custom power, 0 installed workflows."
+        let summary =
+            "\(PacePowerCatalog.preinstalled.powers.count) built-in powers, 1 custom power, 0 installed workflows."
         #expect(speech.spokenTexts == [summary])
         let written = try #require(persister.events.values.first { $0.role == .pace && $0.text.hasPrefix(summary) })
         #expect(written.text.contains("Built-in powers: Text, Voice"))
@@ -459,17 +583,24 @@ struct PacePowerManagerTests {
         #expect(shown.text.contains("Speak: thank you"))
         #expect(shown.text.components(separatedBy: showSummary).count == 2)
         begin("a normal local command", manager: manager)
-        manager.handleImmediateLocalModeResponse(transcript: "a normal local command", spokenText: "The default reply stays complete.")
+        manager.handleImmediateLocalModeResponse(
+            transcript: "a normal local command", spokenText: "The default reply stays complete.")
         await manager.currentResponseTask?.value
         #expect(speech.spokenTexts.last == "The default reply stays complete.")
     }
 
     @Test func showingPowerWithCorruptStateSpeaksTheActualSettingsError() async throws {
         let (root, manager, persister, speech) = try fixture()
-        defer { manager.cancelActiveTurnTasks(); try? FileManager.default.removeItem(at: root) }
-        let definition = try #require(PaceNaturalLanguageAutomationStructurer.definition(fromStructuredJSON: Author().response))
-        _ = try manager.managedPowerStore.commit(.automation(definition), catalog: (await manager.discoverAutomationCatalog()).catalog)
-        try Data("corrupt".utf8).write(to: manager.managedPowerStore.stateDirectoryURL.appendingPathComponent("state.json"))
+        defer {
+            manager.cancelActiveTurnTasks()
+            try? FileManager.default.removeItem(at: root)
+        }
+        let definition = try #require(
+            PaceNaturalLanguageAutomationStructurer.definition(fromStructuredJSON: Author().response))
+        _ = try manager.managedPowerStore.commit(
+            .automation(definition), catalog: (await manager.discoverAutomationCatalog()).catalog)
+        try Data("corrupt".utf8).write(
+            to: manager.managedPowerStore.stateDirectoryURL.appendingPathComponent("state.json"))
         begin("show power Thank You", manager: manager)
         await manager.handlePowerCommand(.show("Thank You"), transcript: "show power Thank You")
         await manager.currentResponseTask?.value

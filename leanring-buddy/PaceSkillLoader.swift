@@ -53,8 +53,10 @@ struct PaceSkillStep: Codable, Equatable {
 enum PaceSkillLoader {
 
     /// Load all .skill.md files from bundled and user directories.
-    static func loadAllSkills(bundledSkillsDirectoryURL: URL? = nil,
-                              userSkillsDirectoryURL: URL? = nil) -> [PaceSkillFile] {
+    static func loadAllSkills(
+        bundledSkillsDirectoryURL: URL? = nil,
+        userSkillsDirectoryURL: URL? = nil
+    ) -> [PaceSkillFile] {
         let userSkills = loadSkillsFromDirectory(userSkillsDirectoryURL ?? userSkillsDirectory()) ?? []
         let bundledSkills = loadSkillsFromDirectory(bundledSkillsDirectoryURL ?? bundledSkillsDirectory()) ?? []
         var loadedSlugs: Set<String> = []
@@ -220,7 +222,8 @@ enum PaceSkillLoader {
         ) else { return nil }
 
         var skills: [PaceSkillFile] = []
-        for entry in entries.sorted(by: { $0.lastPathComponent < $1.lastPathComponent }) where entry.pathExtension == "md" {
+        for entry in entries.sorted(by: { $0.lastPathComponent < $1.lastPathComponent })
+        where entry.pathExtension == "md" {
             guard let content = try? String(contentsOf: entry, encoding: .utf8) else { continue }
             let fallbackSlug = entry.deletingPathExtension().lastPathComponent
             if let skill = parse(skillMarkdown: content, fallbackSlug: fallbackSlug) {

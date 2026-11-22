@@ -46,7 +46,8 @@ struct PaceBoundedTextAnswerPlannerTests {
                     let purpose = PaceTextAnswerPurpose.classifiedAnswer(
                         prediction: prediction, transcript: "Who invented the telephone?",
                         hasScreenSuggestion: false, hasActiveVisualContext: false)
-                    let expectedEligibility = (intent == .chitchat || intent == .pureKnowledge)
+                    let expectedEligibility =
+                        (intent == .chitchat || intent == .pureKnowledge)
                         && complexity == .simple && confidence >= 0.90
                     #expect((purpose == .boundedEverydayAnswer) == expectedEligibility)
                 }
@@ -57,47 +58,62 @@ struct PaceBoundedTextAnswerPlannerTests {
     @Test
     func suggestionsVisualContextAndHistoryDependentQuestionsKeepSelectedPlanner() {
         let prediction = PaceIntentPrediction(intent: .pureKnowledge, confidence: 1)
-        for transcript in ["What is that?", "What about France?", "Tell me more", "Why did they do it?", "What did I ask earlier?", "What is my name?", "What is our project?", "How old is he?", "Who is she?", "Is the weather warm there?"] {
-            #expect(PaceTextAnswerPurpose.classifiedAnswer(
-                prediction: prediction, transcript: transcript,
-                hasScreenSuggestion: false, hasActiveVisualContext: false) == .selectedPlanner)
+        for transcript in [
+            "What is that?", "What about France?", "Tell me more", "Why did they do it?", "What did I ask earlier?",
+            "What is my name?", "What is our project?", "How old is he?", "Who is she?", "Is the weather warm there?",
+        ] {
+            #expect(
+                PaceTextAnswerPurpose.classifiedAnswer(
+                    prediction: prediction, transcript: transcript,
+                    hasScreenSuggestion: false, hasActiveVisualContext: false) == .selectedPlanner)
         }
-        #expect(PaceTextAnswerPurpose.classifiedAnswer(
-            prediction: prediction, transcript: "Who invented the telephone?",
-            hasScreenSuggestion: true, hasActiveVisualContext: false) == .selectedPlanner)
-        #expect(PaceTextAnswerPurpose.classifiedAnswer(
-            prediction: prediction, transcript: "Who invented the telephone?",
-            hasScreenSuggestion: false, hasActiveVisualContext: true) == .selectedPlanner)
-        #expect(PaceTextAnswerPurpose.classifiedAnswer(
-            prediction: prediction, transcript: "How many planets are there?",
-            hasScreenSuggestion: false, hasActiveVisualContext: false) == .selectedPlanner)
+        #expect(
+            PaceTextAnswerPurpose.classifiedAnswer(
+                prediction: prediction, transcript: "Who invented the telephone?",
+                hasScreenSuggestion: true, hasActiveVisualContext: false) == .selectedPlanner)
+        #expect(
+            PaceTextAnswerPurpose.classifiedAnswer(
+                prediction: prediction, transcript: "Who invented the telephone?",
+                hasScreenSuggestion: false, hasActiveVisualContext: true) == .selectedPlanner)
+        #expect(
+            PaceTextAnswerPurpose.classifiedAnswer(
+                prediction: prediction, transcript: "How many planets are there?",
+                hasScreenSuggestion: false, hasActiveVisualContext: false) == .selectedPlanner)
     }
 
     @Test func teachingRequestsKeepTheVisualCapableSelectedPlanner() {
         let prediction = PaceIntentPrediction(intent: .pureKnowledge, confidence: 1, complexity: .simple)
-        for transcript in ["Explain how the F-35B hovers", "Explain next-token training",
-                           "Can you explain how the F-35B hovers?",
-                           "Explain how a model tokenizes one sentence",
-                           "Can you show me a rotatable Pi 5 board?",
-                           "How does a jet engine work?", "How do camera ribbon connectors work?",
-                           "Teach me gradient descent", "Explain the Brayton cycle",
-                           "Show me a rotatable Pi 5 board", "Why does a lift fan help a jet hover?"] {
+        for transcript in [
+            "Explain how the F-35B hovers", "Explain next-token training",
+            "Can you explain how the F-35B hovers?",
+            "Explain how a model tokenizes one sentence",
+            "Can you show me a rotatable Pi 5 board?",
+            "How does a jet engine work?", "How do camera ribbon connectors work?",
+            "Teach me gradient descent", "Explain the Brayton cycle",
+            "Show me a rotatable Pi 5 board", "Why does a lift fan help a jet hover?",
+        ] {
             #expect(PaceTeachingPower.prefersVisualExplanation(transcript))
-            #expect(PaceTextAnswerPurpose.classifiedAnswer(prediction: prediction, transcript: transcript,
-                hasScreenSuggestion: false, hasActiveVisualContext: false) == .selectedPlanner)
+            #expect(
+                PaceTextAnswerPurpose.classifiedAnswer(
+                    prediction: prediction, transcript: transcript,
+                    hasScreenSuggestion: false, hasActiveVisualContext: false) == .selectedPlanner)
         }
-        for transcript in ["What is seven times nine?", "Who invented the telephone?", "What is the capital of France?",
-                           "Explain gravity in one sentence", "Explain the F-35B lift system, text only",
-                           "How does TCP work? One sentence.", "Explain gravity, one sentence please",
-                           "Explain gravity. Just a single sentence, please.",
-                           "How does TCP work? One sentence answer.",
-                           "How does TCP work? (One sentence)",
-                           "Explain gravity. One sentence max.",
-                           "Explain gravity, one sentence only please",
-                           "How does a jet engine work without a diagram?"] {
+        for transcript in [
+            "What is seven times nine?", "Who invented the telephone?", "What is the capital of France?",
+            "Explain gravity in one sentence", "Explain the F-35B lift system, text only",
+            "How does TCP work? One sentence.", "Explain gravity, one sentence please",
+            "Explain gravity. Just a single sentence, please.",
+            "How does TCP work? One sentence answer.",
+            "How does TCP work? (One sentence)",
+            "Explain gravity. One sentence max.",
+            "Explain gravity, one sentence only please",
+            "How does a jet engine work without a diagram?",
+        ] {
             #expect(!PaceTeachingPower.prefersVisualExplanation(transcript))
-            #expect(PaceTextAnswerPurpose.classifiedAnswer(prediction: prediction, transcript: transcript,
-                hasScreenSuggestion: false, hasActiveVisualContext: false) == .boundedEverydayAnswer)
+            #expect(
+                PaceTextAnswerPurpose.classifiedAnswer(
+                    prediction: prediction, transcript: transcript,
+                    hasScreenSuggestion: false, hasActiveVisualContext: false) == .boundedEverydayAnswer)
         }
     }
 
@@ -115,7 +131,8 @@ struct PaceBoundedTextAnswerPlannerTests {
         ) -> any BuddyPlannerClient {
             BuddyPlannerClientFactory.makeTextAnswerPlanner(
                 purpose: purpose, selectedPlanner: selectedPlanner ?? automaticCodex, tier: tier, upstream: upstream,
-                hasAcceptedDirectSpawnConsent: consent, canRunDirectSpawnTurn: available, everydaySystemPrompt: "Trusted short prompt")
+                hasAcceptedDirectSpawnConsent: consent, canRunDirectSpawnTurn: available,
+                everydaySystemPrompt: "Trusted short prompt")
         }
         #expect(select() is PaceBoundedTextAnswerPlanner)
         #expect(select(purpose: .selectedPlanner) === automaticCodex)
@@ -170,7 +187,9 @@ struct PaceBoundedTextAnswerPlannerTests {
             #expect(result.text == answer)
             #expect(chunks == [answer])
             #expect(selected.calls == 0)
-            #expect(everyday.receivedSystemPrompt == "Trusted base voice and privacy rules\n\n" + PaceBoundedTextAnswerPlanner.answerInstructions)
+            #expect(
+                everyday.receivedSystemPrompt == "Trusted base voice and privacy rules\n\n"
+                    + PaceBoundedTextAnswerPlanner.answerInstructions)
             #expect(everyday.receivedSystemPrompt.contains(PaceBoundedTextAnswerPlanner.escalationMarker))
         }
     }
@@ -204,13 +223,16 @@ struct PaceBoundedTextAnswerPlannerTests {
             #expect(selected.calls == 1)
             #expect(selected.receivedHistoryCount == 1)
             #expect(selected.receivedSystemPrompt == "Original trusted prompt")
-            #expect(everyday.receivedSystemPrompt == "Trusted base voice and privacy rules\n\n" + PaceBoundedTextAnswerPlanner.answerInstructions)
+            #expect(
+                everyday.receivedSystemPrompt == "Trusted base voice and privacy rules\n\n"
+                    + PaceBoundedTextAnswerPlanner.answerInstructions)
             #expect(everyday.receivedHistory.first?.userPlaceholder == "Synthetic previous question")
             #expect(selected.receivedHistory.first?.assistantResponse == "Synthetic previous answer")
             #expect(planner.lastAnswerSource == .selected)
         }
-        #expect(PaceBoundedTextAnswerPlanner.escalationReason(
-            for: "The marker PACE_USE_SELECTED_PLANNER is not an answer.") == .unexpectedOutput)
+        #expect(
+            PaceBoundedTextAnswerPlanner.escalationReason(
+                for: "The marker PACE_USE_SELECTED_PLANNER is not an answer.") == .unexpectedOutput)
     }
 
     @Test @MainActor
@@ -405,7 +427,8 @@ struct PaceBoundedTextAnswerPlannerTests {
             #expect(everyday.calls == 1)
             #expect(selected.calls == 0)
             #expect(planner.lastAnswerSource == .everyday)
-            #expect(decisions == ["attemptEverydayAnswer", "acceptedEverydayAnswer", "lateProcessErrorAfterAcceptedAnswer"])
+            #expect(
+                decisions == ["attemptEverydayAnswer", "acceptedEverydayAnswer", "lateProcessErrorAfterAcceptedAnswer"])
         }
     }
 

@@ -188,7 +188,8 @@ struct PaceChatPanelView: View {
                                 messageBubbleRow(messageRowModel)
                             case .activity(let activity):
                                 PaceDialogueActivityView(activity: activity) {
-                                    PaceSettingsWindowManager.shared.show(companionManager: companionManager, destination: .doctor)
+                                    PaceSettingsWindowManager.shared.show(
+                                        companionManager: companionManager, destination: .doctor)
                                 }
                             }
                         }
@@ -294,9 +295,10 @@ struct PaceChatPanelView: View {
     @ViewBuilder
     private var liveSpeechDraftBubbleRow: some View {
         if !companionManager.liveSpeechDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            PaceDialogueMessageView(message: PaceChatTranscriptMessageRowModel(
-                id: "live-speech-draft", author: .user,
-                bodyText: companionManager.liveSpeechDraft, createdAt: .distantFuture), appearance: appearance)
+            PaceDialogueMessageView(
+                message: PaceChatTranscriptMessageRowModel(
+                    id: "live-speech-draft", author: .user,
+                    bodyText: companionManager.liveSpeechDraft, createdAt: .distantFuture), appearance: appearance)
         }
     }
 
@@ -306,10 +308,12 @@ struct PaceChatPanelView: View {
         if PaceDialogueTranscriptModel.shouldShowStreamingReply(
             text: streamingText,
             assistantEventIdentifier: companionManager.activeConversationAssistantEventIdentifier,
-            committedMessages: chatSession.messages) {
-            PaceDialogueMessageView(message: PaceChatTranscriptMessageRowModel(
-                id: "streaming-reply", author: .assistant,
-                bodyText: streamingText, createdAt: .distantFuture), appearance: appearance)
+            committedMessages: chatSession.messages)
+        {
+            PaceDialogueMessageView(
+                message: PaceChatTranscriptMessageRowModel(
+                    id: "streaming-reply", author: .assistant,
+                    bodyText: streamingText, createdAt: .distantFuture), appearance: appearance)
         }
     }
 

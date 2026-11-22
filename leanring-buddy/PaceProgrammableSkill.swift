@@ -56,10 +56,11 @@ nonisolated struct PaceProgramDefinition: Codable, Equatable, Sendable {
         let unexpectedKeys = Set(dynamicContainer.allKeys.map(\.stringValue))
             .subtracting(allowedKeys)
         guard unexpectedKeys.isEmpty else {
-            throw DecodingError.dataCorrupted(.init(
-                codingPath: dynamicContainer.codingPath,
-                debugDescription: "unexpected program definition keys: \(unexpectedKeys.sorted())"
-            ))
+            throw DecodingError.dataCorrupted(
+                .init(
+                    codingPath: dynamicContainer.codingPath,
+                    debugDescription: "unexpected program definition keys: \(unexpectedKeys.sorted())"
+                ))
         }
 
         let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -112,7 +113,9 @@ nonisolated indirect enum PaceProgramNode: Codable, Equatable, Sendable {
         case .javascript:
             allowedKeys = [CodingKeys.type.rawValue, CodingKeys.source.rawValue]
             try Self.rejectUnexpectedKeys(in: container, allowedKeys: allowedKeys)
-            self = .javascript(source: try container.decode(String.self, forKey: PaceProgramDynamicCodingKey(CodingKeys.source.rawValue)))
+            self = .javascript(
+                source: try container.decode(
+                    String.self, forKey: PaceProgramDynamicCodingKey(CodingKeys.source.rawValue)))
         case .action:
             allowedKeys = [CodingKeys.type.rawValue, CodingKeys.step.rawValue]
             try Self.rejectUnexpectedKeys(in: container, allowedKeys: allowedKeys)
@@ -191,10 +194,11 @@ nonisolated indirect enum PaceProgramNode: Codable, Equatable, Sendable {
     ) throws {
         let unexpectedKeys = Set(container.allKeys.map(\.stringValue)).subtracting(allowedKeys)
         guard unexpectedKeys.isEmpty else {
-            throw DecodingError.dataCorrupted(.init(
-                codingPath: container.codingPath,
-                debugDescription: "unexpected keys for program node: \(unexpectedKeys.sorted())"
-            ))
+            throw DecodingError.dataCorrupted(
+                .init(
+                    codingPath: container.codingPath,
+                    debugDescription: "unexpected keys for program node: \(unexpectedKeys.sorted())"
+                ))
         }
     }
 }
@@ -230,10 +234,11 @@ nonisolated enum PaceProgramCondition: Codable, Equatable, Sendable {
         case .weekdayIn:
             allowedKeys = [CodingKeys.type.rawValue, CodingKeys.weekdays.rawValue]
             try Self.rejectUnexpectedKeys(in: container, allowedKeys: allowedKeys)
-            self = .weekdayIn(try container.decode(
-                [Int].self,
-                forKey: PaceProgramDynamicCodingKey(CodingKeys.weekdays.rawValue)
-            ))
+            self = .weekdayIn(
+                try container.decode(
+                    [Int].self,
+                    forKey: PaceProgramDynamicCodingKey(CodingKeys.weekdays.rawValue)
+                ))
         case .localHourIn:
             allowedKeys = [
                 CodingKeys.type.rawValue,
@@ -257,10 +262,11 @@ nonisolated enum PaceProgramCondition: Codable, Equatable, Sendable {
                 CodingKeys.bundleIdentifiers.rawValue,
             ]
             try Self.rejectUnexpectedKeys(in: container, allowedKeys: allowedKeys)
-            self = .frontmostApplicationIn(bundleIdentifiers: try container.decode(
-                [String].self,
-                forKey: PaceProgramDynamicCodingKey(CodingKeys.bundleIdentifiers.rawValue)
-            ))
+            self = .frontmostApplicationIn(
+                bundleIdentifiers: try container.decode(
+                    [String].self,
+                    forKey: PaceProgramDynamicCodingKey(CodingKeys.bundleIdentifiers.rawValue)
+                ))
         }
     }
 
@@ -287,8 +293,10 @@ nonisolated enum PaceProgramCondition: Codable, Equatable, Sendable {
         case .localHourIn(let startInclusive, let endExclusive):
             return context.localHour >= startInclusive && context.localHour < endExclusive
         case .frontmostApplicationIn(let bundleIdentifiers):
-            guard let frontmostApplicationBundleIdentifier = context
-                .frontmostApplicationBundleIdentifier else {
+            guard
+                let frontmostApplicationBundleIdentifier = context
+                    .frontmostApplicationBundleIdentifier
+            else {
                 return false
             }
             return bundleIdentifiers.contains(frontmostApplicationBundleIdentifier)
@@ -301,10 +309,11 @@ nonisolated enum PaceProgramCondition: Codable, Equatable, Sendable {
     ) throws {
         let unexpectedKeys = Set(container.allKeys.map(\.stringValue)).subtracting(allowedKeys)
         guard unexpectedKeys.isEmpty else {
-            throw DecodingError.dataCorrupted(.init(
-                codingPath: container.codingPath,
-                debugDescription: "unexpected keys for program predicate: \(unexpectedKeys.sorted())"
-            ))
+            throw DecodingError.dataCorrupted(
+                .init(
+                    codingPath: container.codingPath,
+                    debugDescription: "unexpected keys for program predicate: \(unexpectedKeys.sorted())"
+                ))
         }
     }
 }
@@ -383,16 +392,23 @@ nonisolated enum PaceProgramValidator {
 
         let containsJavaScript = program.nodes.containsJavaScript
         if program.schemaVersion != supportedSchemaVersion && program.schemaVersion != javaScriptSchemaVersion {
-            validationIssues.append(.init(
-                message: "unsupported schemaVersion \(program.schemaVersion); expected \(supportedSchemaVersion)"
-            ))
+            validationIssues.append(
+                .init(
+                    message: "unsupported schemaVersion \(program.schemaVersion); expected \(supportedSchemaVersion)"
+                ))
         }
         if containsJavaScript && program.schemaVersion != javaScriptSchemaVersion {
             validationIssues.append(.init(message: "JavaScript requires schemaVersion 2"))
         }
         if program.schemaVersion == javaScriptSchemaVersion {
-            if program.nodes.count != 1 || !program.nodes.allSatisfy({ if case .javascript = $0 { return true }; return false }) {
-                validationIssues.append(.init(message: "schemaVersion 2 requires exactly one JavaScript body and no other nodes"))
+            if program.nodes.count != 1
+                || !program.nodes.allSatisfy({
+                    if case .javascript = $0 { return true }
+                    return false
+                })
+            {
+                validationIssues.append(
+                    .init(message: "schemaVersion 2 requires exactly one JavaScript body and no other nodes"))
             }
         }
         for (fieldName, fieldValue) in [
@@ -404,15 +420,17 @@ nonisolated enum PaceProgramValidator {
             validationIssues.append(.init(message: "\(fieldName) must not be empty"))
         }
         if program.identifier != PaceFlowStore.slug(for: program.identifier) {
-            validationIssues.append(.init(
-                message: "identifier must contain only canonical lowercase slug characters"
-            ))
+            validationIssues.append(
+                .init(
+                    message: "identifier must contain only canonical lowercase slug characters"
+                ))
         }
         for requiredPreferenceKey in program.requiredPreferences {
             if PaceLocalMemoryKey(rawValue: requiredPreferenceKey) == nil {
-                validationIssues.append(.init(
-                    message: "requires unknown preference key \(requiredPreferenceKey)"
-                ))
+                validationIssues.append(
+                    .init(
+                        message: "requires unknown preference key \(requiredPreferenceKey)"
+                    ))
             }
         }
         if program.nodes.isEmpty {
@@ -430,21 +448,25 @@ nonisolated enum PaceProgramValidator {
         )
 
         if sourceNodeCount > maximumSourceNodeCount {
-            validationIssues.append(.init(
-                message: "program has \(sourceNodeCount) source nodes; maximum is \(maximumSourceNodeCount)"
-            ))
+            validationIssues.append(
+                .init(
+                    message: "program has \(sourceNodeCount) source nodes; maximum is \(maximumSourceNodeCount)"
+                ))
         }
         if worstCaseExpandedActionStepCount > maximumExpandedActionStepCount {
-            validationIssues.append(.init(
-                message: "program expands to at most \(worstCaseExpandedActionStepCount) action steps; maximum is \(maximumExpandedActionStepCount)"
-            ))
+            validationIssues.append(
+                .init(
+                    message:
+                        "program expands to at most \(worstCaseExpandedActionStepCount) action steps; maximum is \(maximumExpandedActionStepCount)"
+                ))
         }
         if allActionSteps.isEmpty && !containsJavaScript {
             validationIssues.append(.init(message: "program must contain at least one action"))
         } else if !containsProgrammableLogic(program.nodes) {
-            validationIssues.append(.init(
-                message: "program must contain a condition or bounded repetition"
-            ))
+            validationIssues.append(
+                .init(
+                    message: "program must contain a condition or bounded repetition"
+                ))
         } else if !allActionSteps.isEmpty {
             let syntheticDefinition = PaceAutomationDefinition(
                 schemaVersion: PaceAutomationDefinitionValidator.supportedSchemaVersion,
@@ -458,15 +480,18 @@ nonisolated enum PaceProgramValidator {
                 requiredPreferences: program.requiredPreferences,
                 steps: allActionSteps
             )
-            validationIssues.append(contentsOf: PaceAutomationDefinitionValidator
-                .validationIssues(for: syntheticDefinition))
+            validationIssues.append(
+                contentsOf:
+                    PaceAutomationDefinitionValidator
+                    .validationIssues(for: syntheticDefinition))
             if PaceAutomationDefinitionValidator.validationIssues(for: syntheticDefinition).isEmpty {
                 do {
                     _ = try PaceAutomationCompiler.compile(syntheticDefinition)
                 } catch {
-                    validationIssues.append(.init(
-                        message: "program actions do not compile completely: \(error)"
-                    ))
+                    validationIssues.append(
+                        .init(
+                            message: "program actions do not compile completely: \(error)"
+                        ))
                 }
             }
         }
@@ -500,14 +525,17 @@ nonisolated enum PaceProgramValidator {
         for node in nodes {
             sourceNodeCount += 1
             if depth > maximumNestingDepth {
-                validationIssues.append(.init(
-                    message: "program nesting depth \(depth) exceeds maximum \(maximumNestingDepth)"
-                ))
+                validationIssues.append(
+                    .init(
+                        message: "program nesting depth \(depth) exceeds maximum \(maximumNestingDepth)"
+                    ))
             }
 
             switch node {
             case .javascript(let source):
-                if source.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || source.utf8.count > PaceJavaScriptPowerLimits.maximumSourceBytes {
+                if source.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    || source.utf8.count > PaceJavaScriptPowerLimits.maximumSourceBytes
+                {
                     validationIssues.append(.init(message: "JavaScript source must contain 1...24576 UTF-8 bytes"))
                 }
                 expandedActionStepCount = cappedAdd(expandedActionStepCount, maximumExpandedActionStepCount)
@@ -538,9 +566,10 @@ nonisolated enum PaceProgramValidator {
 
             case .repeatTimes(let count, let repeatedNodes):
                 if !(1...maximumRepeatCount).contains(count) {
-                    validationIssues.append(.init(
-                        message: "repeat count \(count) is outside 1...\(maximumRepeatCount)"
-                    ))
+                    validationIssues.append(
+                        .init(
+                            message: "repeat count \(count) is outside 1...\(maximumRepeatCount)"
+                        ))
                 }
                 let repeatedActionCount = inspectNodes(
                     repeatedNodes,
@@ -565,25 +594,31 @@ nonisolated enum PaceProgramValidator {
         switch predicate {
         case .weekdayIn(let weekdays):
             if weekdays.isEmpty || weekdays.contains(where: { !(1...7).contains($0) }) {
-                validationIssues.append(.init(
-                    message: "weekdayIn requires one or more weekday values in 1...7"
-                ))
+                validationIssues.append(
+                    .init(
+                        message: "weekdayIn requires one or more weekday values in 1...7"
+                    ))
             }
         case .localHourIn(let startInclusive, let endExclusive):
             if !(0...23).contains(startInclusive)
                 || !(1...24).contains(endExclusive)
-                || startInclusive >= endExclusive {
-                validationIssues.append(.init(
-                    message: "localHourIn requires 0 <= startInclusive < endExclusive <= 24"
-                ))
+                || startInclusive >= endExclusive
+            {
+                validationIssues.append(
+                    .init(
+                        message: "localHourIn requires 0 <= startInclusive < endExclusive <= 24"
+                    ))
             }
         case .frontmostApplicationIn(let bundleIdentifiers):
-            if bundleIdentifiers.isEmpty || bundleIdentifiers.contains(where: {
-                $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            }) {
-                validationIssues.append(.init(
-                    message: "frontmostApplicationIn requires non-empty bundle identifiers"
-                ))
+            if bundleIdentifiers.isEmpty
+                || bundleIdentifiers.contains(where: {
+                    $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                })
+            {
+                validationIssues.append(
+                    .init(
+                        message: "frontmostApplicationIn requires non-empty bundle identifiers"
+                    ))
             }
         }
     }
@@ -623,7 +658,8 @@ nonisolated enum PaceProgramCompiler {
         _ program: PaceProgramDefinition,
         context: PaceProgramContext
     ) throws -> PaceProgramCompilationOutcome {
-        let validationMessages = PaceProgramValidator
+        let validationMessages =
+            PaceProgramValidator
             .validationIssues(for: program)
             .map(\.message)
         guard validationMessages.isEmpty else {
@@ -631,7 +667,9 @@ nonisolated enum PaceProgramCompiler {
         }
 
         guard !program.nodes.containsJavaScript else {
-            throw PaceProgramCompilationError.invalidProgram(["JavaScript programs require isolated asynchronous evaluation"])
+            throw PaceProgramCompilationError.invalidProgram([
+                "JavaScript programs require isolated asynchronous evaluation"
+            ])
         }
         var expandedSteps: [PaceAutomationStep] = []
         expand(program.nodes, context: context, into: &expandedSteps)
@@ -697,7 +735,8 @@ nonisolated enum PaceProgramLibrary {
     ) -> String? {
         for requiredPreferenceKey in program.requiredPreferences {
             guard let resolvedPreferenceKey = PaceLocalMemoryKey(rawValue: requiredPreferenceKey),
-                  memoryStore.string(for: resolvedPreferenceKey) != nil else {
+                memoryStore.string(for: resolvedPreferenceKey) != nil
+            else {
                 return requiredPreferenceKey
             }
         }
@@ -713,11 +752,13 @@ nonisolated enum PaceUserProgramStoreError: Error, Equatable {
 
 nonisolated struct PaceUserProgramStore {
     static var defaultDirectoryURL: URL {
-        let applicationSupportRootURL = FileManager.default
+        let applicationSupportRootURL =
+            FileManager.default
             .urls(for: .applicationSupportDirectory, in: .userDomainMask)
             .first
             ?? FileManager.default.temporaryDirectory
-        return applicationSupportRootURL
+        return
+            applicationSupportRootURL
             .appendingPathComponent("Pace", isDirectory: true)
             .appendingPathComponent("programs", isDirectory: true)
     }
@@ -740,16 +781,19 @@ nonisolated struct PaceUserProgramStore {
 
         let storedPrograms = listValidPrograms()
         let normalizedProgramName = PaceAutomationCatalog.normalizedName(program.name)
-        let storedNames = Set(storedPrograms.map {
-            PaceAutomationCatalog.normalizedName($0.name)
-        })
+        let storedNames = Set(
+            storedPrograms.map {
+                PaceAutomationCatalog.normalizedName($0.name)
+            })
         guard !existingNormalizedNames.contains(normalizedProgramName),
-              !storedNames.contains(normalizedProgramName) else {
+            !storedNames.contains(normalizedProgramName)
+        else {
             throw PaceUserProgramStoreError.nameCollision(program.name)
         }
         let storedIdentifiers = Set(storedPrograms.map(\.identifier))
         guard !existingIdentifiers.contains(program.identifier),
-              !storedIdentifiers.contains(program.identifier) else {
+            !storedIdentifiers.contains(program.identifier)
+        else {
             throw PaceUserProgramStoreError.identifierCollision(program.identifier)
         }
 
@@ -757,7 +801,8 @@ nonisolated struct PaceUserProgramStore {
             at: directoryURL,
             withIntermediateDirectories: true
         )
-        let destinationFileURL = directoryURL
+        let destinationFileURL =
+            directoryURL
             .appendingPathComponent("\(program.identifier).json")
         guard !FileManager.default.fileExists(atPath: destinationFileURL.path) else {
             throw PaceUserProgramStoreError.identifierCollision(program.identifier)
@@ -766,23 +811,27 @@ nonisolated struct PaceUserProgramStore {
     }
 
     func listValidPrograms() -> [PaceProgramDefinition] {
-        guard let programURLs = try? FileManager.default.contentsOfDirectory(
-            at: directoryURL,
-            includingPropertiesForKeys: nil
-        ) else {
+        guard
+            let programURLs = try? FileManager.default.contentsOfDirectory(
+                at: directoryURL,
+                includingPropertiesForKeys: nil
+            )
+        else {
             return []
         }
 
-        return programURLs
+        return
+            programURLs
             .filter { $0.pathExtension == "json" }
             .compactMap { programURL in
                 guard let programData = try? Data(contentsOf: programURL),
-                      let program = try? Self.jsonDecoder.decode(
+                    let program = try? Self.jsonDecoder.decode(
                         PaceProgramDefinition.self,
                         from: programData
-                      ),
-                      programURL.deletingPathExtension().lastPathComponent == program.identifier,
-                      PaceProgramValidator.validationIssues(for: program).isEmpty else {
+                    ),
+                    programURL.deletingPathExtension().lastPathComponent == program.identifier,
+                    PaceProgramValidator.validationIssues(for: program).isEmpty
+                else {
                     return nil
                 }
                 return program
@@ -816,40 +865,41 @@ nonisolated enum PaceNaturalLanguageProgramStructurer {
             .map(\.promptLine)
             .joined(separator: "\n")
         return """
-        Convert the user's repeatable task into one bounded deterministic Pace Program.
-        Return ONLY one JSON object matching this schema, or {} when the task needs live judgment or unsupported authority:
-        {"schemaVersion":1,"identifier":"kebab-case-name","name":"short title","description":"literal complete outcome","category":"custom","invocationPhrases":["natural phrase"],"requiredPreferences":[],"nodes":[PROGRAM_NODE]}
+            Convert the user's repeatable task into one bounded deterministic Pace Program.
+            Return ONLY one JSON object matching this schema, or {} when the task needs live judgment or unsupported authority:
+            {"schemaVersion":1,"identifier":"kebab-case-name","name":"short title","description":"literal complete outcome","category":"custom","invocationPhrases":["natural phrase"],"requiredPreferences":[],"nodes":[PROGRAM_NODE]}
 
-        PROGRAM_NODE is exactly one of:
-        {"type":"action","step":{"toolCalls":[{"tool":"canonical_name","arguments":{}}]}}
-        {"type":"condition","predicate":PREDICATE,"thenNodes":[PROGRAM_NODE],"otherwiseNodes":[PROGRAM_NODE]}
-        {"type":"repeatTimes","count":1,"nodes":[PROGRAM_NODE]}
+            PROGRAM_NODE is exactly one of:
+            {"type":"action","step":{"toolCalls":[{"tool":"canonical_name","arguments":{}}]}}
+            {"type":"condition","predicate":PREDICATE,"thenNodes":[PROGRAM_NODE],"otherwiseNodes":[PROGRAM_NODE]}
+            {"type":"repeatTimes","count":1,"nodes":[PROGRAM_NODE]}
 
-        PREDICATE is exactly one of:
-        {"type":"weekdayIn","weekdays":[1,2,3,4,5,6,7]}
-        {"type":"localHourIn","startInclusive":9,"endExclusive":17}
-        {"type":"frontmostApplicationIn","bundleIdentifiers":["com.apple.Notes"]}
+            PREDICATE is exactly one of:
+            {"type":"weekdayIn","weekdays":[1,2,3,4,5,6,7]}
+            {"type":"localHourIn","startInclusive":9,"endExclusive":17}
+            {"type":"frontmostApplicationIn","bundleIdentifiers":["com.apple.Notes"]}
 
-        Calendar weekday integers are 1=Sunday through 7=Saturday. Repeat count must be 1 through 10.
-        Use only the tools listed below and copy their canonical tool names and argument keys exactly:
-        \(allowedTools)
+            Calendar weekday integers are 1=Sunday through 7=Saturday. Repeat count must be 1 through 10.
+            Use only the tools listed below and copy their canonical tool names and argument keys exactly:
+            \(allowedTools)
 
-        Rules:
-        - Return {} unless branching or literal repetition is necessary. Fixed sequences belong to the simpler typed automation tier.
-        - Preserve only actions, conditions, counts, and values explicitly requested by the user.
-        - If the user says "when I say X", put X in invocationPhrases and do not treat it as an action.
-        - Do not emit source code, shell, network, file, import, Accessibility, click, typing, key, URL, Shortcut, flow, download, script, or MCP calls.
-        - Do not branch on screen contents or the result of an earlier action.
-        - Stay within 4 nesting levels, 50 source nodes, and 50 worst-case expanded action steps.
-        """
+            Rules:
+            - Return {} unless branching or literal repetition is necessary. Fixed sequences belong to the simpler typed automation tier.
+            - Preserve only actions, conditions, counts, and values explicitly requested by the user.
+            - If the user says "when I say X", put X in invocationPhrases and do not treat it as an action.
+            - Do not emit source code, shell, network, file, import, Accessibility, click, typing, key, URL, Shortcut, flow, download, script, or MCP calls.
+            - Do not branch on screen contents or the result of an earlier action.
+            - Stay within 4 nesting levels, 50 source nodes, and 50 worst-case expanded action steps.
+            """
     }
 
     static func program(fromStructuredJSON rawText: String) -> PaceProgramDefinition? {
         guard let jsonObject = extractJSONObject(from: rawText),
-              jsonObject != "{}",
-              let jsonData = jsonObject.data(using: .utf8),
-              let program = try? JSONDecoder().decode(PaceProgramDefinition.self, from: jsonData),
-              PaceProgramValidator.validationIssues(for: program).isEmpty else {
+            jsonObject != "{}",
+            let jsonData = jsonObject.data(using: .utf8),
+            let program = try? JSONDecoder().decode(PaceProgramDefinition.self, from: jsonData),
+            PaceProgramValidator.validationIssues(for: program).isEmpty
+        else {
             return nil
         }
         return program
@@ -857,8 +907,9 @@ nonisolated enum PaceNaturalLanguageProgramStructurer {
 
     private static func extractJSONObject(from rawText: String) -> String? {
         guard let openingBraceIndex = rawText.firstIndex(of: "{"),
-              let closingBraceIndex = rawText.lastIndex(of: "}"),
-              openingBraceIndex <= closingBraceIndex else {
+            let closingBraceIndex = rawText.lastIndex(of: "}"),
+            openingBraceIndex <= closingBraceIndex
+        else {
             return nil
         }
         return String(rawText[openingBraceIndex...closingBraceIndex])
@@ -871,7 +922,8 @@ nonisolated extension Array where Element == PaceProgramNode {
             switch node {
             case .javascript: return true
             case .action: return false
-            case .condition(_, let thenNodes, let otherwiseNodes): return thenNodes.containsJavaScript || otherwiseNodes.containsJavaScript
+            case .condition(_, let thenNodes, let otherwiseNodes):
+                return thenNodes.containsJavaScript || otherwiseNodes.containsJavaScript
             case .repeatTimes(_, let nodes): return nodes.containsJavaScript
             }
         }

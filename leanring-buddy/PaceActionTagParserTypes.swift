@@ -22,15 +22,16 @@ nonisolated struct PaceAgentInspectionHistory {
     mutating func append(plannerRequest: String, observations: [PaceActionExecutionObservation]) {
         completedStepCount += 1
         let stepText = """
-        Completed inspection step \(completedStepCount)
-        Request:
-        \(plannerRequest)
-        Result:
-        \(PaceActionExecutionObservation.formatForPlanner(observations))
-        """
+            Completed inspection step \(completedStepCount)
+            Request:
+            \(plannerRequest)
+            Result:
+            \(PaceActionExecutionObservation.formatForPlanner(observations))
+            """
         let truncationMarker = "\n[inspection result truncated to fit the prompt budget]"
         let maximumStepCharacterCount = (Self.maximumCharacterCount - 2) / 2
-        let boundedStepText = stepText.count > maximumStepCharacterCount
+        let boundedStepText =
+            stepText.count > maximumStepCharacterCount
             ? String(stepText.prefix(maximumStepCharacterCount - truncationMarker.count)) + truncationMarker
             : stepText
         completedSteps.append(boundedStepText)
@@ -131,7 +132,8 @@ nonisolated struct PaceActionExecutionObservation {
     }
 
     static func formatForUserFeedback(_ observations: [PaceActionExecutionObservation]) -> String? {
-        let userVisibleSummaries = observations
+        let userVisibleSummaries =
+            observations
             .map { $0.userFacingSummary ?? $0.summary }
             .map { summary in
                 // Producer metadata belongs to the planner, not speech or
@@ -354,7 +356,8 @@ nonisolated enum PaceParsedAction {
         case .mcp(let toolCall):
             return "\(toolCall.serverName).\(toolCall.toolName)"
         case .pressKey(let keyName, let modifiers):
-            let modifierPrefix = modifiers.isEmpty
+            let modifierPrefix =
+                modifiers.isEmpty
                 ? ""
                 : modifiers.map(\.rawValue).joined(separator: "+") + "+"
             return "\(modifierPrefix)\(keyName)"
@@ -397,7 +400,8 @@ nonisolated enum PaceParsedAction {
         case .undoLastMutation:
             return "Undo last editable text change"
         case .pressKey(let keyName, let modifiers):
-            let modifierPrefix = modifiers.isEmpty
+            let modifierPrefix =
+                modifiers.isEmpty
                 ? ""
                 : modifiers.map(\.rawValue).joined(separator: "+") + "+"
             return "Press \(modifierPrefix)\(keyName)"
@@ -458,8 +462,11 @@ nonisolated enum PaceParsedAction {
             return "Open Messages"
         case .downloadFile(let downloadRequest):
             return "Download file to ~/Downloads: \(downloadRequest.url.absoluteString)"
-        case .presentMedia(let request): return "Present \(request.presentationSummary) for \(request.durationSeconds) seconds"
-        case .speak(let request): return "Speak\(request.profile.map { " [" + $0.rawValue + "]" } ?? ""): \(Self.truncatedForApproval(request.text))\(request.englishSubtitle.map { " · English subtitles: " + Self.truncatedForApproval($0) } ?? "")"
+        case .presentMedia(let request):
+            return "Present \(request.presentationSummary) for \(request.durationSeconds) seconds"
+        case .speak(let request):
+            return
+                "Speak\(request.profile.map { " [" + $0.rawValue + "]" } ?? ""): \(Self.truncatedForApproval(request.text))\(request.englishSubtitle.map { " · English subtitles: " + Self.truncatedForApproval($0) } ?? "")"
         case .startTimer(let timerRequest):
             let durationMinutes = Int((timerRequest.durationInSeconds / 60.0).rounded())
             if durationMinutes >= 1, !timerRequest.label.isEmpty {
@@ -844,7 +851,7 @@ nonisolated enum PaceFastActionCommandParser {
         "vs code": "Visual Studio Code",
         "vscode": "Visual Studio Code",
         "xcode": "Xcode",
-        "zoom": "zoom.us"
+        "zoom": "zoom.us",
     ]
 
     static func parse(transcript: String) -> PaceFastActionParseResult? {
@@ -968,7 +975,8 @@ nonisolated enum PaceFastActionCommandParser {
     }
 
     private static func normalizeTranscript(_ transcript: String) -> String {
-        var normalizedTranscript = transcript
+        var normalizedTranscript =
+            transcript
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()
 
@@ -979,7 +987,8 @@ nonisolated enum PaceFastActionCommandParser {
             }
         }
 
-        return normalizedTranscript
+        return
+            normalizedTranscript
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .trimmingCharacters(in: CharacterSet(charactersIn: ".?!"))
     }
@@ -1001,7 +1010,8 @@ nonisolated enum PaceFastActionCommandParser {
 
     private static func parseKeyPressCommand(from normalizedTranscript: String) -> FastKeyPressCommand? {
         switch normalizedTranscript {
-        case "save", "save this", "save file", "save the file", "press command s", "press cmd s", "command s", "cmd s", "hit command s":
+        case "save", "save this", "save file", "save the file", "press command s", "press cmd s", "command s", "cmd s",
+            "hit command s":
             return FastKeyPressCommand(
                 keyName: "s",
                 modifiers: [.command],
@@ -1019,7 +1029,8 @@ nonisolated enum PaceFastActionCommandParser {
                 modifiers: [.command],
                 spokenText: "closing the tab."
             )
-        case "reopen closed tab", "reopen the closed tab", "reopen last closed tab", "press command shift t", "press cmd shift t", "command shift t", "cmd shift t":
+        case "reopen closed tab", "reopen the closed tab", "reopen last closed tab", "press command shift t",
+            "press cmd shift t", "command shift t", "cmd shift t":
             return FastKeyPressCommand(
                 keyName: "t",
                 modifiers: [.command, .shift],
@@ -1082,7 +1093,8 @@ nonisolated enum PaceFastActionCommandParser {
                 modifiers: [.command],
                 spokenText: "find ready."
             )
-        case "refresh", "refresh page", "reload", "reload page", "reload this page", "command r", "cmd r", "press command r":
+        case "refresh", "refresh page", "reload", "reload page", "reload this page", "command r", "cmd r",
+            "press command r":
             return FastKeyPressCommand(
                 keyName: "r",
                 modifiers: [.command],
@@ -1096,13 +1108,18 @@ nonisolated enum PaceFastActionCommandParser {
     private static func parseWindowSnapCommand(from normalizedTranscript: String) -> PaceWindowSnapRequest? {
         let position: PaceWindowSnapPosition
         switch normalizedTranscript {
-        case "snap window left", "move window left", "put window left", "put the window left", "move the window left", "snap the window left", "resize window left", "left half window", "window left half":
+        case "snap window left", "move window left", "put window left", "put the window left", "move the window left",
+            "snap the window left", "resize window left", "left half window", "window left half":
             position = .left
-        case "snap window right", "move window right", "put window right", "put the window right", "move the window right", "snap the window right", "resize window right", "right half window", "window right half":
+        case "snap window right", "move window right", "put window right", "put the window right",
+            "move the window right", "snap the window right", "resize window right", "right half window",
+            "window right half":
             position = .right
-        case "snap window top", "move window top", "put window top", "put the window top", "move the window top", "snap the window top", "top half window", "window top half":
+        case "snap window top", "move window top", "put window top", "put the window top", "move the window top",
+            "snap the window top", "top half window", "window top half":
             position = .top
-        case "snap window bottom", "move window bottom", "put window bottom", "put the window bottom", "move the window bottom", "snap the window bottom", "bottom half window", "window bottom half":
+        case "snap window bottom", "move window bottom", "put window bottom", "put the window bottom",
+            "move the window bottom", "snap the window bottom", "bottom half window", "window bottom half":
             position = .bottom
         case "maximize window", "maximize the window", "make window full size", "make the window full size":
             position = .maximize
@@ -1120,7 +1137,8 @@ nonisolated enum PaceFastActionCommandParser {
 
         if normalizedTranscript == "open messages"
             || normalizedTranscript == "open messages app"
-            || normalizedTranscript == "launch messages" {
+            || normalizedTranscript == "launch messages"
+        {
             return PaceMessageRequest(recipient: nil, text: nil)
         }
 
@@ -1129,7 +1147,7 @@ nonisolated enum PaceFastActionCommandParser {
             "open message to ",
             "open messages with ",
             "open message with ",
-            "message "
+            "message ",
         ]
 
         for recipientPrefix in recipientPrefixes {
@@ -1155,7 +1173,7 @@ nonisolated enum PaceFastActionCommandParser {
             " body ",
             "send message",
             "send a message",
-            "text "
+            "text ",
         ]
         return blockedFragments.contains { normalizedTranscript.contains($0) }
     }
@@ -1166,7 +1184,8 @@ nonisolated enum PaceFastActionCommandParser {
             return nil
         }
 
-        let words = rawRecipientName
+        let words =
+            rawRecipientName
             .split(separator: " ")
             .map { word in
                 let lowercasedWord = word.lowercased()
@@ -1223,7 +1242,8 @@ nonisolated enum PaceFastActionCommandParser {
             || normalizedTranscript == "make the \(noun) louder"
             || normalizedTranscript.hasPrefix("\(noun) up ")
             || normalizedTranscript.hasPrefix("turn \(noun) up ")
-            || normalizedTranscript.hasPrefix("turn the \(noun) up ") {
+            || normalizedTranscript.hasPrefix("turn the \(noun) up ")
+        {
             direction = .up
         } else if normalizedTranscript == "\(noun) down"
             || normalizedTranscript == "turn \(noun) down"
@@ -1234,7 +1254,8 @@ nonisolated enum PaceFastActionCommandParser {
             || normalizedTranscript == "make the \(noun) quieter"
             || normalizedTranscript.hasPrefix("\(noun) down ")
             || normalizedTranscript.hasPrefix("turn \(noun) down ")
-            || normalizedTranscript.hasPrefix("turn the \(noun) down ") {
+            || normalizedTranscript.hasPrefix("turn the \(noun) down ")
+        {
             direction = .down
         } else {
             return nil
@@ -1247,7 +1268,8 @@ nonisolated enum PaceFastActionCommandParser {
     }
 
     private static func parseStepCount(from normalizedTranscript: String) -> Int {
-        let tokens = normalizedTranscript
+        let tokens =
+            normalizedTranscript
             .split(whereSeparator: { !$0.isNumber })
             .compactMap { Int($0) }
         guard let requestedStepCount = tokens.first else { return 2 }
@@ -1279,7 +1301,7 @@ nonisolated enum PaceFastActionCommandParser {
         "wikipedia": "https://wikipedia.org",
         "stack overflow": "https://stackoverflow.com",
         "stackoverflow": "https://stackoverflow.com",
-        "product hunt": "https://producthunt.com"
+        "product hunt": "https://producthunt.com",
     ]
 
     private static func parseURLCommand(from normalizedTranscript: String) -> String? {
@@ -1321,7 +1343,7 @@ nonisolated enum PaceFastActionCommandParser {
     private static func strippingBrowserSuffix(from target: String) -> String {
         let browserNames: Set<String> = [
             "chrome", "google chrome", "safari", "arc", "firefox",
-            "edge", "brave", "the browser", "my browser", "browser"
+            "edge", "brave", "the browser", "my browser", "browser",
         ]
         for connector in [" on ", " in ", " using "] {
             guard let connectorRange = target.range(of: connector, options: .backwards) else {
@@ -1364,7 +1386,7 @@ nonisolated enum PaceFastActionCommandParser {
         "netflix.com": "Netflix",
         "wikipedia.org": "Wikipedia",
         "stackoverflow.com": "Stack Overflow",
-        "producthunt.com": "Product Hunt"
+        "producthunt.com": "Product Hunt",
     ]
 
     /// A speakable name for an opened URL: the curated product name when the
@@ -1401,7 +1423,8 @@ nonisolated enum PaceFastActionCommandParser {
         }
 
         guard let candidateApplicationName else { return nil }
-        let normalizedCandidate = candidateApplicationName
+        let normalizedCandidate =
+            candidateApplicationName
             .trimmingCharacters(in: .whitespacesAndNewlines)
         return knownApplicationAliases[normalizedCandidate]
     }

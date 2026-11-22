@@ -80,7 +80,8 @@ final class PaceVisionOCRClient {
         screenshotHeightInPixels: Int
     ) async throws -> [RecognizedTextBox] {
         try await PaceScreenReadActivity.shared.whileReading {
-            try await performTextRecognition(in: screenshotImageData,
+            try await performTextRecognition(
+                in: screenshotImageData,
                 screenshotWidthInPixels: screenshotWidthInPixels,
                 screenshotHeightInPixels: screenshotHeightInPixels)
         }

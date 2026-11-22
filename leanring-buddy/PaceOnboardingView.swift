@@ -197,8 +197,10 @@ struct PaceOnboardingView: View {
                     .foregroundStyle(DS.Colors.textPrimary)
                     .fixedSize(horizontal: false, vertical: true)
 
-                Text("Hold \(BuddyPushToTalkShortcut.currentShortcutOption.notchDisplayLabel) and speak naturally. Pace understands your request and carries it out while your voice, screen, and context stay on this Mac by default.")
-                    .font(DS.Typography.body)
+                Text(
+                    "Hold \(BuddyPushToTalkShortcut.currentShortcutOption.notchDisplayLabel) and speak naturally. Pace understands your request and carries it out while your voice, screen, and context stay on this Mac by default."
+                )
+                .font(DS.Typography.body)
                     .foregroundStyle(DS.Colors.textSecondary)
                     .lineSpacing(5)
                     .frame(maxWidth: 430, alignment: .leading)

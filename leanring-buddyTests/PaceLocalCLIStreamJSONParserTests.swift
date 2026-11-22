@@ -141,10 +141,16 @@ struct PaceLocalCLIStreamJSONParserTests {
 
     @Test func recoveredErrorNoticeDoesNotRejectACompletedTurn() throws {
         var delivery = PaceCLITextDeliveryState(codexTextDelivery: .completedTurn)
-        #expect(delivery.consume(chunk: "", fromLine:
-            #"{"type":"error","message":"Reconnecting... 1/5 (rate limit reached; HTTP 429)"}"#) == nil)
-        #expect(delivery.consume(chunk: "Paris.", fromLine:
-            #"{"type":"item.completed","item":{"type":"agent_message","text":"Paris."}}"#) == nil)
+        #expect(
+            delivery.consume(
+                chunk: "",
+                fromLine:
+                    #"{"type":"error","message":"Reconnecting... 1/5 (rate limit reached; HTTP 429)"}"#) == nil)
+        #expect(
+            delivery.consume(
+                chunk: "Paris.",
+                fromLine:
+                    #"{"type":"item.completed","item":{"type":"agent_message","text":"Paris."}}"#) == nil)
         #expect(delivery.consume(chunk: "", fromLine: #"{"type":"turn.completed"}"#) == "Paris.")
         #expect(delivery.rejectionCategory == nil)
         #expect(try delivery.finishedOutput() == "Paris.")
@@ -152,26 +158,38 @@ struct PaceLocalCLIStreamJSONParserTests {
 
     @Test func retryNoticeDoesNotTurnTheLunaDeadlineIntoAnAccountRejection() {
         var delivery = PaceCLITextDeliveryState(codexTextDelivery: .completedTurn)
-        #expect(delivery.consume(chunk: "", fromLine:
-            #"{"type":"error","message":"Reconnecting... 1/5 (rate limit reached; HTTP 429)"}"#) == nil)
+        #expect(
+            delivery.consume(
+                chunk: "",
+                fromLine:
+                    #"{"type":"error","message":"Reconnecting... 1/5 (rate limit reached; HTTP 429)"}"#) == nil)
         if case PaceCLIProcessError.timedOut = delivery.failurePreservingRejection(
-            PaceCLIProcessError.timedOut) {} else {
+            PaceCLIProcessError.timedOut)
+        {
+        } else {
             Issue.record("A reconnect notice must not prevent the bounded timeout fallback")
         }
     }
 
     @Test func unrecoveredAccountErrorNoticeStillPreventsFallback() {
         var delivery = PaceCLITextDeliveryState(codexTextDelivery: .completedTurn)
-        #expect(delivery.consume(chunk: "", fromLine:
-            #"{"type":"error","message":"HTTP 429: rate limit reached"}"#) == nil)
+        #expect(
+            delivery.consume(
+                chunk: "",
+                fromLine:
+                    #"{"type":"error","message":"HTTP 429: rate limit reached"}"#) == nil)
         #expect(throws: PaceLocalCLIPlannerError.self) { try delivery.finishedOutput() }
         if case PaceLocalCLIPlannerError.rejected(.quota) = delivery.failurePreservingRejection(
-            PaceCLIProcessError.timedOut) {} else {
+            PaceCLIProcessError.timedOut)
+        {
+        } else {
             Issue.record("An unrecovered quota rejection must survive cleanup timeout")
         }
         #expect(delivery.consume(chunk: "", fromLine: #"{"type":"turn.completed"}"#) == nil)
         if case PaceLocalCLIPlannerError.rejected(.quota) = delivery.failurePreservingRejection(
-            PaceCLIProcessError.emptyResponse) {} else {
+            PaceCLIProcessError.emptyResponse)
+        {
+        } else {
             Issue.record("An empty completion must not erase an unrecovered account rejection")
         }
     }
@@ -184,8 +202,9 @@ struct PaceLocalCLIStreamJSONParserTests {
             #"{"type":"item.completed","item":{"type":"agent_message","text":"Hello "}}"#,
             #"{"type":"item.completed","item":{"type":"agent_message","text":"world."}}"#,
         ] {
-            #expect(delivery.consume(
-                chunk: PaceLocalCLIStreamJSONParser.extractCodexChunk(fromLine: line), fromLine: line) == nil)
+            #expect(
+                delivery.consume(
+                    chunk: PaceLocalCLIStreamJSONParser.extractCodexChunk(fromLine: line), fromLine: line) == nil)
         }
         let completion = #"{"type":"turn.completed","usage":{"input_tokens":10,"output_tokens":2}}"#
         #expect(delivery.consume(chunk: "", fromLine: completion) == "Hello world.")
@@ -206,8 +225,9 @@ struct PaceLocalCLIStreamJSONParserTests {
         ] {
             var delivery = PaceCLITextDeliveryState(codexTextDelivery: .completedTurn)
             for line in [message] + trailingLines {
-                #expect(delivery.consume(
-                    chunk: PaceLocalCLIStreamJSONParser.extractCodexChunk(fromLine: line), fromLine: line) == nil)
+                #expect(
+                    delivery.consume(
+                        chunk: PaceLocalCLIStreamJSONParser.extractCodexChunk(fromLine: line), fromLine: line) == nil)
             }
             #expect(throws: PaceLocalCLIPlannerError.self) { try delivery.finishedOutput() }
         }
@@ -217,7 +237,10 @@ struct PaceLocalCLIStreamJSONParserTests {
         let fixtures: [(String, PaceCLIRejectionCategory)] = [
             (#"{"type":"turn.failed","error":{"code":"insufficient_quota","message":"Synthetic limit"}}"#, .quota),
             (#"{"type":"error","message":"You have exceeded your usage limit"}"#, .quota),
-            (#"{"type":"error","error":{"code":"invalid_api_key","message":"Synthetic credentials"}}"#, .authentication),
+            (
+                #"{"type":"error","error":{"code":"invalid_api_key","message":"Synthetic credentials"}}"#,
+                .authentication
+            ),
             (#"{"type":"turn.failed","error":{"message":"Please log in to Codex"}}"#, .authentication),
             (#"{"type":"error","error":{"code":"unauthorized"}}"#, .authentication),
             (#"{"type":"error","error":{"code":"unauthenticated"}}"#, .authentication),
@@ -242,7 +265,9 @@ struct PaceLocalCLIStreamJSONParserTests {
                 let failure = delivery.failurePreservingRejection(processError)
                 if case PaceLocalCLIPlannerError.rejected(let actualCategory) = failure {
                     #expect(actualCategory == category)
-                } else { Issue.record("Lost structured account rejection") }
+                } else {
+                    Issue.record("Lost structured account rejection")
+                }
             }
             #expect(delivery.failurePreservingRejection(CancellationError()) is CancellationError)
         }
@@ -259,8 +284,9 @@ struct PaceLocalCLIStreamJSONParserTests {
         ]
         var delivery = PaceCLITextDeliveryState(codexTextDelivery: .completedTurn)
         for line in lines {
-            #expect(delivery.consume(
-                chunk: PaceLocalCLIStreamJSONParser.extractCodexChunk(fromLine: line), fromLine: line) == nil)
+            #expect(
+                delivery.consume(
+                    chunk: PaceLocalCLIStreamJSONParser.extractCodexChunk(fromLine: line), fromLine: line) == nil)
         }
         #expect(delivery.rejectionCategory == nil)
         #expect(throws: PaceLocalCLIPlannerError.self) { try delivery.finishedOutput() }
@@ -280,19 +306,27 @@ struct PaceLocalCLIStreamJSONParserTests {
             #expect(delivery.consume(chunk: "", fromLine: line) == nil)
             #expect(delivery.rejectionCategory == nil)
             #expect(throws: PaceLocalCLIPlannerError.self) { try delivery.finishedOutput() }
-            if case PaceCLIProcessError.failed = delivery.failurePreservingRejection(PaceCLIProcessError.failed(1, "")) {
-            } else { Issue.record("Unknown failures must remain eligible for one fallback") }
+            if case PaceCLIProcessError.failed = delivery.failurePreservingRejection(PaceCLIProcessError.failed(1, ""))
+            {
+            } else {
+                Issue.record("Unknown failures must remain eligible for one fallback")
+            }
         }
         #expect(PaceCLIRejectionCategory.classify("Model unavailable for this account") == nil)
         #expect(PaceCLIRejectionCategory.classify("Please log in to Codex") == .authentication)
         #expect(PaceCLIRejectionCategory.classify("You have exceeded your usage limit") == .quota)
         let delivery = PaceCLITextDeliveryState(codexTextDelivery: .completedTurn)
-        for (stderr, category) in [("HTTP 401: Unauthorized", PaceCLIRejectionCategory.authentication),
-            ("HTTP 429: Too many requests", .quota)] {
+        for (stderr, category) in [
+            ("HTTP 401: Unauthorized", PaceCLIRejectionCategory.authentication),
+            ("HTTP 429: Too many requests", .quota),
+        ] {
             if case PaceLocalCLIPlannerError.rejected(let actualCategory) = delivery.failurePreservingRejection(
-                PaceCLIProcessError.failed(1, stderr)) {
+                PaceCLIProcessError.failed(1, stderr))
+            {
                 #expect(actualCategory == category)
-            } else { Issue.record("Lost stderr account rejection") }
+            } else {
+                Issue.record("Lost stderr account rejection")
+            }
         }
     }
 

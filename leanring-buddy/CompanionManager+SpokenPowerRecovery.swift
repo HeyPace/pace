@@ -8,7 +8,8 @@ extension CompanionManager {
         pendingSpokenPowerClarification = pending
         pendingIntentClarification = nil
         pendingClickTargetClarification = nil
-        let question = pending.candidates.count == 1 ? "Did you mean \(pending.candidates[0].name)?" : "Which Power did you mean?"
+        let question =
+            pending.candidates.count == 1 ? "Did you mean \(pending.candidates[0].name)?" : "Which Power did you mean?"
         handleImmediateLocalModeResponse(transcript: transcript, spokenText: question)
         currentTurnHUDState = .clarification(question: question, options: pending.options + ["Cancel"])
         revealRequestFeedback()
@@ -16,7 +17,8 @@ extension CompanionManager {
 
     @discardableResult
     func handleSpokenPowerRecoveryIfNeeded(_ transcript: String, now: Date = Date()) async -> Bool {
-        let isDirectUserReply = activeConversationUserEvent?.origin == .voice || activeConversationUserEvent?.origin == .typed
+        let isDirectUserReply =
+            activeConversationUserEvent?.origin == .voice || activeConversationUserEvent?.origin == .typed
         if let pending = pendingSpokenPowerClarification, isDirectUserReply {
             switch pending.resolve(transcript, now: now) {
             case .selected(let power):
@@ -29,7 +31,8 @@ extension CompanionManager {
                 return true
             case .expired:
                 pendingSpokenPowerClarification = nil
-                handleImmediateLocalModeResponse(transcript: transcript, spokenText: "That Power choice expired. Ask me to run it again.")
+                handleImmediateLocalModeResponse(
+                    transcript: transcript, spokenText: "That Power choice expired. Ask me to run it again.")
                 return true
             case .needsSelection:
                 offerSpokenPowerClarification(pending.candidates, transcript: transcript, now: pending.createdAt)
@@ -41,11 +44,13 @@ extension CompanionManager {
             pendingSpokenPowerClarification = nil
             return false
         }
-        let command = PacePowerCommandParser.parse(transcript, isKnownSavedPowerName: managedPowerStore.hasExactSavedPowerName)
+        let command = PacePowerCommandParser.parse(
+            transcript, isKnownSavedPowerName: managedPowerStore.hasExactSavedPowerName)
         if command == nil,
-           PaceAutomationCatalogCommandParser.parse(transcript) != nil
-            || PaceShortcutCommandParser.parse(transcript) != nil
-            || PaceSkillCommandParser.parse(transcript) != nil {
+            PaceAutomationCatalogCommandParser.parse(transcript) != nil
+                || PaceShortcutCommandParser.parse(transcript) != nil
+                || PaceSkillCommandParser.parse(transcript) != nil
+        {
             pendingSpokenPowerClarification = nil
             return false
         }
@@ -55,7 +60,10 @@ extension CompanionManager {
             guard !managedPowerStore.hasExactSavedPowerName(target) else { return false }
             explicitTarget = target
         } else {
-            if PaceFlowCommandParser.parse(transcript, isRecordedFlow: { self.flowStore.load(named: $0) != nil }) != nil { return false }
+            if PaceFlowCommandParser.parse(transcript, isRecordedFlow: { self.flowStore.load(named: $0) != nil }) != nil
+            {
+                return false
+            }
             let firstWord = PaceSpokenPowerRecovery.normalized(transcript).split(separator: " ").first
             guard firstWord == "run" || firstWord == "power" else { return false }
             explicitTarget = nil
@@ -66,12 +74,15 @@ extension CompanionManager {
         if let explicitTarget, (try? managedPowerStore.resolve(explicitTarget, catalog: discovered.catalog)) != nil {
             return false
         }
-        switch await PaceAutomationNaturalLanguageMatcher.match(transcript: transcript, catalog: discovered.catalog, embedder: nil) {
+        switch await PaceAutomationNaturalLanguageMatcher.match(
+            transcript: transcript, catalog: discovered.catalog, embedder: nil)
+        {
         case .unique(_, .exactInvocationPhrase, _), .ambiguous(_, .exactInvocationPhrase): return false
         default: break
         }
         guard isActiveTurn(turnLease) else { return true }
-        let candidates = PaceSpokenPowerRecovery.candidates(for: transcript,
+        let candidates = PaceSpokenPowerRecovery.candidates(
+            for: transcript,
             powers: managedPowerStore.list(catalog: discovered.catalog), explicitRunTarget: explicitTarget)
         guard !candidates.isEmpty else { return false }
         offerSpokenPowerClarification(candidates, transcript: transcript, now: now)
@@ -101,7 +112,8 @@ extension CompanionManager {
             case .cancelled:
                 handleImmediateLocalModeResponse(transcript: option, spokenText: "Cancelled. No Power was run.")
             case .expired:
-                handleImmediateLocalModeResponse(transcript: option, spokenText: "That Power choice expired. Ask me to run it again.")
+                handleImmediateLocalModeResponse(
+                    transcript: option, spokenText: "That Power choice expired. Ask me to run it again.")
             case .needsSelection, .unrelated: break
             }
         }

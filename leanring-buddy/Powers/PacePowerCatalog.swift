@@ -53,9 +53,10 @@ nonisolated struct PacePowerCatalog {
     let powers: [PacePowerDefinition]
 
     var tools: [PaceLocalToolDefinition] {
-        let kindOrder = Dictionary(uniqueKeysWithValues: PaceLocalToolKind.allCases.enumerated().map {
-            ($0.element, $0.offset)
-        })
+        let kindOrder = Dictionary(
+            uniqueKeysWithValues: PaceLocalToolKind.allCases.enumerated().map {
+                ($0.element, $0.offset)
+            })
         // Keep the established planner order independent of how powers are grouped on disk.
         return powers.flatMap(\.tools).sorted {
             kindOrder[$0.kind, default: 0] < kindOrder[$1.kind, default: 0]
@@ -92,7 +93,8 @@ nonisolated struct PacePowerCatalog {
                 issues.append("duplicate power identifier \(power.identifier)")
             }
             if power.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                || power.summary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                || power.summary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            {
                 issues.append("\(power.identifier) needs a title and summary")
             }
             for tool in power.tools {

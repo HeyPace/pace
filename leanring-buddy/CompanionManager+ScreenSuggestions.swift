@@ -14,8 +14,9 @@ nonisolated struct PaceScreenWatchSessionSnapshot {
 
     init(sessionDictionary: [String: Any]?, currentUserIdentifier: UInt32) {
         guard let sessionDictionary,
-              let sessionUserIdentifier = sessionDictionary[kCGSessionUserIDKey as String] as? NSNumber,
-              sessionUserIdentifier.uint32Value == currentUserIdentifier else {
+            let sessionUserIdentifier = sessionDictionary[kCGSessionUserIDKey as String] as? NSNumber,
+            sessionUserIdentifier.uint32Value == currentUserIdentifier
+        else {
             isScreenLocked = nil
             isOnConsole = nil
             return
@@ -33,7 +34,8 @@ nonisolated struct PaceScreenWatchSessionSnapshot {
     var allowsScreenWatch: Bool { isScreenLocked == false && isOnConsole == true }
 
     static func current() -> Self {
-        Self(sessionDictionary: CGSessionCopyCurrentDictionary() as? [String: Any],
+        Self(
+            sessionDictionary: CGSessionCopyCurrentDictionary() as? [String: Any],
             currentUserIdentifier: getuid())
     }
 }
@@ -41,8 +43,10 @@ nonisolated struct PaceScreenWatchSessionSnapshot {
 nonisolated enum PaceScreenSuggestionPrivacy {
     static func isSensitiveApplication(_ bundleIdentifier: String?) -> Bool {
         guard let identifier = bundleIdentifier?.lowercased(), !identifier.isEmpty else { return true }
-        return ["1password", "bitwarden", "lastpass", "keychain", "password", "authenticator", "wallet", "bank", "crypto"]
-            .contains(where: identifier.contains)
+        return [
+            "1password", "bitwarden", "lastpass", "keychain", "password", "authenticator", "wallet", "bank", "crypto",
+        ]
+        .contains(where: identifier.contains)
     }
 }
 
@@ -59,10 +63,14 @@ extension CompanionManager {
             },
             validate: { [weak self] suggestion, observation in
                 guard let self, self.screenSuggestionEvaluationAllowed(observation.sceneIdentity) else { return false }
-                let boxes = try await self.visionOCRClient.recognizeText(in: observation.capture.imageData,
+                let boxes = try await self.visionOCRClient.recognizeText(
+                    in: observation.capture.imageData,
                     screenshotWidthInPixels: observation.capture.screenshotWidthInPixels,
                     screenshotHeightInPixels: observation.capture.screenshotHeightInPixels)
-                guard let freshOCR = PaceScreenSuggestionBoundary.redactedBackgroundOCR(boxes.map(\.text).joined(separator: "\n")) else { return false }
+                guard
+                    let freshOCR = PaceScreenSuggestionBoundary.redactedBackgroundOCR(
+                        boxes.map(\.text).joined(separator: "\n"))
+                else { return false }
                 return freshOCR.localizedCaseInsensitiveContains(suggestion.subject)
                     && freshOCR.localizedCaseInsensitiveContains(suggestion.evidence)
             },
@@ -79,7 +87,8 @@ extension CompanionManager {
             sourceRevision: { [weak self] in self?.localRetriever.screenWatchHistoryAccessGeneration ?? 0 },
             recognizeText: { [weak self] observation in
                 guard let self else { return [] }
-                return try await visionOCRClient.recognizeText(in: observation.capture.imageData,
+                return try await visionOCRClient.recognizeText(
+                    in: observation.capture.imageData,
                     screenshotWidthInPixels: observation.capture.screenshotWidthInPixels,
                     screenshotHeightInPixels: observation.capture.screenshotHeightInPixels)
             },
@@ -87,7 +96,8 @@ extension CompanionManager {
                 _ = self?.persistScreenWatchNote(observation, excerpt: excerpt)
             },
             onDelayedRecognition: {
-                PaceAPIAuditLog.shared.record(subsystem: "screen", operation: "screen_watch_note",
+                PaceAPIAuditLog.shared.record(
+                    subsystem: "screen", operation: "screen_watch_note",
                     target: "local_screen_history", durationMilliseconds: 0, outcome: "ocr_delayed")
             }
         )
@@ -95,12 +105,17 @@ extension CompanionManager {
 
     @discardableResult
     func persistScreenWatchNote(_ observation: PaceScreenWatchObservation, excerpt: String) -> Bool {
-        guard localRetriever.recordScreenWatchObservation(screenLabel: observation.capture.label,
-            categoryDisplayName: "observed screen text",
-            frontmostApplicationName: observation.applicationDisplayName ?? observation.sceneIdentity.applicationBundleIdentifier,
-            screenDescription: excerpt, now: observation.observedAt) else { return false }
+        guard
+            localRetriever.recordScreenWatchObservation(
+                screenLabel: observation.capture.label,
+                categoryDisplayName: "observed screen text",
+                frontmostApplicationName: observation.applicationDisplayName
+                    ?? observation.sceneIdentity.applicationBundleIdentifier,
+                screenDescription: excerpt, now: observation.observedAt)
+        else { return false }
         refreshLocalRetrievalPublishedState(sourceSubset: [.screenWatchHistory])
-        PaceAPIAuditLog.shared.record(subsystem: "screen", operation: "screen_watch_note",
+        PaceAPIAuditLog.shared.record(
+            subsystem: "screen", operation: "screen_watch_note",
             target: "local_screen_history", durationMilliseconds: 0, outcome: "stored",
             inputCharacterCount: excerpt.count)
         return true
@@ -108,9 +123,10 @@ extension CompanionManager {
 
     func screenWatchNoteCaptureAllowed(_ observation: PaceScreenWatchObservation) -> Bool {
         guard localRetriever.isSourceEnabled(.screenWatchHistory), screenSuggestionCaptureAllowed(),
-              let application = NSWorkspace.shared.frontmostApplication,
-              application.processIdentifier == observation.sceneIdentity.applicationProcessIdentifier,
-              application.bundleIdentifier == observation.sceneIdentity.applicationBundleIdentifier else { return false }
+            let application = NSWorkspace.shared.frontmostApplication,
+            application.processIdentifier == observation.sceneIdentity.applicationProcessIdentifier,
+            application.bundleIdentifier == observation.sceneIdentity.applicationBundleIdentifier
+        else { return false }
         let cursorScreen = NSScreen.screens.first { $0.frame.contains(NSEvent.mouseLocation) }
         let displayIdentifier = cursorScreen?.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? UInt32
         return displayIdentifier == observation.sceneIdentity.displayIdentifier
@@ -145,7 +161,8 @@ extension CompanionManager {
             return false
         }
         guard thermalStateAdvisor.currentRecommendation != .suspendBackground,
-              thermalStateAdvisor.currentRecommendation != .dampenBackgroundLoops else {
+            thermalStateAdvisor.currentRecommendation != .dampenBackgroundLoops
+        else {
             screenSuggestionCoordinator.invalidate()
             screenWatchNoteCoordinator.invalidate()
             latestWatchModeSummary = "Watch paused · thermal pressure"
@@ -179,8 +196,9 @@ extension CompanionManager {
             return false
         }
         guard let application = NSWorkspace.shared.frontmostApplication,
-              application.processIdentifier == sceneIdentity.applicationProcessIdentifier,
-              application.bundleIdentifier == sceneIdentity.applicationBundleIdentifier else {
+            application.processIdentifier == sceneIdentity.applicationProcessIdentifier,
+            application.bundleIdentifier == sceneIdentity.applicationBundleIdentifier
+        else {
             latestWatchModeSummary = "Watch waiting · foreground application changed"
             return false
         }
@@ -204,8 +222,10 @@ extension CompanionManager {
     }
 
     func screenSuggestionRestraintContext(_ sceneIdentity: PaceScreenSceneIdentity) -> PaceRestraintContext {
-        PaceRestraintContext(now: Date(),
-            lastProactiveUtteranceAt: [lastScreenSuggestionDeliveryAt, proactivityPipeline.lastProactiveUtteranceAt].compactMap { $0 }.max(),
+        PaceRestraintContext(
+            now: Date(),
+            lastProactiveUtteranceAt: [lastScreenSuggestionDeliveryAt, proactivityPipeline.lastProactiveUtteranceAt]
+                .compactMap { $0 }.max(),
             lastEpisodicRecallAt: nil, lastUserInputAt: userInputActivityMonitor.lastUserInputAt,
             frontmostAppBundleIdentifier: sceneIdentity.applicationBundleIdentifier,
             isOnActiveCall: activeCallDetector.isOnActiveCall, wakeWordConfidence: nil,
@@ -213,44 +233,56 @@ extension CompanionManager {
             isInUserFocusMode: focusModeMonitor.isCurrentlyInUserFocus)
     }
 
-    func evaluateScreenSuggestion(_ observation: PaceScreenWatchObservation) async throws -> PaceScreenSuggestionDecision {
+    func evaluateScreenSuggestion(_ observation: PaceScreenWatchObservation) async throws
+        -> PaceScreenSuggestionDecision
+    {
         guard screenSuggestionEvaluationAllowed(observation.sceneIdentity) else { return .quiet }
         guard let fingerprint = PaceScreenImageDiffer.fingerprint(for: observation.capture.imageData),
-              screenSuggestionVisualGate.needsEvaluation(sceneIdentity: observation.sceneIdentity, fingerprint: fingerprint) else { return .quiet }
+            screenSuggestionVisualGate.needsEvaluation(
+                sceneIdentity: observation.sceneIdentity, fingerprint: fingerprint)
+        else { return .quiet }
         let configuration = PacePlannerTierStore.loadConfiguration()
         let bridgeConfiguration = PaceCloudBridgeConsent.loadConfiguration()
         let directConsent = PaceCloudBridgeConsent.hasAcceptedDirectSpawnConsent()
-        let boxes = try await visionOCRClient.recognizeText(in: observation.capture.imageData,
+        let boxes = try await visionOCRClient.recognizeText(
+            in: observation.capture.imageData,
             screenshotWidthInPixels: observation.capture.screenshotWidthInPixels,
             screenshotHeightInPixels: observation.capture.screenshotHeightInPixels)
         try Task.checkCancellation()
         guard screenSuggestionEvaluationAllowed(observation.sceneIdentity),
-              configuration == PacePlannerTierStore.loadConfiguration(),
-              directConsent == PaceCloudBridgeConsent.hasAcceptedDirectSpawnConsent(),
-              bridgeConfiguration == PaceCloudBridgeConsent.loadConfiguration() else { return .quiet }
+            configuration == PacePlannerTierStore.loadConfiguration(),
+            directConsent == PaceCloudBridgeConsent.hasAcceptedDirectSpawnConsent(),
+            bridgeConfiguration == PaceCloudBridgeConsent.loadConfiguration()
+        else { return .quiet }
         guard let ocr = PaceScreenSuggestionBoundary.redactedBackgroundOCR(boxes.map(\.text).joined(separator: "\n")),
-              ocr.count >= 30 else { return .quiet }
+            ocr.count >= 30
+        else { return .quiet }
         let selectedPlanner = try BuddyPlannerClientFactory.makeScreenSuggestionClient()
         let disclosureLease = beginScreenSuggestionDisclosureLease(isOffDevice: selectedPlanner.isOffDevice)
         defer { endScreenSuggestionDisclosureLease(disclosureLease) }
         print("👀 Watch check: OCR characters=\(ocr.count) images=0 offDevice=\(selectedPlanner.isOffDevice)")
-        let quotedOCRData = try JSONSerialization.data(withJSONObject: ["untrusted_screen_ocr": ocr], options: [.sortedKeys])
-        let result = try await selectedPlanner.client.generateResponseStreaming(images: [],
+        let quotedOCRData = try JSONSerialization.data(
+            withJSONObject: ["untrusted_screen_ocr": ocr], options: [.sortedKeys])
+        let result = try await selectedPlanner.client.generateResponseStreaming(
+            images: [],
             systemPrompt: PaceScreenSuggestionBoundary.systemPrompt, conversationHistory: [],
             userPrompt: String(decoding: quotedOCRData, as: UTF8.self), onTextChunk: { _ in })
         try Task.checkCancellation()
         guard screenSuggestionEvaluationAllowed(observation.sceneIdentity),
-              configuration == PacePlannerTierStore.loadConfiguration(),
-              directConsent == PaceCloudBridgeConsent.hasAcceptedDirectSpawnConsent(),
-              bridgeConfiguration == PaceCloudBridgeConsent.loadConfiguration() else { return .quiet }
-        let decision = try PaceScreenSuggestionBoundary.parse(result.text, ocr: ocr,
+            configuration == PacePlannerTierStore.loadConfiguration(),
+            directConsent == PaceCloudBridgeConsent.hasAcceptedDirectSpawnConsent(),
+            bridgeConfiguration == PaceCloudBridgeConsent.loadConfiguration()
+        else { return .quiet }
+        let decision = try PaceScreenSuggestionBoundary.parse(
+            result.text, ocr: ocr,
             sceneIdentity: observation.sceneIdentity, observedAt: observation.observedAt)
         let outcome: String
         switch decision {
         case .quiet: outcome = "quiet"
         case .suggest: outcome = "suggest"
         }
-        PaceAPIAuditLog.shared.record(subsystem: "screen", operation: "screen_suggestion_decision",
+        PaceAPIAuditLog.shared.record(
+            subsystem: "screen", operation: "screen_suggestion_decision",
             target: "screen_suggestion_boundary", durationMilliseconds: 0, outcome: outcome,
             inputCharacterCount: ocr.count)
         screenSuggestionVisualGate.recordEvaluation(sceneIdentity: observation.sceneIdentity, fingerprint: fingerprint)
@@ -273,11 +305,13 @@ extension CompanionManager {
 
     func deliverScreenSuggestion(_ suggestion: PaceScreenSuggestion) -> Bool {
         guard screenSuggestionEvaluationAllowed(suggestion.sceneIdentity),
-              !screenSuggestionNotification.hasPresented(suggestionIdentifier: suggestion.identifier) else { return false }
+            !screenSuggestionNotification.hasPresented(suggestionIdentifier: suggestion.identifier)
+        else { return false }
         let deliveredAt = Date()
         lastScreenSuggestionDeliveryAt = deliveredAt
         proactivityPipeline.recordExternalProactiveDelivery(at: deliveredAt)
-        recordAssistantNarration(suggestion.offer, origin: .proactive,
+        recordAssistantNarration(
+            suggestion.offer, origin: .proactive,
             eventIdentifier: suggestion.conversationEventIdentifier, recordedAt: deliveredAt,
             plannerContext: "(system) screen suggestion. " + suggestion.untrustedFollowUpContext)
         screenSuggestionNotification.present(suggestion)
@@ -285,8 +319,9 @@ extension CompanionManager {
             let speechGeneration = watchSuggestionSpeechGeneration
             let speechTask = Task { [weak self] in
                 guard let self, !Task.isCancelled,
-                      watchSuggestionSpeechGeneration == speechGeneration,
-                      screenSuggestionEvaluationAllowed(suggestion.sceneIdentity) else { return }
+                    watchSuggestionSpeechGeneration == speechGeneration,
+                    screenSuggestionEvaluationAllowed(suggestion.sceneIdentity)
+                else { return }
                 await speakAcceptedWatchSuggestion(suggestion, speechGeneration: speechGeneration)
             }
             watchSuggestionSpeechTask = speechTask
@@ -297,7 +332,8 @@ extension CompanionManager {
 
     func speakAcceptedWatchSuggestion(_ suggestion: PaceScreenSuggestion, speechGeneration: UInt64) async {
         guard !Task.isCancelled, watchSuggestionSpeechGeneration == speechGeneration,
-              voiceState == .idle else { return }
+            voiceState == .idle
+        else { return }
         streamingSentenceTTSPipeline.resetForNewTurn()
         isWatchSuggestionSpeaking = true
         defer {
@@ -324,24 +360,33 @@ extension CompanionManager {
             && !PaceScreenSuggestionPrivacy.isSensitiveApplication(watchForegroundApplicationIdentifierProvider())
     }
 
-    func recordUnavailableScreenSuggestionFeedback(_ suggestion: PaceScreenSuggestion, eventIdentifier: String? = nil,
-                                                   message: String = "I can’t open that explanation right now. Watch is paused or privacy protections are active.") {
-        let feedbackIdentifier = "screen-suggestion-unavailable-" + (eventIdentifier ?? suggestion.identifier.uuidString)
+    func recordUnavailableScreenSuggestionFeedback(
+        _ suggestion: PaceScreenSuggestion, eventIdentifier: String? = nil,
+        message: String = "I can’t open that explanation right now. Watch is paused or privacy protections are active."
+    ) {
+        let feedbackIdentifier =
+            "screen-suggestion-unavailable-" + (eventIdentifier ?? suggestion.identifier.uuidString)
         if conversationRecorder.event(withIdentifier: feedbackIdentifier) == nil {
-            recordAssistantNarration(message, origin: .failure, eventIdentifier: feedbackIdentifier, turnIdentifier: eventIdentifier)
+            recordAssistantNarration(
+                message, origin: .failure, eventIdentifier: feedbackIdentifier, turnIdentifier: eventIdentifier)
         }
         NotificationCenter.default.post(name: .paceShowPanel, object: PaceConversationPanelPresentationIntent.preview)
     }
 
-    func screenSuggestionContextForCurrentPrivacyGate(_ context: PaceScreenSuggestionRequestContext?) -> PaceScreenSuggestionRequestContext? {
+    func screenSuggestionContextForCurrentPrivacyGate(_ context: PaceScreenSuggestionRequestContext?)
+        -> PaceScreenSuggestionRequestContext?
+    {
         if let context, case .followUp = context, !screenSuggestionNotificationPresentationAllowed() { return nil }
         return context
     }
 
-    func discardScreenSuggestionRequestIfUnavailable(_ context: PaceScreenSuggestionRequestContext?,
-                                                     eventIdentifier: String?) -> Bool {
+    func discardScreenSuggestionRequestIfUnavailable(
+        _ context: PaceScreenSuggestionRequestContext?,
+        eventIdentifier: String?
+    ) -> Bool {
         guard let context, case .notification = context,
-              !screenSuggestionNotificationPresentationAllowed() else { return false }
+            !screenSuggestionNotificationPresentationAllowed()
+        else { return false }
         if let eventIdentifier {
             conversationRecorder.updateDeliveryState(.cancelled, eventIdentifier: eventIdentifier)
         }
@@ -349,15 +394,19 @@ extension CompanionManager {
         return true
     }
 
-    func validateScreenSuggestionRequestForPlanner(_ context: PaceScreenSuggestionRequestContext?,
-                                                   turnLease: PaceTurnLease) -> Bool {
+    func validateScreenSuggestionRequestForPlanner(
+        _ context: PaceScreenSuggestionRequestContext?,
+        turnLease: PaceTurnLease
+    ) -> Bool {
         guard isActiveTurn(turnLease) else { return false }
         guard let context, !screenSuggestionNotificationPresentationAllowed() else { return true }
         if case .followUp = context {
-            recordUnavailableScreenSuggestionFeedback(context.suggestion, eventIdentifier: activeConversationUserEvent?.eventID,
+            recordUnavailableScreenSuggestionFeedback(
+                context.suggestion, eventIdentifier: activeConversationUserEvent?.eventID,
                 message: "I stopped that screen follow-up because Watch is unavailable. Restate the topic to continue.")
         } else {
-            _ = discardScreenSuggestionRequestIfUnavailable(context, eventIdentifier: activeConversationUserEvent?.eventID)
+            _ = discardScreenSuggestionRequestIfUnavailable(
+                context, eventIdentifier: activeConversationUserEvent?.eventID)
         }
         cancelActiveTurnTasks()
         streamingSentenceTTSPipeline.stopForUserDismissal()
@@ -368,8 +417,10 @@ extension CompanionManager {
         return false
     }
 
-    func handleScreenSuggestionNotificationAction(_ suggestion: PaceScreenSuggestion,
-                                                 action: PaceScreenSuggestionNotificationAction) {
+    func handleScreenSuggestionNotificationAction(
+        _ suggestion: PaceScreenSuggestion,
+        action: PaceScreenSuggestionNotificationAction
+    ) {
         if action == .dismiss {
             cancelWatchSuggestionSpeech()
             chatSession.acknowledgeScreenSuggestion(eventIdentifier: suggestion.conversationEventIdentifier)
@@ -382,7 +433,8 @@ extension CompanionManager {
         }
         chatSession.acknowledgeScreenSuggestion(eventIdentifier: suggestion.conversationEventIdentifier)
         cancelWatchSuggestionSpeech()
-        NotificationCenter.default.post(name: .paceShowPanel, object: PaceConversationPanelPresentationIntent.interactive)
+        NotificationCenter.default.post(
+            name: .paceShowPanel, object: PaceConversationPanelPresentationIntent.interactive)
         submitScreenSuggestionRequest(request, suggestion: suggestion)
     }
 
@@ -475,9 +527,12 @@ extension CompanionManager {
     func installWatchLifecycleObservers() {
         removeWatchLifecycleObservers()
         let runtimeGeneration = watchRuntimeGeneration
-        for eventName in [NSWorkspace.didActivateApplicationNotification, NSWorkspace.activeSpaceDidChangeNotification] {
-            let observer = NSWorkspace.shared.notificationCenter.addObserver(forName: eventName,
-                object: nil, queue: .main) { [weak self] _ in
+        for eventName in [NSWorkspace.didActivateApplicationNotification, NSWorkspace.activeSpaceDidChangeNotification]
+        {
+            let observer = NSWorkspace.shared.notificationCenter.addObserver(
+                forName: eventName,
+                object: nil, queue: .main
+            ) { [weak self] _ in
                 MainActor.assumeIsolated { self?.screenWatchNoteCoordinator.invalidate() }
             }
             watchWorkspaceLifecycleObservers.append(observer)
@@ -495,27 +550,35 @@ extension CompanionManager {
             (NSWorkspace.willSleepNotification, .systemSleeping, true),
             (NSWorkspace.didWakeNotification, .systemSleeping, false),
             (NSWorkspace.sessionDidResignActiveNotification, .userSessionInactive, true),
-            (NSWorkspace.sessionDidBecomeActiveNotification, .userSessionInactive, false)
+            (NSWorkspace.sessionDidBecomeActiveNotification, .userSessionInactive, false),
         ]
         let distributedEvents: [(Notification.Name, PaceScreenWatchPauseReason, Bool)] = [
             (Notification.Name("com.apple.screenIsLocked"), .screenLocked, true),
-            (Notification.Name("com.apple.screenIsUnlocked"), .screenLocked, false)
+            (Notification.Name("com.apple.screenIsUnlocked"), .screenLocked, false),
         ]
         for (notificationName, pauseReason, isPaused) in workspaceEvents {
-            let observer = NSWorkspace.shared.notificationCenter.addObserver(forName: notificationName,
-                object: nil, queue: .main) { [weak self] _ in
+            let observer = NSWorkspace.shared.notificationCenter.addObserver(
+                forName: notificationName,
+                object: nil, queue: .main
+            ) { [weak self] _ in
                 MainActor.assumeIsolated {
-                    guard let self, self.isWatchRuntimeStarted, self.watchRuntimeGeneration == runtimeGeneration else { return }
+                    guard let self, self.isWatchRuntimeStarted, self.watchRuntimeGeneration == runtimeGeneration else {
+                        return
+                    }
                     self.setWatchRuntimePaused(pauseReason, isPaused: isPaused)
                 }
             }
             watchWorkspaceLifecycleObservers.append(observer)
         }
         for (notificationName, pauseReason, isPaused) in distributedEvents {
-            let observer = DistributedNotificationCenter.default().addObserver(forName: notificationName,
-                object: nil, queue: .main) { [weak self] _ in
+            let observer = DistributedNotificationCenter.default().addObserver(
+                forName: notificationName,
+                object: nil, queue: .main
+            ) { [weak self] _ in
                 MainActor.assumeIsolated {
-                    guard let self, self.isWatchRuntimeStarted, self.watchRuntimeGeneration == runtimeGeneration else { return }
+                    guard let self, self.isWatchRuntimeStarted, self.watchRuntimeGeneration == runtimeGeneration else {
+                        return
+                    }
                     self.setWatchRuntimePaused(pauseReason, isPaused: isPaused)
                 }
             }

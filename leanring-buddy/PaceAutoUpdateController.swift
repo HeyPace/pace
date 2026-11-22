@@ -51,8 +51,11 @@ final class PaceAutoUpdateController: NSObject {
         // Sparkle's defaults / Info.plist drive (SUEnableAutomaticChecks,
         // SUScheduledCheckInterval) for normal releases.
         // A local build must never be replaced by the public update feed.
-        self.updaterController = isLocalDevelopmentBuild ? nil : SPUStandardUpdaterController(
-            startingUpdater: true,
+        self.updaterController =
+            isLocalDevelopmentBuild
+            ? nil
+            : SPUStandardUpdaterController(
+                startingUpdater: true,
             updaterDelegate: nil,
             userDriverDelegate: nil
         )
@@ -61,6 +64,8 @@ final class PaceAutoUpdateController: NSObject {
             print("🔄 PaceAutoUpdateController: updates disabled for local development build")
             return
         }
-        print("🔄 PaceAutoUpdateController: started (feed=\(updaterController.updater.feedURL?.absoluteString ?? "unset"))")
+        print(
+            "🔄 PaceAutoUpdateController: started (feed=\(updaterController.updater.feedURL?.absoluteString ?? "unset"))"
+        )
     }
 }

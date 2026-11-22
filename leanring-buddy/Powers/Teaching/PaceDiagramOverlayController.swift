@@ -48,9 +48,11 @@ final class PaceDiagramOverlayController: ObservableObject {
         guard document.validationIssue == nil,
             expectedDismissalGeneration.map({ $0 == dismissalGeneration }) ?? true
         else { return false }
-        let preservesLesson = document.lesson != nil && document.lesson == self.document?.lesson
+        let preservesLesson =
+            document.lesson != nil && document.lesson == self.document?.lesson
             && document.illustration == self.document?.illustration
-            && (document.figure.map { self.document?.figure?.hasSameGeometry(as: $0) == true } ?? (self.document?.figure == nil))
+            && (document.figure.map { self.document?.figure?.hasSameGeometry(as: $0) == true }
+                ?? (self.document?.figure == nil))
         cancelLessonPlayback()
         if !preservesLesson {
             lessonStepIndex = 0
@@ -98,7 +100,9 @@ final class PaceDiagramOverlayController: ObservableObject {
     }
 
     func setControlDeflection(_ controlDeflection: Double) {
-        guard document?.figure?.template == .airplane || PaceTeachingTemplateCatalog.definition(for: document?.figure?.template) != nil,
+        guard
+            document?.figure?.template == .airplane
+                || PaceTeachingTemplateCatalog.definition(for: document?.figure?.template) != nil,
             controlDeflection.isFinite, (-1...1).contains(controlDeflection)
         else { return }
         pauseLesson()
@@ -171,9 +175,13 @@ final class PaceDiagramOverlayController: ObservableObject {
     func toggleLessonPlayback() {
         guard lessonSupportsGuidedSpeech else { return }
         lastUserInteractionAt = Date()
-        if isLessonPlaybackActive { pauseLesson() }
-        else {
-            if lessonPlaybackState == .completed { lessonStepIndex = 0; applyLessonStep() }
+        if isLessonPlaybackActive {
+            pauseLesson()
+        } else {
+            if lessonPlaybackState == .completed {
+                lessonStepIndex = 0
+                applyLessonStep()
+            }
             lessonPlaybackState = .starting
             onPlayLessonRequested?()
         }
@@ -185,7 +193,9 @@ final class PaceDiagramOverlayController: ObservableObject {
         if shouldContinuePlaying {
             utteranceRevision = UUID()
             stopLessonSpeech?()
-        } else { pauseLesson() }
+        } else {
+            pauseLesson()
+        }
         lastUserInteractionAt = Date()
         lessonStepIndex = min(max(0, lessonStepIndex + offset), steps.count - 1)
         lessonPlaybackState = shouldContinuePlaying ? .playing : .paused
@@ -200,16 +210,21 @@ final class PaceDiagramOverlayController: ObservableObject {
     private func applyLessonStep() {
         guard let step = currentLessonStep else { return }
         selectedNodeID = step.focusNodeID
-        if let viewpoint = step.viewpoint { document?.figure?.viewpoint = viewpoint }
-        else { document?.figure?.viewpoint = nil }
+        if let viewpoint = step.viewpoint {
+            document?.figure?.viewpoint = viewpoint
+        } else {
+            document?.figure?.viewpoint = nil
+        }
         controlDeflection = step.controlValue ?? 0
         revision += 1
         overlayManager?.show()
     }
 
     /// The caller awaits this inside its existing turn task. No speech closure survives that task.
-    func runLesson(muted: Bool, stopSpeech: @escaping () -> Void,
-                   narrate: @escaping @MainActor (PaceTeachingLesson.Step) async throws -> Void) async {
+    func runLesson(
+        muted: Bool, stopSpeech: @escaping () -> Void,
+        narrate: @escaping @MainActor (PaceTeachingLesson.Step) async throws -> Void
+    ) async {
         guard document?.lesson != nil else { return }
         cancelLessonPlayback()
         let generation = lessonGeneration
@@ -232,8 +247,7 @@ final class PaceDiagramOverlayController: ObservableObject {
         while !Task.isCancelled, lessonGeneration == generation, let step = currentLessonStep {
             applyLessonStep()
             let revision = utteranceRevision
-            do { try await narrate(step) }
-            catch {
+            do { try await narrate(step) } catch {
                 guard lessonGeneration == generation else { return }
                 if !Task.isCancelled, revision != utteranceRevision { continue }
                 lessonPlaybackState = Task.isCancelled || error is CancellationError ? .paused : .failed
@@ -242,7 +256,10 @@ final class PaceDiagramOverlayController: ObservableObject {
             }
             guard !Task.isCancelled, lessonGeneration == generation else { return }
             if revision != utteranceRevision { continue }
-            if step.waitForUser == true { lessonPlaybackState = .paused; return }
+            if step.waitForUser == true {
+                lessonPlaybackState = .paused
+                return
+            }
             guard let steps = document?.lesson?.steps, lessonStepIndex + 1 < steps.count else {
                 lessonPlaybackState = .completed
                 return

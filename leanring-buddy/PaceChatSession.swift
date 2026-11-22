@@ -123,9 +123,11 @@ final class PaceChatSession: ObservableObject {
         self.preferences = preferences
         self.now = now
         self.didAcknowledgeScreenSuggestion = didAcknowledgeScreenSuggestion
-        self.lastAcknowledgedScreenSuggestionEventIdentifier = preferences.map {
-            PaceUserPreferencesStore.string(.lastAcknowledgedScreenSuggestionEventIdentifier, default: "", defaults: $0)
-        } ?? ""
+        self.lastAcknowledgedScreenSuggestionEventIdentifier =
+            preferences.map {
+                PaceUserPreferencesStore.string(
+                    .lastAcknowledgedScreenSuggestionEventIdentifier, default: "", defaults: $0)
+            } ?? ""
         self.screenSuggestionReadThroughDate = preferences.flatMap {
             PaceUserPreferencesStore.date(.screenSuggestionReadThroughDate, defaults: $0)
         }
@@ -170,12 +172,16 @@ final class PaceChatSession: ObservableObject {
             }
             let baseTimestamp = pastTurn.recordedAt ?? Date.distantPast
             if !pastTurn.userText.isEmpty {
-                upsertMessage(PaceChatMessage(id: "\(pastTurn.id):user", role: .user,
-                    body: pastTurn.userText, createdAt: baseTimestamp))
+                upsertMessage(
+                    PaceChatMessage(
+                        id: "\(pastTurn.id):user", role: .user,
+                        body: pastTurn.userText, createdAt: baseTimestamp))
             }
             if !pastTurn.paceText.isEmpty {
-                upsertMessage(PaceChatMessage(id: "\(pastTurn.id):pace", role: .pace,
-                    body: pastTurn.paceText, createdAt: baseTimestamp.addingTimeInterval(0.001)))
+                upsertMessage(
+                    PaceChatMessage(
+                        id: "\(pastTurn.id):pace", role: .pace,
+                        body: pastTurn.paceText, createdAt: baseTimestamp.addingTimeInterval(0.001)))
             }
         }
         // Main-actor events that arrived or changed while disk was being read win.
@@ -190,21 +196,25 @@ final class PaceChatSession: ObservableObject {
     }
 
     func upsertConversationEvent(_ event: ConversationEvent) {
-        upsertMessage(PaceChatMessage(id: event.eventID, role: event.role,
-            body: event.text, createdAt: event.createdAt, speechRequest: event.speechRequest,
-            turnIdentifier: event.turnID, origin: event.origin, deliveryState: event.deliveryState,
-            generatedImagePreviewID: event.generatedImagePreviewID))
+        upsertMessage(
+            PaceChatMessage(
+                id: event.eventID, role: event.role,
+                body: event.text, createdAt: event.createdAt, speechRequest: event.speechRequest,
+                turnIdentifier: event.turnID, origin: event.origin, deliveryState: event.deliveryState,
+                generatedImagePreviewID: event.generatedImagePreviewID))
         if event.role == .pace, event.origin == .proactive, event.deliveryState == .completed,
-           event.eventID.hasPrefix("screen-suggestion-"),
-           !event.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-           latestScreenSuggestionEvent.map({ event.createdAt >= $0.createdAt }) ?? true {
+            event.eventID.hasPrefix("screen-suggestion-"),
+            !event.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+            latestScreenSuggestionEvent.map({ event.createdAt >= $0.createdAt }) ?? true
+        {
             latestScreenSuggestionEvent = event
         }
     }
 
     var hasUnreadScreenSuggestion: Bool {
         guard let event = latestScreenSuggestionEvent,
-              event.eventID != lastAcknowledgedScreenSuggestionEventIdentifier else { return false }
+            event.eventID != lastAcknowledgedScreenSuggestionEventIdentifier
+        else { return false }
         guard let screenSuggestionReadThroughDate else { return true }
         return event.createdAt >= screenSuggestionReadThroughDate
     }
@@ -219,7 +229,8 @@ final class PaceChatSession: ObservableObject {
         if let screenSuggestionReadThroughDate, acknowledgementDate < screenSuggestionReadThroughDate { return }
         screenSuggestionReadThroughDate = acknowledgementDate
         if let preferences {
-            PaceUserPreferencesStore.setDate(acknowledgementDate, for: .screenSuggestionReadThroughDate, defaults: preferences)
+            PaceUserPreferencesStore.setDate(
+                acknowledgementDate, for: .screenSuggestionReadThroughDate, defaults: preferences)
         }
         if let event = latestScreenSuggestionEvent, event.createdAt <= acknowledgementDate {
             acknowledgeScreenSuggestion(eventIdentifier: event.eventID)
@@ -230,7 +241,8 @@ final class PaceChatSession: ObservableObject {
         guard latestScreenSuggestionEvent?.eventID == eventIdentifier else { return }
         lastAcknowledgedScreenSuggestionEventIdentifier = eventIdentifier
         if let preferences {
-            PaceUserPreferencesStore.setString(eventIdentifier,
+            PaceUserPreferencesStore.setString(
+                eventIdentifier,
                 for: .lastAcknowledgedScreenSuggestionEventIdentifier, defaults: preferences)
         }
         didAcknowledgeScreenSuggestion(eventIdentifier)

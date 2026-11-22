@@ -39,7 +39,8 @@ nonisolated enum PaceDialogueTranscriptModel {
         let rows: [PaceChatToolActivityRowModel] = records.enumerated().compactMap { index, record in
             guard record.showsInConversation else { return nil }
             if record.status == .planned, let turnIdentifier = record.turnIdentifier,
-                records.prefix(index).contains(where: { $0.turnIdentifier == turnIdentifier && $0.status != .planned }) {
+                records.prefix(index).contains(where: { $0.turnIdentifier == turnIdentifier && $0.status != .planned })
+            {
                 return nil
             }
             return PaceChatTranscriptModel.toolActivityRowModel(fromActionRunRecord: record)
@@ -60,7 +61,8 @@ nonisolated enum PaceDialogueTranscriptModel {
     }
 
     static func showsCurrentTurnStatus(state: PaceSignalState, hasFailure: Bool) -> Bool {
-        hasFailure || [.listening, .understanding, .awaitingApproval, .acting, .speaking, .blocked, .failed].contains(state)
+        hasFailure
+            || [.listening, .understanding, .awaitingApproval, .acting, .speaking, .blocked, .failed].contains(state)
     }
 
     static func items(
@@ -79,13 +81,15 @@ nonisolated enum PaceDialogueTranscriptModel {
 
         for message in messages {
             if let turnIdentifier = message.turnIdentifier {
-                latestMessageDates[turnIdentifier] = max(latestMessageDates[turnIdentifier] ?? .distantPast, message.createdAt)
+                latestMessageDates[turnIdentifier] = max(
+                    latestMessageDates[turnIdentifier] ?? .distantPast, message.createdAt)
             }
             if message.author == .assistant, message.origin == .progress {
                 let groupIdentifier = message.turnIdentifier ?? "unlinked-message-\(message.id)"
-                appendRoutineEntry(PaceDialogueActivityEntry(
-                    id: message.id, title: "Progress update", detail: message.bodyText,
-                    occurredAt: message.createdAt, resultState: nil), groupIdentifier: groupIdentifier)
+                appendRoutineEntry(
+                    PaceDialogueActivityEntry(
+                        id: message.id, title: "Progress update", detail: message.bodyText,
+                        occurredAt: message.createdAt, resultState: nil), groupIdentifier: groupIdentifier)
             } else {
                 items.append(.message(message))
             }
@@ -96,9 +100,11 @@ nonisolated enum PaceDialogueTranscriptModel {
                 detail: activity.fullDetail ?? activity.resultSummaryLine,
                 occurredAt: activity.occurredAt, resultState: activity.resultState)
             if activity.resultState == .failed {
-                items.append(.activity(PaceDialogueActivityGroup(
-                    id: "attention-\(activity.id)", entries: [entry],
-                    occurredAt: activity.occurredAt, needsAttention: true)))
+                items.append(
+                    .activity(
+                        PaceDialogueActivityGroup(
+                            id: "attention-\(activity.id)", entries: [entry],
+                            occurredAt: activity.occurredAt, needsAttention: true)))
             } else {
                 let groupIdentifier = activity.turnIdentifier ?? "unlinked-activity-\(activity.id)"
                 appendRoutineEntry(entry, groupIdentifier: groupIdentifier)
@@ -113,8 +119,10 @@ nonisolated enum PaceDialogueTranscriptModel {
             let latestEntryDate = orderedEntries.last?.occurredAt ?? .distantPast
             // Only explicit turn identity can move activity beneath its answer.
             let occurredAt = max(latestEntryDate, latestMessageDates[groupIdentifier] ?? .distantPast)
-            items.append(.activity(PaceDialogueActivityGroup(
-                id: groupIdentifier, entries: orderedEntries, occurredAt: occurredAt, needsAttention: false)))
+            items.append(
+                .activity(
+                    PaceDialogueActivityGroup(
+                        id: groupIdentifier, entries: orderedEntries, occurredAt: occurredAt, needsAttention: false)))
         }
         return items.enumerated().sorted {
             $0.element.occurredAt == $1.element.occurredAt

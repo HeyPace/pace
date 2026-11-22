@@ -24,7 +24,8 @@ struct PaceMemoryRetrieverTests {
         let threadStore = PaceThreadMemoryStore()
         #expect(threadStore.load() == nil)
         let thread = PaceThreadMemory(configuration: .default)
-        _ = thread.record(userTurn: "Fixture question", assistantTurn: "Fixture answer",
+        _ = thread.record(
+            userTurn: "Fixture question", assistantTurn: "Fixture answer",
             turnId: "isolated-unit-thread", now: Date())
         threadStore.save(thread.snapshot(now: Date()))
         #expect(threadStore.load() == nil)
@@ -42,7 +43,8 @@ struct PaceMemoryRetrieverTests {
         let threadURL = directory.appendingPathComponent("thread.json")
         let thread = PaceThreadMemory(configuration: .default)
         let recordedAt = makeFixedDate(1_000)
-        _ = thread.record(userTurn: "Acceptance code cedar47", assistantTurn: "Noted",
+        _ = thread.record(
+            userTurn: "Acceptance code cedar47", assistantTurn: "Noted",
             turnId: "durable-unit-thread", now: recordedAt)
         let snapshot = thread.snapshot(now: recordedAt)
         PaceThreadMemoryStore(fileURL: threadURL).save(snapshot)

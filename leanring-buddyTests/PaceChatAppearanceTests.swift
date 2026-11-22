@@ -1,5 +1,6 @@
 import Foundation
 import XCTest
+
 @testable import Pace
 
 final class PaceChatAppearanceTests: XCTestCase {
@@ -7,14 +8,18 @@ final class PaceChatAppearanceTests: XCTestCase {
         XCTAssertEqual(PaceChatAppearance.restore(from: nil), .default)
         XCTAssertEqual(PaceChatAppearance.restore(from: Data("broken".utf8)), .default)
         XCTAssertEqual(PaceChatAppearance.restore(from: Data(#"{"schemaVersion":2,"bodyTextSize":20}"#.utf8)), .default)
-        XCTAssertEqual(PaceChatAppearance.restore(from: Data(#"{"schemaVersion":1,"fontFamily":"remote"}"#.utf8)), .default)
+        XCTAssertEqual(
+            PaceChatAppearance.restore(from: Data(#"{"schemaVersion":1,"fontFamily":"remote"}"#.utf8)), .default)
         XCTAssertEqual(PaceChatAppearance.restore(from: Data(#"{"schemaVersion":1,"panelWidth":9000}"#.utf8)), .default)
         XCTAssertEqual(PaceChatAppearance.restore(from: Data(#"{"schemaVersion":1}"#.utf8)), .default)
     }
 
     func testDecodeClampsFiniteValuesAndPreservesExplicitZeroSpacing() throws {
-        let appearance = try JSONDecoder().decode(PaceChatAppearance.self, from: Data(
-            #"{"schemaVersion":1,"bodyTextSize":200,"additionalLineSpacing":0,"contentPadding":-100,"panelWidth":680,"controlAccent":"silver","fontFamily":"rounded"}"#.utf8))
+        let appearance = try JSONDecoder().decode(
+            PaceChatAppearance.self,
+            from: Data(
+                #"{"schemaVersion":1,"bodyTextSize":200,"additionalLineSpacing":0,"contentPadding":-100,"panelWidth":680,"controlAccent":"silver","fontFamily":"rounded"}"#
+                    .utf8))
         XCTAssertEqual(appearance.bodyTextSize, 20)
         XCTAssertEqual(appearance.additionalLineSpacing, 0)
         XCTAssertEqual(appearance.contentPadding, 16)

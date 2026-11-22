@@ -41,25 +41,29 @@ final class PaceSpotlightMemoryIndexer {
     private var pendingMirrorEntries: [PaceMemoryEntry]?
     private var hasReportedCleanupFailure = false
 
-    init(spotlightIndex: CSSearchableIndex = .default(),
-         indexOperation: IndexOperation? = nil,
-         deleteDomainOperation: DeleteDomainOperation? = nil,
-         hasCompletedLegacyCleanup: () -> Bool = {
-             UserDefaults.standard.bool(forKey: "PaceSpotlightScreenHistoryCleanupV1")
-         },
-         markLegacyCleanupComplete: @escaping () -> Void = {
-             UserDefaults.standard.set(true, forKey: "PaceSpotlightScreenHistoryCleanupV1")
-         }) {
-        self.indexOperation = indexOperation ?? { items, completion in
-            spotlightIndex.indexSearchableItems(items) { error in
-                Task { @MainActor in completion(error) }
-            }
+    init(
+        spotlightIndex: CSSearchableIndex = .default(),
+        indexOperation: IndexOperation? = nil,
+        deleteDomainOperation: DeleteDomainOperation? = nil,
+        hasCompletedLegacyCleanup: () -> Bool = {
+            UserDefaults.standard.bool(forKey: "PaceSpotlightScreenHistoryCleanupV1")
+        },
+        markLegacyCleanupComplete: @escaping () -> Void = {
+            UserDefaults.standard.set(true, forKey: "PaceSpotlightScreenHistoryCleanupV1")
         }
-        self.deleteDomainOperation = deleteDomainOperation ?? { identifiers, completion in
-            spotlightIndex.deleteSearchableItems(withDomainIdentifiers: identifiers) { error in
-                Task { @MainActor in completion(error) }
+    ) {
+        self.indexOperation =
+            indexOperation ?? { items, completion in
+                spotlightIndex.indexSearchableItems(items) { error in
+                    Task { @MainActor in completion(error) }
+                }
             }
-        }
+        self.deleteDomainOperation =
+            deleteDomainOperation ?? { identifiers, completion in
+                spotlightIndex.deleteSearchableItems(withDomainIdentifiers: identifiers) { error in
+                    Task { @MainActor in completion(error) }
+                }
+            }
         self.legacyCleanupIsComplete = hasCompletedLegacyCleanup()
         self.markLegacyCleanupComplete = markLegacyCleanupComplete
     }
@@ -100,7 +104,8 @@ final class PaceSpotlightMemoryIndexer {
         }
         guard let pendingMirrorEntries else { return }
         self.pendingMirrorEntries = nil
-        let searchableItems = Self.buildSearchableItems(fromActiveEntries: pendingMirrorEntries,
+        let searchableItems = Self.buildSearchableItems(
+            fromActiveEntries: pendingMirrorEntries,
             domainIdentifier: spotlightDomainIdentifier)
         guard !searchableItems.isEmpty else { return }
         isOperationInFlight = true

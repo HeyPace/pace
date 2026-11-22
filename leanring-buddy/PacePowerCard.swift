@@ -26,26 +26,32 @@ nonisolated struct PacePowerCard: Equatable, Sendable {
 
     static func parse(_ source: String) -> Self? {
         guard source.utf8.count <= 48 * 1024, let data = source.data(using: .utf8),
-              let root = try? JSONDecoder().decode([String: PaceMCPJSONValue].self, from: data),
-              Set(root.keys).isSubset(of: ["title", "pages", "svg"]),
-              let title = text(root["title"], maximum: 100),
-              case .array(let pageValues)? = root["pages"], (1...12).contains(pageValues.count) else { return nil }
+            let root = try? JSONDecoder().decode([String: PaceMCPJSONValue].self, from: data),
+            Set(root.keys).isSubset(of: ["title", "pages", "svg"]),
+            let title = text(root["title"], maximum: 100),
+            case .array(let pageValues)? = root["pages"], (1...12).contains(pageValues.count)
+        else { return nil }
         var pages: [Page] = []
         for value in pageValues {
             guard case .object(let page) = value, Set(page.keys).isSubset(of: ["title", "body", "choices"]),
-                  let title = text(page["title"], maximum: 100), let body = text(page["body"], maximum: 2000) else { return nil }
+                let title = text(page["title"], maximum: 100), let body = text(page["body"], maximum: 2000)
+            else { return nil }
             var choices: [Choice] = []
             if let value = page["choices"] {
                 guard case .array(let values) = value, values.count <= 4 else { return nil }
                 for value in values {
-                    guard case .object(let choice) = value, Set(choice.keys).isSubset(of: ["label", "feedback", "correct"]),
-                          let label = text(choice["label"], maximum: 80),
-                          let feedback = text(choice["feedback"], maximum: 500) else { return nil }
+                    guard case .object(let choice) = value,
+                        Set(choice.keys).isSubset(of: ["label", "feedback", "correct"]),
+                        let label = text(choice["label"], maximum: 80),
+                        let feedback = text(choice["feedback"], maximum: 500)
+                    else { return nil }
                     let correct: Bool?
                     if let value = choice["correct"] {
                         guard case .bool(let flag) = value else { return nil }
                         correct = flag
-                    } else { correct = nil }
+                    } else {
+                        correct = nil
+                    }
                     guard !choices.contains(where: { $0.label == label }) else { return nil }
                     choices.append(Choice(label: label, feedback: feedback, correct: correct))
                 }
@@ -56,13 +62,16 @@ nonisolated struct PacePowerCard: Equatable, Sendable {
         if let value = root["svg"] {
             guard case .string(let source) = value, let svg = PaceGeneratedSVG.parse(source) else { return nil }
             illustration = svg
-        } else { illustration = nil }
+        } else {
+            illustration = nil
+        }
         return Self(title: title, pages: pages, illustration: illustration)
     }
 
     private static func text(_ value: PaceMCPJSONValue?, maximum: Int) -> String? {
         guard case .string(let text)? = value, text.count <= maximum,
-              !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+            !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        else { return nil }
         return text
     }
 }
@@ -90,7 +99,8 @@ nonisolated struct PacePowerCardSession {
         guard offset == -1 || offset == 1 else { return }
         let destination = pageIndex + offset
         guard card.pages.indices.contains(destination),
-              authorize(.navigate(pageIndex: destination)) else { return }
+            authorize(.navigate(pageIndex: destination))
+        else { return }
         pageIndex = destination
     }
 }

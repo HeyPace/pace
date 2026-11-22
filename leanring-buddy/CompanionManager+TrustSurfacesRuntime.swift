@@ -82,7 +82,8 @@ extension CompanionManager {
         let trimmedSpokenText = spokenText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedSpokenText.isEmpty else { return }
         lastSpokenReplyText = trimmedSpokenText
-        lastSpokenReplyRequest = conversationSpeechRequest(for: spokenText)
+        lastSpokenReplyRequest =
+            conversationSpeechRequest(for: spokenText)
             ?? PaceSpeechRequest(text: trimmedSpokenText, profile: profile)
         lastSpokenReplyAt = Date()
 
@@ -111,7 +112,8 @@ extension CompanionManager {
     /// went through TTS — doesn't re-stream the planner.
     func replayLastSpokenReply() {
         guard let request = lastSpokenReplyRequest ?? lastSpokenReplyText.map({ PaceSpeechRequest(text: $0) }),
-              canReplayChatSpeech else { return }
+            canReplayChatSpeech
+        else { return }
         guard conversationLanguageMode == .standard || request.profile != nil else { return }
         replayChatSpeech(request)
     }

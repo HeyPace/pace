@@ -225,7 +225,10 @@ struct BlueCursorView: View {
             // never blocks the user clicking that button.
             PaceAnnotationLayerView(
                 annotations: annotationOverlayController.activeAnnotations
-                    .filter { $0.belongsToDisplay(identifier: sourceDisplayIdentifier, frame: screenFrame, legacyScreenIndex: screenIndex) },
+                    .filter {
+                        $0.belongsToDisplay(
+                            identifier: sourceDisplayIdentifier, frame: screenFrame, legacyScreenIndex: screenIndex)
+                    },
                 pixelToLocal: { appKitPoint in
                     convertScreenPointToSwiftUICoordinates(appKitPoint)
                 }
@@ -884,7 +887,8 @@ class OverlayWindowManager {
             let contentView = BlueCursorView(
                 screenFrame: screen.frame,
                 screenIndex: zeroBasedScreenIndex + 1,
-                sourceDisplayIdentifier: (screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value ?? 0,
+                sourceDisplayIdentifier: (screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")]
+                    as? NSNumber)?.uint32Value ?? 0,
                 isFirstAppearance: isFirstAppearance,
                 companionManager: companionManager
             )

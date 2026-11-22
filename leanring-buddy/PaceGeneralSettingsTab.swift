@@ -29,7 +29,8 @@ struct PaceGeneralSettingsTab: View {
                 )
                 paceSettingsToggleRow(
                     title: "Approve risky actions",
-                    subtitle: "Ask before non-undoable local changes, message drafts, shortcuts, and connected-tool actions.",
+                    subtitle:
+                        "Ask before non-undoable local changes, message drafts, shortcuts, and connected-tool actions.",
                     isOn: Binding(
                         get: { companionManager.requiresActionApproval },
                         set: { companionManager.setRequiresActionApproval($0) }

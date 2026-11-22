@@ -124,9 +124,12 @@ private enum PaceMCPFixture {
                 print(json.dumps({"jsonrpc": "2.0", "id": request["id"], "result": result}), flush=True)
             """#
         return PaceMCPStdioClient(serverConfigurations: [
-            "peekaboo": .init(command: pythonThreeExecutablePath ?? "python3",
-                args: ["-u", "-c", program, paddingSizes.map { String($0) }.joined(separator: ","),
-                    String(failingProcessIdentifier), String(diagnosticPaddingSize), UUID().uuidString])
+            "peekaboo": .init(
+                command: pythonThreeExecutablePath ?? "python3",
+                args: [
+                    "-u", "-c", program, paddingSizes.map { String($0) }.joined(separator: ","),
+                    String(failingProcessIdentifier), String(diagnosticPaddingSize), UUID().uuidString,
+                ])
         ])
     }
 }
@@ -437,24 +440,24 @@ struct PaceMCPClientIntegrationTests {
     @Test(.enabled(if: PaceMCPFixture.isFixtureRunnable))
     func executorUsesLaunchedPIDAndStopsTheOriginalPlanAfterAmbiguousInspection() async throws {
         let fixtureProgram = #"""
-        import json, sys
-        calls = 0
-        for line in sys.stdin:
-            request = json.loads(line)
-            if "id" not in request:
-                continue
-            if request["method"] == "initialize":
-                result = {"protocolVersion": "2025-03-26", "capabilities": {"tools": {}}, "serverInfo": {"name": "dispatch-fixture", "version": "1"}}
-            else:
-                calls += 1
-                params = request["params"]
-                target = params.get("arguments", {}).get("app", "")
-                if params["name"] == "window" and target != "PID:4123":
-                    result = {"isError": True, "content": [{"type": "text", "text": "Multiple apps match 'Google Chrome'. Did you mean: PID:111 or PID:222?"}]}
+            import json, sys
+            calls = 0
+            for line in sys.stdin:
+                request = json.loads(line)
+                if "id" not in request:
+                    continue
+                if request["method"] == "initialize":
+                    result = {"protocolVersion": "2025-03-26", "capabilities": {"tools": {}}, "serverInfo": {"name": "dispatch-fixture", "version": "1"}}
                 else:
-                    result = {"content": [{"type": "text", "text": "calls=" + str(calls) + ";target=" + target}]}
-            print(json.dumps({"jsonrpc": "2.0", "id": request["id"], "result": result}), flush=True)
-        """#
+                    calls += 1
+                    params = request["params"]
+                    target = params.get("arguments", {}).get("app", "")
+                    if params["name"] == "window" and target != "PID:4123":
+                        result = {"isError": True, "content": [{"type": "text", "text": "Multiple apps match 'Google Chrome'. Did you mean: PID:111 or PID:222?"}]}
+                    else:
+                        result = {"content": [{"type": "text", "text": "calls=" + str(calls) + ";target=" + target}]}
+                print(json.dumps({"jsonrpc": "2.0", "id": request["id"], "result": result}), flush=True)
+            """#
         let configuration = PaceMCPServerConfiguration(
             command: PaceMCPFixture.pythonThreeExecutablePath ?? "python3", args: ["-u", "-c", fixtureProgram])
         let client = PaceMCPStdioClient(serverConfigurations: ["peekaboo": configuration])
@@ -463,18 +466,26 @@ struct PaceMCPClientIntegrationTests {
             actionsAreEnabledOverride: true, mcpClient: client,
             readMyScreenIsEnabled: { true }, runningApplicationBundleURL: { _ in chromeURL },
             preferredInspectionProcessIdentifiers: { [] })
-        executor.rememberLaunchedApplication(named: "Chrome", processIdentifier: 4123, bundleURL: chromeURL, generation: executor.applicationTargetGeneration)
-        let inspection = PaceMCPToolCall(serverName: "peekaboo", toolName: "window", arguments: ["action": .string("list"), "app": .string("Google Chrome")])
+        executor.rememberLaunchedApplication(
+            named: "Chrome", processIdentifier: 4123, bundleURL: chromeURL,
+            generation: executor.applicationTargetGeneration)
+        let inspection = PaceMCPToolCall(
+            serverName: "peekaboo", toolName: "window",
+            arguments: ["action": .string("list"), "app": .string("Google Chrome")])
         let boundResult = await executor.callMCPTool(inspection)
         #expect(boundResult.summary.contains("target=PID:4123"))
         #expect(!boundResult.stopsAgentLoop)
 
         executor.beginUserTurn()
-        let blockedResults = await executor.executeActionPlan(.serial(actions: [
-            .mcp(inspection),
-            .mcp(.init(serverName: "peekaboo", toolName: "click", arguments: ["query": .string("should not click")])),
-            .mcp(.init(serverName: "peekaboo", toolName: "window", arguments: ["app": .string("should not inspect")])),
-        ]), screenCaptures: [])
+        let blockedResults = await executor.executeActionPlan(
+            .serial(actions: [
+                .mcp(inspection),
+                .mcp(
+                    .init(serverName: "peekaboo", toolName: "click", arguments: ["query": .string("should not click")])),
+                .mcp(
+                    .init(serverName: "peekaboo", toolName: "window", arguments: ["app": .string("should not inspect")])
+                ),
+            ]), screenCaptures: [])
         #expect(blockedResults.count == 1)
         #expect(blockedResults.first?.terminalReason == .ambiguousInspectionTarget)
         #expect(blockedResults.first?.stopsActionPlan == true)
@@ -529,13 +540,15 @@ struct PaceMCPClientIntegrationTests {
     func compactInventoriesPoolTheirBudgetAndPreserveTheRealDetailArray() async throws {
         for usesCompactDetails in [true, false] {
             let client = PaceMCPFixture.makeWindowInventoryClient(paddingSizes: [2_500, 350, 700, 350])
-            let executor = PaceActionExecutor(actionsAreEnabledOverride: true, mcpClient: client,
+            let executor = PaceActionExecutor(
+                actionsAreEnabledOverride: true, mcpClient: client,
                 readMyScreenIsEnabled: { true },
                 runningApplicationBundleURL: { _ in URL(fileURLWithPath: "/Applications/Google Chrome.app") },
                 preferredInspectionProcessIdentifiers: { [] })
             var arguments: [String: PaceMCPJSONValue] = ["action": .string("list"), "app": .string("Google Chrome")]
             if usesCompactDetails { arguments["include_window_details"] = .array([.string("ids")]) }
-            let result = await executor.callMCPTool(.init(serverName: "peekaboo", toolName: "window", arguments: arguments))
+            let result = await executor.callMCPTool(
+                .init(serverName: "peekaboo", toolName: "window", arguments: arguments))
             #expect(result.requiresFreshInspectionPlan)
             #expect(result.summary.contains("examined 4/4 validated reported matching instances"))
             #expect(result.summary.contains("END PID:111") == usesCompactDetails)
@@ -564,25 +577,34 @@ struct PaceMCPClientIntegrationTests {
         ] {
             let client = PaceMCPFixture.makeWindowInventoryClient(
                 paddingSizes: paddingSizes, failingProcessIdentifier: failingProcessIdentifier)
-            let executor = PaceActionExecutor(actionsAreEnabledOverride: true, mcpClient: client,
+            let executor = PaceActionExecutor(
+                actionsAreEnabledOverride: true, mcpClient: client,
                 readMyScreenIsEnabled: { true },
                 runningApplicationBundleURL: { _ in URL(fileURLWithPath: "/Applications/Google Chrome.app") },
                 preferredInspectionProcessIdentifiers: { [] })
-            let result = await executor.callMCPTool(.init(serverName: "peekaboo", toolName: "window", arguments: [
-                "action": .string("list"), "app": .string("Google Chrome"),
-                "include_window_details": .array([.string("ids")]),
-            ]))
+            let result = await executor.callMCPTool(
+                .init(
+                    serverName: "peekaboo", toolName: "window",
+                    arguments: [
+                        "action": .string("list"), "app": .string("Google Chrome"),
+                        "include_window_details": .array([.string("ids")]),
+                    ]))
             #expect(result.summary.contains(expectedCoverage))
             #expect(result.summary.contains("Partial coverage"))
             #expect(!result.summary.contains("All validated reported instances succeeded"))
             #expect(result.summary.utf8.count < 5_999)
             var history = PaceAgentInspectionHistory()
-            let canonicalRequest = #"{"spokenText":"","intent":"action","payload":{"name":"MCP.call","args":{"server":"peekaboo","tool":"window","arguments":{"action":"list","app":"Google Chrome","include_window_details":["ids"]}}}}"#
+            let canonicalRequest =
+                #"{"spokenText":"","intent":"action","payload":{"name":"MCP.call","args":{"server":"peekaboo","tool":"window","arguments":{"action":"list","app":"Google Chrome","include_window_details":["ids"]}}}}"#
             history.append(plannerRequest: canonicalRequest, observations: [result])
             #expect(!history.formattedForPlanner.contains("[inspection result truncated to fit the prompt budget]"))
             if paddingSizes.first == 8_000 {
-                #expect(result.summary.contains("[inventory text truncated; request a precise current window if more evidence is needed]"))
-                #expect(history.formattedForPlanner.contains("[inventory text truncated; request a precise current window if more evidence is needed]"))
+                #expect(
+                    result.summary.contains(
+                        "[inventory text truncated; request a precise current window if more evidence is needed]"))
+                #expect(
+                    history.formattedForPlanner.contains(
+                        "[inventory text truncated; request a precise current window if more evidence is needed]"))
                 for processIdentifier in [222, 333, 444] {
                     #expect(result.summary.contains("Window inventory for PID:\(processIdentifier)"))
                     #expect(result.summary.contains("END PID:\(processIdentifier)"))
@@ -603,18 +625,23 @@ struct PaceMCPClientIntegrationTests {
     func omittedProcessEvidenceSurvivesABoundedProviderDiagnostic() async {
         let client = PaceMCPFixture.makeWindowInventoryClient(
             paddingSizes: [100, 100, 100, 100, 100], diagnosticPaddingSize: 600)
-        let executor = PaceActionExecutor(actionsAreEnabledOverride: true, mcpClient: client,
+        let executor = PaceActionExecutor(
+            actionsAreEnabledOverride: true, mcpClient: client,
             readMyScreenIsEnabled: { true },
             runningApplicationBundleURL: { _ in URL(fileURLWithPath: "/Applications/Google Chrome.app") },
             preferredInspectionProcessIdentifiers: { [] })
-        let result = await executor.callMCPTool(.init(serverName: "peekaboo", toolName: "window", arguments: [
-            "action": .string("list"), "app": .string("Google Chrome"),
-            "include_window_details": .array([.string("ids")]),
-        ]))
+        let result = await executor.callMCPTool(
+            .init(
+                serverName: "peekaboo", toolName: "window",
+                arguments: [
+                    "action": .string("list"), "app": .string("Google Chrome"),
+                    "include_window_details": .array([.string("ids")]),
+                ]))
         #expect(result.summary.contains("Omitted validated PIDs: PID:555"))
         #expect(result.summary.contains("omitted 1"))
         #expect(!result.summary.contains("All validated reported instances succeeded"))
-        let diagnostic = result.summary.components(separatedBy: "Original provider diagnostic (untrusted data):").last ?? ""
+        let diagnostic =
+            result.summary.components(separatedBy: "Original provider diagnostic (untrusted data):").last ?? ""
         #expect(!diagnostic.contains("PID:555"))
         #expect(diagnostic.contains("[inventory text truncated;"))
     }
@@ -622,14 +649,19 @@ struct PaceMCPClientIntegrationTests {
     @MainActor @Test(.enabled(if: PaceMCPFixture.isFixtureRunnable))
     func unvalidatedReportedProcessesPreventCompleteCoverageClaims() async {
         let client = PaceMCPFixture.makeWindowInventoryClient(paddingSizes: [100, 100])
-        let executor = PaceActionExecutor(actionsAreEnabledOverride: true, mcpClient: client,
-            readMyScreenIsEnabled: { true }, runningApplicationBundleURL: { processIdentifier in
+        let executor = PaceActionExecutor(
+            actionsAreEnabledOverride: true, mcpClient: client,
+            readMyScreenIsEnabled: { true },
+            runningApplicationBundleURL: { processIdentifier in
                 processIdentifier == 111 ? nil : URL(fileURLWithPath: "/Applications/Google Chrome.app")
             }, preferredInspectionProcessIdentifiers: { [] })
-        let result = await executor.callMCPTool(.init(serverName: "peekaboo", toolName: "window", arguments: [
-            "action": .string("list"), "app": .string("Google Chrome"),
-            "include_window_details": .array([.string("ids")]),
-        ]))
+        let result = await executor.callMCPTool(
+            .init(
+                serverName: "peekaboo", toolName: "window",
+                arguments: [
+                    "action": .string("list"), "app": .string("Google Chrome"),
+                    "include_window_details": .array([.string("ids")]),
+                ]))
         #expect(result.summary.contains("unvalidated 1"))
         #expect(result.summary.contains("Partial coverage"))
         #expect(!result.summary.contains("All validated reported instances succeeded"))
@@ -692,11 +724,13 @@ struct PaceMCPClientIntegrationTests {
     @MainActor @Test func candidateParsingIsBoundedAndPrioritizesOnlyValidatedVisibleProcesses() {
         let diagnostic = "PID:-1 PID:0 PID:9999999999 PID:111 PID:111 PID:222 PID:333 PID:444 PID:555 PID:666"
         #expect(PaceActionExecutor.peekabooAmbiguousProcessIdentifiers(in: diagnostic) == [111, 222, 333, 444])
-        #expect(PaceActionExecutor.peekabooAmbiguousProcessIdentifiers(in: diagnostic, maximumCount: 64)
-            == [111, 222, 333, 444, 555, 666])
+        #expect(
+            PaceActionExecutor.peekabooAmbiguousProcessIdentifiers(in: diagnostic, maximumCount: 64)
+                == [111, 222, 333, 444, 555, 666])
         #expect(PaceActionExecutor.peekabooAmbiguousProcessIdentifiers(in: diagnostic, maximumCount: 0).isEmpty)
         let manyCandidates = (1...100).map { "PID:\($0)" }.joined(separator: " ")
-        #expect(PaceActionExecutor.peekabooAmbiguousProcessIdentifiers(in: manyCandidates, maximumCount: 100).count == 64)
+        #expect(
+            PaceActionExecutor.peekabooAmbiguousProcessIdentifiers(in: manyCandidates, maximumCount: 100).count == 64)
         #expect(
             PaceActionExecutor.peekabooAmbiguousProcessIdentifiers(
                 in: diagnostic, preferring: [666, 999], matchesApplication: { $0 != 111 }) == [666, 222, 333, 444])
@@ -792,23 +826,27 @@ struct PaceMCPClientIntegrationTests {
     @Test(.enabled(if: PaceMCPFixture.isFixtureRunnable))
     func ambiguousPeekabooResolutionIsTypedButUncertainDispatchRemainsRecoverable() async throws {
         let fixtureProgram = #"""
-        import json, sys
-        for line in sys.stdin:
-            request = json.loads(line)
-            if "id" not in request:
-                continue
-            if request["method"] == "initialize":
-                result = {"protocolVersion": "2025-03-26", "capabilities": {"tools": {}}, "serverInfo": {"name": "target-fixture", "version": "1"}}
-            else:
-                result = {"isError": True, "content": [{"type": "text", "text": request["params"]["arguments"]["failure"]}]}
-            print(json.dumps({"jsonrpc": "2.0", "id": request["id"], "result": result}), flush=True)
-        """#
+            import json, sys
+            for line in sys.stdin:
+                request = json.loads(line)
+                if "id" not in request:
+                    continue
+                if request["method"] == "initialize":
+                    result = {"protocolVersion": "2025-03-26", "capabilities": {"tools": {}}, "serverInfo": {"name": "target-fixture", "version": "1"}}
+                else:
+                    result = {"isError": True, "content": [{"type": "text", "text": request["params"]["arguments"]["failure"]}]}
+                print(json.dumps({"jsonrpc": "2.0", "id": request["id"], "result": result}), flush=True)
+            """#
         let configuration = PaceMCPServerConfiguration(
             command: PaceMCPFixture.pythonThreeExecutablePath ?? "python3", args: ["-u", "-c", fixtureProgram])
         let client = PaceMCPStdioClient(serverConfigurations: ["peekaboo": configuration, "other": configuration])
-        let ambiguousMessage = "Failed to list windows: Multiple apps match 'Google Chrome'. Did you mean: Google Chrome (PID:111), Google Chrome (PID:222)"
+        let ambiguousMessage =
+            "Failed to list windows: Multiple apps match 'Google Chrome'. Did you mean: Google Chrome (PID:111), Google Chrome (PID:222)"
         do {
-            _ = try await client.callTool(.init(serverName: "peekaboo", toolName: "window", arguments: ["app": .string("Google Chrome"), "failure": .string(ambiguousMessage)]))
+            _ = try await client.callTool(
+                .init(
+                    serverName: "peekaboo", toolName: "window",
+                    arguments: ["app": .string("Google Chrome"), "failure": .string(ambiguousMessage)]))
             Issue.record("Ambiguous app resolution must fail")
         } catch PaceMCPClientError.ambiguousApplicationTarget(let message) {
             #expect(message.contains("PID:111"))
@@ -819,14 +857,18 @@ struct PaceMCPClientIntegrationTests {
             ("peekaboo", "Dispatch outcome uncertain. Capture a fresh snapshot before retrying."),
         ] {
             do {
-                _ = try await client.callTool(.init(serverName: serverName, toolName: "window", arguments: ["app": .string("Google Chrome"), "failure": .string(message)]))
+                _ = try await client.callTool(
+                    .init(
+                        serverName: serverName, toolName: "window",
+                        arguments: ["app": .string("Google Chrome"), "failure": .string(message)]))
                 Issue.record("Expected fixture failure")
             } catch PaceMCPClientError.rpcError(let result) {
                 #expect(result.contains(message))
             }
         }
         let independentClient = PaceMCPFixture.makeFixtureClient()
-        let result = try await independentClient.callTool(.init(serverName: "fixture", toolName: "echo", arguments: ["text": .string("unrelated request preserved")]))
+        let result = try await independentClient.callTool(
+            .init(serverName: "fixture", toolName: "echo", arguments: ["text": .string("unrelated request preserved")]))
         #expect(result.contains("unrelated request preserved"))
     }
 
@@ -844,8 +886,10 @@ struct PaceMCPClientIntegrationTests {
                 continue
             }
         }
-        let request = PaceMCPToolCall(serverName: "peekaboo", toolName: "window", arguments: ["app": .string("Google Chrome")])
-        let quotedError = PaceMCPClientError.classifyToolError(PaceMCPClientError.rpcError("Documentation quotes: " + diagnostic), toolCall: request)
+        let request = PaceMCPToolCall(
+            serverName: "peekaboo", toolName: "window", arguments: ["app": .string("Google Chrome")])
+        let quotedError = PaceMCPClientError.classifyToolError(
+            PaceMCPClientError.rpcError("Documentation quotes: " + diagnostic), toolCall: request)
         guard let clientError = quotedError as? PaceMCPClientError, case .rpcError = clientError else {
             Issue.record("Quoted diagnostic is not a provider resolution failure")
             return
@@ -983,7 +1027,8 @@ struct PaceMCPClientIntegrationTests {
                 print(json.dumps({"jsonrpc": "2.0", "id": request["id"], "result": result}), flush=True)
             """#
         let client = PaceMCPStdioClient(serverConfigurations: [
-            "peekaboo": .init(command: PaceMCPFixture.pythonThreeExecutablePath ?? "python3",
+            "peekaboo": .init(
+                command: PaceMCPFixture.pythonThreeExecutablePath ?? "python3",
                 args: ["-u", "-c", program, UUID().uuidString]),
             "playwright": .init(command: "/usr/bin/false", args: []),
         ])
@@ -998,17 +1043,28 @@ struct PaceMCPClientIntegrationTests {
 
         let (manager, _, _) = PaceConversationRecorderTests().makeDismissalFixture()
         manager.actionExecutor = PaceActionExecutor(actionsAreEnabledOverride: true, mcpClient: client)
-        let canonicalEnvelope = #"{"spokenText":"","intent":"action","payload":{"name":"MCP.call","args":{"server":"peekaboo","tool":"window","arguments":{"action":"list","app":"Google Chrome"}}}}"#
-        let plan = PaceInitialInspectionPlan(toolCall: .init(serverName: "peekaboo", toolName: "window",
-            arguments: ["action": .string("list"), "app": .string("Google Chrome")]), canonicalEnvelope: canonicalEnvelope)
+        let canonicalEnvelope =
+            #"{"spokenText":"","intent":"action","payload":{"name":"MCP.call","args":{"server":"peekaboo","tool":"window","arguments":{"action":"list","app":"Google Chrome"}}}}"#
+        let plan = PaceInitialInspectionPlan(
+            toolCall: .init(
+                serverName: "peekaboo", toolName: "window",
+                arguments: ["action": .string("list"), "app": .string("Google Chrome")]),
+            canonicalEnvelope: canonicalEnvelope)
         let partialResult = "Observed PID:111, window_id:84, partial inventory; PID:222 is still missing."
         var inspectionHistory = PaceAgentInspectionHistory()
-        inspectionHistory.append(plannerRequest: plan.canonicalEnvelope, observations: [
-            .init(toolName: "mcp.peekaboo.window", summary: partialResult)
-        ])
-        inspectionHistory.append(plannerRequest: plan.canonicalEnvelope, observations: [
-            .init(toolName: "mcp.peekaboo.window", summary: "PID:222 inventory may be incomplete.\n" + String(repeating: "window metadata ", count: 1_000))
-        ])
+        inspectionHistory.append(
+            plannerRequest: plan.canonicalEnvelope,
+            observations: [
+                .init(toolName: "mcp.peekaboo.window", summary: partialResult)
+            ])
+        inspectionHistory.append(
+            plannerRequest: plan.canonicalEnvelope,
+            observations: [
+                .init(
+                    toolName: "mcp.peekaboo.window",
+                    summary: "PID:222 inventory may be incomplete.\n"
+                        + String(repeating: "window metadata ", count: 1_000))
+            ])
         let observedRequest = "original request: List Chrome windows.\n" + inspectionHistory.formattedForPlanner
         let prompt = await manager.appendConfiguredMCPContext(to: observedRequest, initialInspectionPlan: plan)
         #expect(prompt.hasPrefix(observedRequest))
@@ -1022,21 +1078,30 @@ struct PaceMCPClientIntegrationTests {
         #expect(!prompt.contains(CompanionSystemPrompt.desktopToolRecoveryGuidance))
 
         manager.threadMemory = PaceThreadMemory(configuration: .default)
-        _ = manager.threadMemory.record(userTurn: "OLD_CONVERSATION_REQUEST", assistantTurn: "OLD_CONVERSATION_ANSWER",
+        _ = manager.threadMemory.record(
+            userTurn: "OLD_CONVERSATION_REQUEST", assistantTurn: "OLD_CONVERSATION_ANSWER",
             turnId: "prior-turn", now: Date())
-        manager.threadMemory.applySummaryUpdate(summary: "OLD_THREAD_SUMMARY",
+        manager.threadMemory.applySummaryUpdate(
+            summary: "OLD_THREAD_SUMMARY",
             summaryVersion: manager.threadMemory.reserveNextSummaryVersion(), updatedAt: Date())
         let ordinaryPrompt = PaceLocalCLIPlannerClient.composeCodexPrompt(
-            systemPrompt: CompanionSystemPrompt.build(includeAgentMode: true,
-                threadSummaryInjection: manager.threadMemory.injectionPrefix(), ambientContextInjection: "OLD_AMBIENT_CONTEXT"),
+            systemPrompt: CompanionSystemPrompt.build(
+                includeAgentMode: true,
+                threadSummaryInjection: manager.threadMemory.injectionPrefix(),
+                ambientContextInjection: "OLD_AMBIENT_CONTEXT"),
             conversationHistory: manager.plannerConversationHistory(initialInspectionPlan: nil), userPrompt: prompt)
-        for oldContext in ["OLD_CONVERSATION_REQUEST", "OLD_CONVERSATION_ANSWER", "OLD_THREAD_SUMMARY", "OLD_AMBIENT_CONTEXT"] {
+        for oldContext in [
+            "OLD_CONVERSATION_REQUEST", "OLD_CONVERSATION_ANSWER", "OLD_THREAD_SUMMARY", "OLD_AMBIENT_CONTEXT",
+        ] {
             #expect(ordinaryPrompt.contains(oldContext))
         }
         let inventoryPrompt = PaceLocalCLIPlannerClient.composeCodexPrompt(
             systemPrompt: CompanionSystemPrompt.buildForWindowInventory(),
             conversationHistory: manager.plannerConversationHistory(initialInspectionPlan: plan), userPrompt: prompt)
-        for oldContext in ["OLD_CONVERSATION_REQUEST", "OLD_CONVERSATION_ANSWER", "OLD_THREAD_SUMMARY", "OLD_AMBIENT_CONTEXT", "<conversation_so_far>"] {
+        for oldContext in [
+            "OLD_CONVERSATION_REQUEST", "OLD_CONVERSATION_ANSWER", "OLD_THREAD_SUMMARY", "OLD_AMBIENT_CONTEXT",
+            "<conversation_so_far>",
+        ] {
             #expect(!inventoryPrompt.contains(oldContext))
         }
         #expect(inventoryPrompt.contains(observedRequest))
@@ -1046,19 +1111,31 @@ struct PaceMCPClientIntegrationTests {
         #expect(inventoryPrompt.contains("[inspection result truncated to fit the prompt budget]"))
         #expect(inspectionHistory.formattedForPlanner.count <= PaceAgentInspectionHistory.maximumCharacterCount)
         #expect(inspectionHistory.formattedForPlanner.components(separatedBy: "Completed inspection step ").count == 3)
-        #expect(try await client.callTool(.init(serverName: "peekaboo", toolName: "receipt", arguments: [:])) == "NO_ACTIONS")
+        #expect(
+            try await client.callTool(.init(serverName: "peekaboo", toolName: "receipt", arguments: [:]))
+                == "NO_ACTIONS")
     }
 
     @MainActor @Test(.enabled(if: PaceMCPFixture.isFixtureRunnable))
     func missingWindowInventorySchemaIsABlockerWithoutFullCatalogFallback() async {
         let (manager, _, _) = PaceConversationRecorderTests().makeDismissalFixture()
-        let plan = PaceInitialInspectionPlan(toolCall: .init(serverName: "peekaboo", toolName: "window",
-            arguments: ["action": .string("list"), "app": .string("Safari")]), canonicalEnvelope: "")
-        for configurations in [[:], ["peekaboo": PaceMCPServerConfiguration(
-            command: PaceMCPFixture.pythonThreeExecutablePath ?? "python3", args: [PaceMCPFixture.fixtureScriptPath])]] {
-            manager.actionExecutor = PaceActionExecutor(actionsAreEnabledOverride: true,
+        let plan = PaceInitialInspectionPlan(
+            toolCall: .init(
+                serverName: "peekaboo", toolName: "window",
+                arguments: ["action": .string("list"), "app": .string("Safari")]), canonicalEnvelope: "")
+        for configurations in [
+            [:],
+            [
+                "peekaboo": PaceMCPServerConfiguration(
+                    command: PaceMCPFixture.pythonThreeExecutablePath ?? "python3",
+                    args: [PaceMCPFixture.fixtureScriptPath])
+            ],
+        ] {
+            manager.actionExecutor = PaceActionExecutor(
+                actionsAreEnabledOverride: true,
                 mcpClient: PaceMCPStdioClient(serverConfigurations: configurations))
-            let prompt = await manager.appendConfiguredMCPContext(to: "List Safari windows.", initialInspectionPlan: plan)
+            let prompt = await manager.appendConfiguredMCPContext(
+                to: "List Safari windows.", initialInspectionPlan: plan)
             #expect(prompt.hasPrefix("List Safari windows."))
             #expect(prompt.contains("unavailable"))
             #expect(prompt.contains("do not guess tools"))

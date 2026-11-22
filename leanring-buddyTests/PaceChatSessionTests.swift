@@ -34,14 +34,20 @@ struct PaceChatSessionTests {
     @Test func receiptFollowsCanonicalCancellationAndSurvivesReload() {
         let history = FakeHistorySource()
         let session = PaceChatSession(historySource: history, transcriptSubmitter: FakeTranscriptSubmitter())
-        let event = ConversationEvent(eventID: "queued-ball", turnID: "queued-ball", role: .user,
+        let event = ConversationEvent(
+            eventID: "queued-ball", turnID: "queued-ball", role: .user,
             origin: .typed, text: "run power Bouncing Ball", deliveryState: .cancelled)
         session.upsertConversationEvent(event)
-        #expect(PaceChatTranscriptModel.messageRowModel(fromChatMessage: session.messages[0]).submissionReceipt == "Cancelled")
+        #expect(
+            PaceChatTranscriptModel.messageRowModel(fromChatMessage: session.messages[0]).submissionReceipt
+                == "Cancelled")
         history.stubbedTurns = [historyTurn(for: event)]
         session.loadHistory()
-        #expect(PaceChatTranscriptModel.messageRowModel(fromChatMessage: session.messages[0]).submissionReceipt == "Cancelled")
-        let voice = PaceChatMessage(id: "spoken", role: .user, body: "Hello", createdAt: Date(), origin: .voice, deliveryState: .accepted)
+        #expect(
+            PaceChatTranscriptModel.messageRowModel(fromChatMessage: session.messages[0]).submissionReceipt
+                == "Cancelled")
+        let voice = PaceChatMessage(
+            id: "spoken", role: .user, body: "Hello", createdAt: Date(), origin: .voice, deliveryState: .accepted)
         #expect(PaceChatTranscriptModel.messageRowModel(fromChatMessage: voice).submissionReceipt == nil)
     }
 
@@ -84,14 +90,18 @@ struct PaceChatSessionTests {
 
     // MARK: - loadHistory roundtrip
 
-    private func screenSuggestionEvent(identifier: String = "screen-suggestion-offer", createdAt: Date) -> ConversationEvent {
-        ConversationEvent(eventID: identifier, role: .pace, origin: .proactive,
+    private func screenSuggestionEvent(identifier: String = "screen-suggestion-offer", createdAt: Date)
+        -> ConversationEvent
+    {
+        ConversationEvent(
+            eventID: identifier, role: .pace, origin: .proactive,
             text: "Want to understand why climbing grades do not map directly to raw strength?",
             createdAt: createdAt)
     }
 
     private func historyTurn(for event: ConversationEvent) -> PaceChatHistoryTurn {
-        PaceChatHistoryTurn(id: event.eventID, userText: "", paceText: "", recordedAt: event.createdAt, conversationEvent: event)
+        PaceChatHistoryTurn(
+            id: event.eventID, userText: "", paceText: "", recordedAt: event.createdAt, conversationEvent: event)
     }
 
     private func unreadPreferences() -> UserDefaults {
@@ -102,7 +112,8 @@ struct PaceChatSessionTests {
         let historySource = FakeHistorySource()
         let offer = screenSuggestionEvent(createdAt: Date(timeIntervalSince1970: 100))
         historySource.stubbedTurns = [historyTurn(for: offer)]
-        let session = PaceChatSession(historySource: historySource, transcriptSubmitter: FakeTranscriptSubmitter(),
+        let session = PaceChatSession(
+            historySource: historySource, transcriptSubmitter: FakeTranscriptSubmitter(),
             preferences: unreadPreferences())
         session.loadHistoryWithoutBlockingInterface()
         #expect(session.hasUnreadScreenSuggestion)
@@ -115,33 +126,40 @@ struct PaceChatSessionTests {
         let historySource = FakeHistorySource()
         let offer = screenSuggestionEvent(createdAt: Date(timeIntervalSince1970: 100))
         historySource.stubbedTurns = [historyTurn(for: offer)]
-        let session = PaceChatSession(historySource: historySource, transcriptSubmitter: FakeTranscriptSubmitter(),
+        let session = PaceChatSession(
+            historySource: historySource, transcriptSubmitter: FakeTranscriptSubmitter(),
             preferences: preferences, now: { Date(timeIntervalSince1970: 200) })
         session.loadHistory()
         session.conversationPanelDidShow(.interactive)
-        let relaunchedSession = PaceChatSession(historySource: historySource, transcriptSubmitter: FakeTranscriptSubmitter(),
+        let relaunchedSession = PaceChatSession(
+            historySource: historySource, transcriptSubmitter: FakeTranscriptSubmitter(),
             preferences: preferences)
         relaunchedSession.loadHistory()
         #expect(!relaunchedSession.hasUnreadScreenSuggestion)
         relaunchedSession.loadHistory()
         #expect(!relaunchedSession.hasUnreadScreenSuggestion)
-        #expect(preferences.string(forKey: PaceUserPreferenceKey.lastAcknowledgedScreenSuggestionEventIdentifier.rawValue) == offer.eventID)
+        #expect(
+            preferences.string(forKey: PaceUserPreferenceKey.lastAcknowledgedScreenSuggestionEventIdentifier.rawValue)
+                == offer.eventID)
     }
 
     @Test func newerOfferBecomesUnreadAfterAcknowledgement() {
-        let session = PaceChatSession(historySource: FakeHistorySource(), transcriptSubmitter: FakeTranscriptSubmitter(),
+        let session = PaceChatSession(
+            historySource: FakeHistorySource(), transcriptSubmitter: FakeTranscriptSubmitter(),
             preferences: unreadPreferences(), now: { Date(timeIntervalSince1970: 200) })
         session.upsertConversationEvent(screenSuggestionEvent(createdAt: Date(timeIntervalSince1970: 100)))
         session.conversationPanelDidShow(.interactive)
         #expect(!session.hasUnreadScreenSuggestion)
-        let newerOffer = screenSuggestionEvent(identifier: "screen-suggestion-newer", createdAt: Date(timeIntervalSince1970: 201))
+        let newerOffer = screenSuggestionEvent(
+            identifier: "screen-suggestion-newer", createdAt: Date(timeIntervalSince1970: 201))
         session.upsertConversationEvent(newerOffer)
         #expect(session.hasUnreadScreenSuggestion)
         #expect(session.latestScreenSuggestionEvent == newerOffer)
     }
 
     @Test func duplicateOfferAndUnrelatedNarrationDoNotChangeUnread() {
-        let session = PaceChatSession(historySource: FakeHistorySource(), transcriptSubmitter: FakeTranscriptSubmitter(),
+        let session = PaceChatSession(
+            historySource: FakeHistorySource(), transcriptSubmitter: FakeTranscriptSubmitter(),
             now: { Date(timeIntervalSince1970: 200) })
         let offer = screenSuggestionEvent(createdAt: Date(timeIntervalSince1970: 100))
         session.upsertConversationEvent(offer)
@@ -151,8 +169,9 @@ struct PaceChatSessionTests {
             ConversationEvent(role: .pace, origin: .proactive, text: "A calendar nudge."),
             ConversationEvent(eventID: "screen-suggestion-progress", role: .pace, origin: .progress, text: "Working."),
             ConversationEvent(eventID: "screen-suggestion-user", role: .user, origin: .proactive, text: "User text."),
-            ConversationEvent(eventID: "screen-suggestion-cancelled", role: .pace, origin: .proactive,
-                text: "A cancelled offer.", deliveryState: .cancelled)
+            ConversationEvent(
+                eventID: "screen-suggestion-cancelled", role: .pace, origin: .proactive,
+                text: "A cancelled offer.", deliveryState: .cancelled),
         ] { session.upsertConversationEvent(event) }
         #expect(!session.hasUnreadScreenSuggestion)
         #expect(session.latestScreenSuggestionEvent == offer)
@@ -160,11 +179,13 @@ struct PaceChatSessionTests {
 
     @Test func distinctOfferAtAcknowledgementTimestampRemainsUnread() {
         let createdAt = Date(timeIntervalSince1970: 200)
-        let session = PaceChatSession(historySource: FakeHistorySource(), transcriptSubmitter: FakeTranscriptSubmitter(),
+        let session = PaceChatSession(
+            historySource: FakeHistorySource(), transcriptSubmitter: FakeTranscriptSubmitter(),
             now: { createdAt })
         session.upsertConversationEvent(screenSuggestionEvent(createdAt: createdAt))
         session.conversationPanelDidShow(.interactive)
-        session.upsertConversationEvent(screenSuggestionEvent(identifier: "screen-suggestion-distinct", createdAt: createdAt))
+        session.upsertConversationEvent(
+            screenSuggestionEvent(identifier: "screen-suggestion-distinct", createdAt: createdAt))
         #expect(session.hasUnreadScreenSuggestion)
     }
 
@@ -172,12 +193,14 @@ struct PaceChatSessionTests {
         let preferences = unreadPreferences()
         let historySource = FakeHistorySource()
         let oldOffer = screenSuggestionEvent(createdAt: Date(timeIntervalSince1970: 100))
-        let session = PaceChatSession(historySource: historySource, transcriptSubmitter: FakeTranscriptSubmitter(),
+        let session = PaceChatSession(
+            historySource: historySource, transcriptSubmitter: FakeTranscriptSubmitter(),
             preferences: preferences, now: { Date(timeIntervalSince1970: 200) })
         session.conversationPanelDidShow(.interactive)
         session.applyLoadedHistory([historyTurn(for: oldOffer)])
         #expect(!session.hasUnreadScreenSuggestion)
-        let newOffer = screenSuggestionEvent(identifier: "screen-suggestion-after-open", createdAt: Date(timeIntervalSince1970: 201))
+        let newOffer = screenSuggestionEvent(
+            identifier: "screen-suggestion-after-open", createdAt: Date(timeIntervalSince1970: 201))
         session.upsertConversationEvent(newOffer)
         session.applyLoadedHistory([historyTurn(for: oldOffer)])
         #expect(session.hasUnreadScreenSuggestion)
@@ -186,7 +209,8 @@ struct PaceChatSessionTests {
     }
 
     @Test func liveScreenOfferUpdateWinsOverStaleHistoryMetadata() {
-        let session = PaceChatSession(historySource: FakeHistorySource(), transcriptSubmitter: FakeTranscriptSubmitter())
+        let session = PaceChatSession(
+            historySource: FakeHistorySource(), transcriptSubmitter: FakeTranscriptSubmitter())
         let oldOffer = screenSuggestionEvent(createdAt: Date(timeIntervalSince1970: 100))
         var updatedOffer = oldOffer
         updatedOffer.text = "Want an explanation of climbing grades and raw strength?"
@@ -198,7 +222,8 @@ struct PaceChatSessionTests {
 
     @Test func previewKeepsScreenOfferUnreadAndInteractiveOpenAcknowledges() {
         let preferences = unreadPreferences()
-        let session = PaceChatSession(historySource: FakeHistorySource(), transcriptSubmitter: FakeTranscriptSubmitter(),
+        let session = PaceChatSession(
+            historySource: FakeHistorySource(), transcriptSubmitter: FakeTranscriptSubmitter(),
             preferences: preferences, now: { Date(timeIntervalSince1970: 200) })
         session.upsertConversationEvent(screenSuggestionEvent(createdAt: Date(timeIntervalSince1970: 100)))
         session.conversationPanelDidShow(.preview)
@@ -210,7 +235,8 @@ struct PaceChatSessionTests {
 
     @Test func nonblankSubmissionAcknowledgesSuggestion() {
         let submitter = FakeTranscriptSubmitter()
-        let session = PaceChatSession(historySource: FakeHistorySource(), transcriptSubmitter: submitter,
+        let session = PaceChatSession(
+            historySource: FakeHistorySource(), transcriptSubmitter: submitter,
             now: { Date(timeIntervalSince1970: 200) })
         session.upsertConversationEvent(screenSuggestionEvent(createdAt: Date(timeIntervalSince1970: 100)))
         session.draftMessageText = "Maybe explain it"
