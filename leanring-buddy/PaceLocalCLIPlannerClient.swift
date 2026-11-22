@@ -223,6 +223,10 @@ nonisolated struct PaceCLITextDeliveryState {
     private var pendingRejectionCategory: PaceCLIRejectionCategory?
     private(set) var rejectionCategory: PaceCLIRejectionCategory?
 
+    init(codexTextDelivery: PaceCodexTextDelivery) {
+        self.codexTextDelivery = codexTextDelivery
+    }
+
     mutating func consume(chunk: String, fromLine line: String) -> String? {
         guard codexTextDelivery == .completedTurn else {
             guard !chunk.isEmpty else { return nil }

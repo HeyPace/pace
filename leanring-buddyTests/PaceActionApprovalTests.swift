@@ -10,6 +10,13 @@ import Testing
 @testable import Pace
 
 struct PaceActionApprovalTests {
+    @Test func observationOnlyRejectsGeneratedFilesEvenWhenTheToolNeedsNoApproval() {
+        let plan = PaceActionTagParser.parseActions(
+            from: #"{"tool":"generate_image","prompt":"A blue mug","title":"Blue mug"}"#)
+        #expect(!plan.actions.isEmpty)
+        #expect(!PaceActionApprovalPolicy.permitsObservationOnly(plan.executionPlan))
+    }
+
     @MainActor
     @Test func exactScreenQuestionsAreObservationOnlyWithoutBlockingDescribeAndActRequests() {
         let classifier = PaceIntentClassifier()
