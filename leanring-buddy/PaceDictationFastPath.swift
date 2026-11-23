@@ -89,7 +89,7 @@ final class PaceDictationFastPath {
     }
 
     static func hasSpokenDisfluency(_ text: String) -> Bool {
-        text.range(of: #"(?i)\b(?:um+|uh+|erm+)\b|\b([\p{L}]+)\s+\1\b"#, options: .regularExpression) != nil
+        text.lowercased().range(of: #"\b(?:um+|uh+|erm+)\b|\b(\p{L}+)\s+\1\b"#, options: .regularExpression) != nil
     }
 
     /// Check if a transcript looks like a dictation command.
