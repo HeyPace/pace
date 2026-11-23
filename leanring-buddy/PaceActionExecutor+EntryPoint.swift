@@ -174,7 +174,13 @@ extension PaceActionExecutor {
         case .clickCandidates(let clickCandidateSet):
             return await clickBestCandidate(clickCandidateSet, screenCaptures: screenCaptures)
         case .type(let textToType):
-            await typeText(textToType)
+            if actionsAreEnabled, !(await typeText(textToType)) {
+                return .init(
+                    toolName: "type",
+                    summary: "Could not finish typing into the frontmost app. No remaining plan actions were run.",
+                    userFacingSummary: "I couldn’t finish typing. Check the draft before trying again.",
+                    terminalReason: .inspectionInterrupted)
+            }
         case .setTextValue(let setTextValueRequest):
             return setTextValue(setTextValueRequest)
         case .editSelectedText(let voiceEditRequest):

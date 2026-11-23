@@ -18,25 +18,36 @@ extension PaceActionExecutor {
 
     // MARK: - Keyboard
 
-    func typeText(_ textToType: String) async {
+    @discardableResult
+    func typeText(_ textToType: String) async -> Bool {
         print("⌨️  Type \(textToType.count) chars (enabled: \(actionsAreEnabled))")
-        guard actionsAreEnabled else { return }
+        guard actionsAreEnabled, accessibilityPermissionCheck() else { return false }
 
         // Use unicode-string CGEvents so we don't have to map every char to
         // a key code. This works for any printable text including emoji.
         // Each grapheme gets its own keyDown + keyUp pair.
+        let targetProcessIdentifier = NSWorkspace.shared.frontmostApplication?.processIdentifier
+        guard let targetProcessIdentifier, targetProcessIdentifier != ProcessInfo.processInfo.processIdentifier else {
+            return false
+        }
         for unicodeCharacter in textToType {
+            guard !Task.isCancelled,
+                NSWorkspace.shared.frontmostApplication?.processIdentifier == targetProcessIdentifier
+            else { return false }
+
             let utf16Units = Array(String(unicodeCharacter).utf16)
-            guard let keyDownEvent = CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: true) else { continue }
+            guard let keyDownEvent = CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: true),
+                  let keyUpEvent = CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: false)
+            else { return false }
             keyDownEvent.keyboardSetUnicodeString(stringLength: utf16Units.count, unicodeString: utf16Units)
             keyDownEvent.post(tap: .cghidEventTap)
 
-            guard let keyUpEvent = CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: false) else { continue }
             keyUpEvent.keyboardSetUnicodeString(stringLength: utf16Units.count, unicodeString: utf16Units)
             keyUpEvent.post(tap: .cghidEventTap)
 
             try? await Task.sleep(nanoseconds: 8_000_000) // 8ms between chars feels natural
         }
+        return true
     }
 
     func setTextValue(_ request: PaceSetTextValueRequest) -> PaceActionExecutionObservation {
@@ -430,6 +441,11 @@ extension PaceActionExecutor {
         do {
             let targetedToolCall = try boundPeekabooToolCall(mcpToolCall)
             let resultSummary = try await mcpClient.callTool(targetedToolCall)
+            if mcpToolCall.serverName == "peekaboo", mcpToolCall.toolName == "see",
+                executionGeneration == applicationTargetGeneration, !Task.isCancelled
+            {
+                unconfirmedPeekabooInput = nil
+            }
             return PaceActionExecutionObservation(
                 toolName: toolObservationName,
                 summary: resultSummary.isEmpty ? "MCP tool completed: \(mcpToolCall.approvalDescription)" : resultSummary

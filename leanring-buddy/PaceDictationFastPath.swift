@@ -37,7 +37,7 @@ final class PaceDictationFastPath {
 
     /// Callback to type text into the focused app. Set by
     /// CompanionManager to `actionExecutor.typeText`.
-    var typeTextCallback: ((String) async -> Void)?
+    var typeTextCallback: ((String) async -> Bool)?
 
     /// Callback to run Apple FM cleanup. Set by CompanionManager.
     /// Returns the cleaned-up text, or nil if Apple FM isn't available.
@@ -77,8 +77,9 @@ final class PaceDictationFastPath {
 
         // Step 3: type the text directly into the focused field.
         PaceLatencyBudget.shared.mark(.toolExecStart)
-        await typeTextCallback(cleanedText)
+        let didPostText = await typeTextCallback(cleanedText)
         PaceLatencyBudget.shared.mark(.toolExecComplete)
+        guard didPostText else { return nil }
 
         print("📝 Dictation fast path: typed \(cleanedText.count) chars, skipped planner/VLM/TTS")
 

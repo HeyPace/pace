@@ -68,6 +68,7 @@ struct PaceDictationFastPathTests {
         var typedText: String?
         fastPath.typeTextCallback = { text in
             typedText = text
+            return true
         }
         defer { fastPath.typeTextCallback = nil }
 
@@ -83,6 +84,7 @@ struct PaceDictationFastPathTests {
         var typedText: String?
         fastPath.typeTextCallback = { text in
             typedText = text
+            return true
         }
         defer { fastPath.typeTextCallback = nil }
 
@@ -108,7 +110,7 @@ struct PaceDictationFastPathTests {
         fastPath.isEnabled = false
         defer { fastPath.isEnabled = originalEnabled }
 
-        fastPath.typeTextCallback = { _ in }
+        fastPath.typeTextCallback = { _ in true }
         defer { fastPath.typeTextCallback = nil }
 
         let result = await fastPath.dictate(transcript: "hello world")
@@ -121,6 +123,7 @@ struct PaceDictationFastPathTests {
         var typedText: String?
         fastPath.typeTextCallback = { text in
             typedText = text
+            return true
         }
         defer { fastPath.typeTextCallback = nil }
 
@@ -129,9 +132,19 @@ struct PaceDictationFastPathTests {
     }
 
     @Test
+    func dictateReturnsNilWhenInputWasNotPosted() async {
+        let fastPath = PaceDictationFastPath.shared
+        fastPath.typeTextCallback = { _ in false }
+        defer { fastPath.typeTextCallback = nil }
+
+        let result = await fastPath.dictate(transcript: "hello world")
+        #expect(result == nil)
+    }
+
+    @Test
     func dictate_emptyTranscriptReturnsNil() async {
         let fastPath = PaceDictationFastPath.shared
-        fastPath.typeTextCallback = { _ in }
+        fastPath.typeTextCallback = { _ in true }
         defer { fastPath.typeTextCallback = nil }
 
         let result = await fastPath.dictate(transcript: "")

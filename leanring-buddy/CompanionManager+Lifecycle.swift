@@ -674,8 +674,8 @@ extension CompanionManager {
         //     wraps itself in begin/end so the capsule tints amber for
         //     off-device planner traffic the user didn't just speak.)
         PaceDictationFastPath.shared.typeTextCallback = { [weak self] text in
-            guard let self else { return }
-            await self.actionExecutor.typeText(text)
+            guard let self else { return false }
+            return await self.actionExecutor.typeText(text)
         }
         // Apple FM cleanup callback for disfluency removal. Only set
         // when Apple Intelligence is available.

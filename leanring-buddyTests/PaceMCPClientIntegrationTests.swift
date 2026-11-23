@@ -259,6 +259,13 @@ struct PaceMCPClientIntegrationTests {
         let receiptAfterRepeat = try await client.callTool(
             .init(serverName: "peekaboo", toolName: "receipt", arguments: [:]))
         #expect(receiptAfterRepeat == "click:")
+        _ = await executor.callMCPTool(.init(serverName: "peekaboo", toolName: "see", arguments: [:]))
+        let freshClick = await executor.callMCPTool(
+            .init(serverName: "peekaboo", toolName: "click", arguments: ["snapshot": .string("fresh-fixture")]))
+        #expect(!freshClick.stopsActionPlan)
+        let receiptAfterInspection = try await client.callTool(
+            .init(serverName: "peekaboo", toolName: "receipt", arguments: [:]))
+        #expect(receiptAfterInspection == "click:\nsee:\nclick:")
         let secondUnconfirmed = await executor.callMCPTool(scroll)
         #expect(secondUnconfirmed.stopsAgentLoop)
     }

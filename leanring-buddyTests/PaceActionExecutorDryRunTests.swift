@@ -45,6 +45,9 @@ struct PaceActionExecutorDryRunTests {
         #expect(result.toolName == "scroll")
         #expect(result.summary.contains("Could not locate"))
         #expect(result.stopsActionPlan)
+        #expect(result.requiresFreshInspectionPlan)
+        let retry = await executor.executeActionPlan(.serial(actions: [action]), screenCaptures: [])
+        #expect(retry.first?.stopsAgentLoop == true)
 
         let privateExecutor = PaceActionExecutor(
             actionsAreEnabledOverride: true, accessibilityPermissionCheck: { true }, readMyScreenIsEnabled: { false })

@@ -2326,8 +2326,12 @@ extension CompanionManager {
                         userTranscript: transcript,
                         assistantResponse: "[typed: \(typedText)]"
                     )
+                    self.currentTurnHUDState = .idle
+                } else {
+                    let message = "I couldn’t finish typing. Check the active field and Pace’s Accessibility permission."
+                    self.recordConversationTurn(userTranscript: transcript, assistantResponse: message)
+                    self.currentTurnHUDState = .failed(message)
                 }
-                self.currentTurnHUDState = .idle
                 self.voiceState = .idle
                 // Close out the per-turn latency budget — this route
                 // never reaches the main loop's finishTurn call, and a

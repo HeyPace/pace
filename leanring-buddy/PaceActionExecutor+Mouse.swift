@@ -457,11 +457,15 @@ extension PaceActionExecutor {
                 let point = convertScreenshotPixelToDisplayGlobalPoint(
                     screenshotPixelLocation: location, screenCaptures: screenCaptures, requiresExactLocation: true)
             else {
+                let canInspectAgain = !hasAttemptedInspectionRecovery
+                if canInspectAgain { hasAttemptedInspectionRecovery = true }
                 return .init(
                     toolName: "scroll",
-                    summary: "Could not locate the requested scroll area. Inspect the screen again.",
-                    userFacingSummary: "I couldn’t locate that pane. Inspect the screen again before scrolling.",
-                    terminalReason: .inspectionInterrupted)
+                    summary: canInspectAgain
+                        ? "Could not locate the requested scroll area. Inspect the current view again before scrolling."
+                        : "Could not locate the requested scroll area.",
+                    userFacingSummary: canInspectAgain ? "" : "I couldn’t locate that pane. Please try again.",
+                    terminalReason: canInspectAgain ? .recoverableInspectionFailure : .inspectionInterrupted)
             }
             targetPoint = point
         }
