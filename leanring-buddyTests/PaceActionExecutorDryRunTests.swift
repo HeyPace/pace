@@ -11,6 +11,17 @@ import Testing
 
 @MainActor
 struct PaceActionExecutorDryRunTests {
+    @Test func unresolvedCoordinateClicksStopDependentStepsAndRequestFreshInspectionOnce() async throws {
+        let executor = PaceActionExecutor(
+            actionsAreEnabledOverride: true, accessibilityPermissionCheck: { true }, readMyScreenIsEnabled: { true })
+        let target = ScreenshotPixelLocation(xInScreenshotPixels: 10, yInScreenshotPixels: 10, screenNumber: 1)
+        let first = await executor.executeActionPlan(.serial(actions: [.click(target), .type("draft")]), screenCaptures: [])
+        #expect(first.count == 1)
+        #expect(first.first?.requiresFreshInspectionPlan == true)
+        let retry = await executor.executeActionPlan(.serial(actions: [.doubleClick(target)]), screenCaptures: [])
+        #expect(retry.first?.stopsAgentLoop == true)
+    }
+
     @Test func targetedScrollUsesTheSelectedDisplayAndRejectsItsEdges() throws {
         let screenHeight = try #require(NSScreen.screens.first).frame.height
         let primary = CompanionScreenCapture(

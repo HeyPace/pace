@@ -2392,6 +2392,7 @@ extension CompanionManager {
                     "\n\nPhysical scene observed locally from the paired iPad for this turn only:\n"
                     + physicalSceneContext
             }
+            let originalPlannerRequest = currentTurnUserPrompt
             var pendingPostActionFeedbackText: String?
             var inspectionHistory = PaceAgentInspectionHistory()
             var plannerLoopFinished = false
@@ -3110,8 +3111,9 @@ extension CompanionManager {
                                 preflightIssues: preflightIssues
                             ) {
                                 if !PaceActionApprovalPolicy.permitsObservationOnly(actionParseResult.executionPlan) {
-                                    // Let cursor motion arrive before input; read-only tools need no UI settling.
-                                    try? await Task.sleep(nanoseconds: 350_000_000)
+                                    if hasPointCoordinate {
+                                        try? await Task.sleep(nanoseconds: 350_000_000)
+                                    }
                                     preActionObservationBaseline = PaceClickStateSnapshot.captureLightweight()
                                 }
                                 guard !Task.isCancelled else { return }
@@ -3308,6 +3310,7 @@ extension CompanionManager {
                     // 12. Advance as soon as lightweight AX-visible state
                     //     changes. Apps without useful AX state retain the
                     //     legacy 600ms maximum as a conservative fallback.
+                    var observedUIChange: String?
                     if let preActionObservationBaseline {
                         let observationOutcome = await PaceActionObservationWaiter.waitForChange(
                             from: preActionObservationBaseline,
@@ -3316,8 +3319,10 @@ extension CompanionManager {
                         )
                         switch observationOutcome {
                         case .changed(let completedPollCount):
+                            observedUIChange = "The frontmost UI changed after input. Check the current view before issuing another action."
                             print("⚡ Agent loop: AX state changed after \(completedPollCount) observation poll(s)")
                         case .timedOut:
+                            observedUIChange = "Focus and window metadata stayed unchanged. Check the current content or use a fresh accessibility inspection before repeating input."
                             print("⏱  Agent loop: no AX state change before the 600ms fallback elapsed")
                         case .cancelled:
                             return
@@ -3339,17 +3344,18 @@ extension CompanionManager {
                         currentTurnUserPrompt =
                             """
                             original request:
-                            \(transcript)
+                            \(originalPlannerRequest)
 
                             continue this request. look at the current screen, then emit the next step's action tags. only emit [DONE] with a user-facing answer when the entire request is complete. if blocked, explain what remains unfinished.
                             """
                     } else {
                         currentTurnUserPrompt = """
                             original request:
-                            \(transcript)
+                            \(originalPlannerRequest)
 
                             completed tool requests and results (most recent inspection steps retained within the prompt budget):
                             \(inspectionHistoryPromptText)
+                            \(observedUIChange ?? "")
 
                             continue this request. use the tool results and current screen, then emit the next step's tool calls/action tags. a successful tool call alone does not complete the request. only emit [DONE] with a user-facing answer when the entire request is complete. if blocked, explain what remains unfinished.
                             """

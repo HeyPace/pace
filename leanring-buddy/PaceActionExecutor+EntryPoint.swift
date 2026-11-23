@@ -168,9 +168,9 @@ extension PaceActionExecutor {
         }
         switch action {
         case .click(let location):
-            await clickAtScreenshotLocation(location, screenCaptures: screenCaptures, clickCount: 1)
+            return await clickWithReceipt(at: location, screenCaptures: screenCaptures, clickCount: 1)
         case .doubleClick(let location):
-            await clickAtScreenshotLocation(location, screenCaptures: screenCaptures, clickCount: 2)
+            return await clickWithReceipt(at: location, screenCaptures: screenCaptures, clickCount: 2)
         case .clickCandidates(let clickCandidateSet):
             return await clickBestCandidate(clickCandidateSet, screenCaptures: screenCaptures)
         case .type(let textToType):

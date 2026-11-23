@@ -179,6 +179,26 @@ extension PaceActionExecutor {
         return PaceAXLabelPressResolver.pressBestMatch(for: candidate)
     }
 
+    func clickWithReceipt(
+        at location: ScreenshotPixelLocation, screenCaptures: [CompanionScreenCapture], clickCount: Int
+    ) async -> PaceActionExecutionObservation? {
+        guard actionsAreEnabled else { return nil }
+        let toolName = clickCount == 2 ? "double_click" : "click"
+        guard await clickAtScreenshotLocation(location, screenCaptures: screenCaptures, clickCount: clickCount) else {
+            let canInspect = !hasAttemptedInspectionRecovery && !Task.isCancelled && readMyScreenIsEnabled()
+            if canInspect { hasAttemptedInspectionRecovery = true }
+            return .init(
+                toolName: toolName,
+                summary: "Could not click the requested point. Inspect the current window before issuing another input.",
+                userFacingSummary: canInspect ? "" : "I couldn’t click that target.",
+                terminalReason: canInspect ? .recoverableInspectionFailure : .inspectionInterrupted)
+        }
+        return .init(
+            toolName: toolName,
+            summary: "Dispatched \(toolName) at \(location.approvalDescription). Verify the resulting view. If the requested conversation or control is already open, finish or proceed to the next requested step. If the target is missing, inspect the window by label before trying another click.",
+            userFacingSummary: "")
+    }
+
     @discardableResult
     func clickAtScreenshotLocation(
         _ screenshotPixelLocation: ScreenshotPixelLocation,
@@ -221,25 +241,25 @@ extension PaceActionExecutor {
         try? await Task.sleep(nanoseconds: 30_000_000) // 30ms hover settle
 
         for clickIndex in 0..<clickCount {
+            guard !Task.isCancelled else { return false }
             let downEvent = CGEvent(
                 mouseEventSource: nil,
                 mouseType: .leftMouseDown,
                 mouseCursorPosition: displayGlobalPoint,
                 mouseButton: .left
             )
-            downEvent?.setIntegerValueField(.mouseEventClickState, value: Int64(clickIndex + 1))
-            downEvent?.post(tap: .cghidEventTap)
-
-            try? await Task.sleep(nanoseconds: 20_000_000) // 20ms hold
-
             let upEvent = CGEvent(
                 mouseEventSource: nil,
                 mouseType: .leftMouseUp,
                 mouseCursorPosition: displayGlobalPoint,
                 mouseButton: .left
             )
-            upEvent?.setIntegerValueField(.mouseEventClickState, value: Int64(clickIndex + 1))
-            upEvent?.post(tap: .cghidEventTap)
+            guard let downEvent, let upEvent else { return false }
+            downEvent.setIntegerValueField(.mouseEventClickState, value: Int64(clickIndex + 1))
+            upEvent.setIntegerValueField(.mouseEventClickState, value: Int64(clickIndex + 1))
+            downEvent.post(tap: .cghidEventTap)
+            try? await Task.sleep(nanoseconds: 20_000_000)
+            upEvent.post(tap: .cghidEventTap)
 
             if clickIndex < clickCount - 1 {
                 try? await Task.sleep(nanoseconds: 40_000_000) // 40ms between clicks of a double-click
