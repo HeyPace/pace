@@ -156,46 +156,6 @@ struct PaceMCPSettingsTab: View {
         }
     }
 
-    /// Slugs still configured in the user's mcp-servers.json that
-    /// have been superseded by Composio.
-    private var installedSupersededServerSlugs: [String] {
-        configuredMCPServerNames.filter { slug in
-            PaceMCPServerCatalog.supersededBySlug[slug] != nil
-        }
-    }
-
-    private var supersededByComposioHintBanner: some View {
-        HStack(alignment: .top, spacing: 8) {
-            Image(systemName: "arrow.triangle.swap")
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundColor(DS.Colors.warning)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(
-                    "Composio now handles \(installedSupersededServerSlugs.map { $0.capitalized }.sorted().joined(separator: ", ")) through a single OAuth."
-                )
-                .font(.system(size: 12, weight: .medium))
-                .foregroundColor(DS.Colors.textPrimary)
-                .fixedSize(horizontal: false, vertical: true)
-                Text(
-                    "You can remove the server-specific entries below when you've installed Composio and confirmed it works for you."
-                )
-                .font(.system(size: 11))
-                .foregroundColor(DS.Colors.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
-            }
-            Spacer(minLength: 0)
-        }
-        .padding(10)
-        .background(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(DS.Colors.warning.opacity(0.10))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .stroke(DS.Colors.warning.opacity(0.35), lineWidth: 0.5)
-        )
-    }
-
     private var composioKeyEditorRow: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 6) {

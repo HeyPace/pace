@@ -107,13 +107,6 @@ nonisolated enum PaceRestraintGate {
     static let activeInputWindowSeconds: TimeInterval = 3
     static let minimumWakeWordConfidence = 0.7
 
-    /// Default cooldowns (the `.balanced` profile). Kept as `static let`s
-    /// so existing call-site code that referenced them by name still
-    /// resolves — they now describe the `.balanced` row in the
-    /// profile-tuned cooldown table below.
-    static let proactiveCooldownSeconds: TimeInterval = 10 * 60
-    static let episodicRecallCooldownSeconds: TimeInterval = 30
-
     /// Per-profile cooldown tuning. Talkative shortens the focus
     /// cooldown to keep nudges feeling responsive; reserved triples it
     /// so Pace effectively talks once per half-hour at most. Episodic

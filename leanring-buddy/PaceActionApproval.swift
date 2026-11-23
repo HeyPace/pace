@@ -215,48 +215,6 @@ nonisolated enum PaceActionApprovalPolicy {
         }
     }
 
-    /// Whether the supplied plan contains at least one reversible
-    /// mutation. Used by `CompanionManager` to decide if the undo
-    /// banner should appear after the executor finishes.
-    static func planContainsReversibleMutation(
-        _ actionExecutionPlan: PaceActionExecutionPlan
-    ) -> Bool {
-        actionExecutionPlan.flattenedActions.contains(where: actionIsReversibleMutation)
-    }
-
-    /// Short user-friendly summary of the first reversible mutation in
-    /// the plan, used as the undo-banner label. Returns nil when no
-    /// reversible action is present.
-    static func firstReversibleSummary(
-        _ actionExecutionPlan: PaceActionExecutionPlan
-    ) -> String? {
-        for action in actionExecutionPlan.flattenedActions {
-            if actionIsReversibleMutation(action) {
-                return reversibleSummary(for: action)
-            }
-        }
-        return nil
-    }
-
-    private static func reversibleSummary(for action: PaceParsedAction) -> String {
-        switch action {
-        case .createNote: return "Created note"
-        case .appendNote: return "Appended to note"
-        case .createReminder: return "Created reminder"
-        case .createCalendarEvent: return "Created calendar event"
-        case .composeMail: return "Started mail draft"
-        case .createThingsToDo: return "Created Things to-do"
-        case .runShortcut: return "Ran shortcut"
-        case .downloadFile: return "Downloaded file"
-        case .recordFlow: return "Recorded flow"
-        case .runFlow: return "Ran flow"
-        case .setTextValue, .editSelectedText: return "Edited text"
-        case .openMessages: return "Started message draft"
-        case .mcp: return "Ran external tool"
-        default: return "Last action"
-        }
-    }
-
     private static func canRelyOnVisualOrObservationFeedback(_ action: PaceParsedAction) -> Bool {
         switch action {
         case .click, .doubleClick, .clickCandidates, .type, .setTextValue, .editSelectedText,

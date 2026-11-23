@@ -633,37 +633,6 @@ extension CompanionManager {
         }
     }
 
-    /// Falls back to the executor's existing top-candidate auto-click when
-    /// a pending click-target clarification is dismissed or times out
-    /// without a choice, so an unanswered question never strands the turn.
-    /// Wired to outside-click dismissal / a new turn beginning.
-    func dismissPendingClickTargetClarificationWithAutoClick() {
-        guard let pendingClickTargetClarification else { return }
-        self.pendingClickTargetClarification = nil
-
-        let screenCaptures = pendingClickTargetClarification.screenCaptures
-        let originalCandidateSet = pendingClickTargetClarification.candidateSet
-        currentTurnHUDState = .acting("clicking best match")
-        let clickPlan = PaceActionExecutionPlan.serial(
-            actions: [.clickCandidates(originalCandidateSet)]
-        )
-        currentResponseTask = Task { @MainActor in
-            let toolObservations = await actionExecutor.executeActionPlan(
-                clickPlan,
-                screenCaptures: screenCaptures
-            )
-            guard !Task.isCancelled else { return }
-            if !toolObservations.isEmpty {
-                appendActionResult(.completed(observations: toolObservations))
-            }
-            if currentTurnHUDState.status == .acting {
-                currentTurnHUDState = .done("turn finished")
-            }
-            currentDictationTrigger = .keyboard
-            scheduleTransientHideIfNeeded()
-        }
-    }
-
     func handleUnsupportedTurn(
         transcript: String,
         unsupportedResponse: PaceIntentUnsupportedResponse
