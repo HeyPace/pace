@@ -69,7 +69,9 @@ final class PaceDictationFastPath {
             Self.hasSpokenDisfluency(cleanedText)
         {
             PaceLatencyBudget.shared.mark(.plannerStart)
-            if let fmCleaned = await appleFMCleanupCallback(cleanedText), !fmCleaned.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            if let fmCleaned = await appleFMCleanupCallback(cleanedText),
+                !fmCleaned.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            {
                 cleanedText = fmCleaned
             }
             PaceLatencyBudget.shared.mark(.plannerComplete)

@@ -35,11 +35,8 @@ struct PacePlannerClickFingerprint: Equatable {
     }
 }
 
-
 @MainActor
 extension PaceActionExecutor {
-
-    // MARK: - High-level entry point
 
     // MARK: - High-level entry point
 
@@ -67,18 +64,22 @@ extension PaceActionExecutor {
             .init(observations: observations, executedPlan: .serial(actions: executedActions))
         }
         let executionGeneration = applicationTargetGeneration
-        let currentClick = checksRepeatedClick && actionsAreEnabled && readMyScreenIsEnabled()
+        let currentClick =
+            checksRepeatedClick && actionsAreEnabled && readMyScreenIsEnabled()
             ? PacePlannerClickFingerprint(plan: actionExecutionPlan, captures: screenCaptures) : nil
         guard !Task.isCancelled else { return receipt() }
         if let currentClick, previousPlannerClick == currentClick,
-            managedPowerExecutionCheck?() != false, accessibilityPermissionCheck() {
+            managedPowerExecutionCheck?() != false, accessibilityPermissionCheck()
+        {
             let canInspect = !hasAttemptedInspectionRecovery
             if canInspect { hasAttemptedInspectionRecovery = true }
-            observations.append(.init(
-                toolName: "click",
-                summary: "Skipped a repeated click at the same point on an unchanged screenshot. Inspect the intended control by name or report what is missing.",
-                userFacingSummary: canInspect ? "" : "I couldn’t verify that control.",
-                terminalReason: canInspect ? .recoverableInspectionFailure : .inspectionInterrupted))
+            observations.append(
+                .init(
+                    toolName: "click",
+                    summary:
+                        "Skipped a repeated click at the same point on an unchanged screenshot. Inspect the intended control by name or report what is missing.",
+                    userFacingSummary: canInspect ? "" : "I couldn’t verify that control.",
+                    terminalReason: canInspect ? .recoverableInspectionFailure : .inspectionInterrupted))
             return receipt()
         }
         previousPlannerClick = nil
@@ -110,7 +111,8 @@ extension PaceActionExecutor {
         }
 
         if executionGeneration == applicationTargetGeneration,
-            observations.count == 1, observations.first?.didDispatchCoordinateClick == true {
+            observations.count == 1, observations.first?.didDispatchCoordinateClick == true
+        {
             previousPlannerClick = currentClick
         }
         return receipt()
@@ -233,7 +235,9 @@ extension PaceActionExecutor {
             }
             return .init(
                 toolName: "type",
-                summary: "Posted keyboard input for \(textToType.count) characters. Inspect the focused field to verify the text. Do not repeat typing if the text already appears.")
+                summary:
+                    "Posted keyboard input for \(textToType.count) characters. Inspect the focused field to verify the text. Do not repeat typing if the text already appears."
+            )
         case .setTextValue(let setTextValueRequest):
             return setTextValue(setTextValueRequest)
         case .editSelectedText(let voiceEditRequest):

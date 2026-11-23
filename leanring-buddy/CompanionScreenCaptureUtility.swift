@@ -22,9 +22,14 @@ struct CompanionScreenCapture {
     let screenshotHeightInPixels: Int
     var cursorPixelLocation: CGPoint? = nil
 
-    var plannerImageLabel: String {
-        guard let cursorPixelLocation else { return label }
-        return label + " — pointer at screenshot pixel (\(Int(cursorPixelLocation.x)), \(Int(cursorPixelLocation.y)))"
+    var plannerImage: (data: Data, label: String) {
+        var imageLabel = label
+        if let cursorPixelLocation {
+            imageLabel +=
+                " — pointer at screenshot pixel (\(Int(cursorPixelLocation.x)), \(Int(cursorPixelLocation.y)))"
+        }
+        imageLabel += " (image dimensions: \(screenshotWidthInPixels)x\(screenshotHeightInPixels) pixels)"
+        return (imageData, imageLabel)
     }
 }
 
@@ -34,7 +39,9 @@ enum CompanionScreenCaptureUtility {
     /// Captures all connected displays as JPEG data, labeling each with
     /// whether the user's cursor is on that screen. This gives the AI
     /// full context across multiple monitors.
-    static func captureAllScreensAsJPEG(watchOnly: Bool = false, showsCursor: Bool = true) async throws -> [CompanionScreenCapture] {
+    static func captureAllScreensAsJPEG(watchOnly: Bool = false, showsCursor: Bool = true) async throws
+        -> [CompanionScreenCapture]
+    {
         let readIdentifier = PaceScreenReadActivity.shared.beginReading()
         defer { PaceScreenReadActivity.shared.endReading(readIdentifier) }
         try Task.checkCancellation()
@@ -144,8 +151,9 @@ enum CompanionScreenCaptureUtility {
             if !showsCursor, isCursorScreen, displayFrame.width > 0, displayFrame.height > 0 {
                 let x = (mouseLocation.x - displayFrame.minX) / displayFrame.width * CGFloat(configuration.width)
                 let y = (displayFrame.maxY - mouseLocation.y) / displayFrame.height * CGFloat(configuration.height)
-                cursorPixelLocation = CGPoint(x: min(CGFloat(configuration.width - 1), x),
-                                              y: min(CGFloat(configuration.height - 1), y))
+                cursorPixelLocation = CGPoint(
+                    x: min(CGFloat(configuration.width - 1), x),
+                    y: min(CGFloat(configuration.height - 1), y))
             }
             capturedScreens.append(CompanionScreenCapture(
                     displayIdentifier: display.displayID,
@@ -156,8 +164,8 @@ enum CompanionScreenCaptureUtility {
                 displayHeightInPoints: Int(displayFrame.height),
                 displayFrame: displayFrame,
                 screenshotWidthInPixels: configuration.width,
-                screenshotHeightInPixels: configuration.height,
-                cursorPixelLocation: cursorPixelLocation
+                    screenshotHeightInPixels: configuration.height,
+                    cursorPixelLocation: cursorPixelLocation
             ))
         }
 

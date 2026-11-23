@@ -843,7 +843,9 @@ final class PacePushToTalkManager: NSObject, ObservableObject {
         // Run the same deterministic parser the normal path uses.
         // If it matches, the command is safe to execute speculatively
         // because fast-action commands are all reversible.
-        guard PaceFastActionCommandParser.parse(transcript: stablePartial, isFinalTranscript: false) != nil else { return }
+        guard PaceFastActionCommandParser.parse(transcript: stablePartial, isFinalTranscript: false) != nil else {
+            return
+        }
 
         speculativeExecutedTranscript = stablePartial
         print("⚡️ Speculative fast-action on stable partial: \"\(stablePartial)\"")

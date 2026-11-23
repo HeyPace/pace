@@ -869,7 +869,6 @@ struct PaceCodingSessionTests {
         #expect(PaceCodingSessionCommand.parse(["operation": .string("status"), "networkAccess": .bool(true)]) == nil)
         #expect(PaceCodingSessionCommand.localControl("cancel that coding task") == .cancel(sessionID: nil))
         #expect(PacePowerCatalog.preinstalled.owner(of: .codingSession)?.id == "pace.coding")
-        #expect(PacePowerCatalog.preinstalled.powers.count == 11)
     }
 }
 

@@ -1185,7 +1185,10 @@ extension CompanionManager {
     /// 4. If the final transcript differs, the normal path runs and the
     ///    planner handles the full command (speculative action was a subset)
     func handleSpeculativeFastAction(transcript: String) {
-        guard let fastActionParseResult = PaceFastActionCommandParser.parse(transcript: transcript, isFinalTranscript: false) else {
+        guard
+            let fastActionParseResult = PaceFastActionCommandParser.parse(
+                transcript: transcript, isFinalTranscript: false)
+        else {
             print("⚡️ Speculative fast-action: no match for \"\(transcript)\" — falling back to normal path")
             return
         }
@@ -1252,9 +1255,14 @@ extension CompanionManager {
                     let mutationCountBeforeExecution = actionExecutor.mutationLog.count
                     let toolObservations: [PaceActionExecutionObservation]
                     if fastActionParseResult.scrollsAtPointer,
-                        scrollTargetWindowNumber == nil || actionExecutor.frontmostWindowNumberUnderPointer() != scrollTargetWindowNumber {
-                        toolObservations = [.init(toolName: "scroll", summary: "The target window changed before scrolling.",
-                                                  userFacingSummary: "The window changed. Which pane should I scroll?")]
+                        scrollTargetWindowNumber == nil
+                            || actionExecutor.frontmostWindowNumberUnderPointer() != scrollTargetWindowNumber
+                    {
+                        toolObservations = [
+                            .init(
+                                toolName: "scroll", summary: "The target window changed before scrolling.",
+                                userFacingSummary: "The window changed. Which pane should I scroll?")
+                        ]
                     } else {
                         toolObservations = await actionExecutor.executeActionPlan(
                             fastActionParseResult.executionPlan, screenCaptures: [])
@@ -2298,7 +2306,8 @@ extension CompanionManager {
             researchTurnPlannerOverride == nil,
             let fastActionParseResult = PaceFastActionCommandParser.parse(transcript: transcript)
         {
-            let scrollTargetWindowNumber = fastActionParseResult.scrollsAtPointer
+            let scrollTargetWindowNumber =
+                fastActionParseResult.scrollsAtPointer
                 ? actionExecutor.frontmostWindowNumberUnderPointer() : nil
             if !fastActionParseResult.scrollsAtPointer || scrollTargetWindowNumber != nil {
                 print("🎯 Intent: fastLocalAction — skipping screenshot, VLM, and planner")
@@ -2342,7 +2351,8 @@ extension CompanionManager {
                     )
                     self.currentTurnHUDState = .idle
                 } else {
-                    let message = "I couldn’t finish typing. Check the active field and Pace’s Accessibility permission."
+                    let message =
+                        "I couldn’t finish typing. Check the active field and Pace’s Accessibility permission."
                     self.recordConversationTurn(userTranscript: transcript, assistantResponse: message)
                     self.currentTurnHUDState = .failed(message)
                 }
@@ -2633,11 +2643,7 @@ extension CompanionManager {
                         // 2. Build image labels with the actual screenshot pixel
                         //    dimensions so the planner's coordinate space matches
                         //    the image it sees.
-                        let labeledImages = screenCaptures.map { capture in
-                            let dimensionInfo =
-                                " (image dimensions: \(capture.screenshotWidthInPixels)x\(capture.screenshotHeightInPixels) pixels)"
-                            return (data: capture.imageData, label: capture.plannerImageLabel + dimensionInfo)
-                        }
+                        let labeledImages = screenCaptures.map(\.plannerImage)
 
                         // 3. Optionally enrich the user prompt with the local VLM's
                         //    structured element map — cuts perception cost on the
@@ -3327,10 +3333,12 @@ extension CompanionManager {
                         )
                         switch observationOutcome {
                         case .changed(let completedPollCount):
-                            observedUIChange = "The frontmost UI changed after input. Check the current view before issuing another action."
+                            observedUIChange =
+                                "The frontmost UI changed after input. Check the current view before issuing another action."
                             print("⚡ Agent loop: AX state changed after \(completedPollCount) observation poll(s)")
                         case .timedOut:
-                            observedUIChange = "Focus and window metadata stayed unchanged. Check the current content or use a fresh accessibility inspection before repeating input."
+                            observedUIChange =
+                                "Focus and window metadata stayed unchanged. Check the current content or use a fresh accessibility inspection before repeating input."
                             print("⏱  Agent loop: no AX state change before the 600ms fallback elapsed")
                         case .cancelled:
                             return
@@ -3581,11 +3589,7 @@ extension CompanionManager {
                     userPrompt: transcript
                 )
             }
-            let labeledImages = screenCaptures.map { capture -> (data: Data, label: String) in
-                let dimensionInfo =
-                    " (image dimensions: \(capture.screenshotWidthInPixels)x\(capture.screenshotHeightInPixels) pixels)"
-                return (data: capture.imageData, label: capture.plannerImageLabel + dimensionInfo)
-            }
+            let labeledImages = screenCaptures.map(\.plannerImage)
             let screenContextStartedAt = Date()
             let screenContextPrompt = await self.screenContextService.buildUserPromptWithLocalVLMContextIfEnabled(
                 transcript: transcript,

@@ -1596,11 +1596,13 @@ struct PaceActionTagParserTests {
         for direction in ["up", "down"] {
             let result = PaceFastActionCommandParser.parse(transcript: "Hey Pace scroll \(direction).")
             guard case .scroll(let parsed, let amount, nil) = result?.executionPlan.flattenedActions.first else {
-                Issue.record("Expected local scroll"); return
+                Issue.record("Expected local scroll")
+                return
             }
             #expect(parsed.rawValue == direction)
             #expect(amount == 3)
-            #expect(PaceFastActionCommandParser.parse(transcript: "scroll \(direction)", isFinalTranscript: false) == nil)
+            #expect(
+                PaceFastActionCommandParser.parse(transcript: "scroll \(direction)", isFinalTranscript: false) == nil)
         }
     }
 

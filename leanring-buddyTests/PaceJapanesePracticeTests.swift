@@ -265,12 +265,8 @@ struct PaceJapanesePracticeManagerTests {
         #expect(classifier.calls == 1 && planner.calls == 1)
         #expect(planner.imageCounts == [0] && captureAttempts == 0)
         #expect(planner.capturedSystemPrompt.contains("englishSubtitle"))
-        #expect(
-            speech.requests == [
-                .init(
-                    text: "こんにちは。お元気ですか。", profile: .japaneseFemale,
-                    englishSubtitle: "Hello. How are you?")
-            ])
+        #expect(speech.requests.isEmpty)
+        #expect(manager.chatSession.messages.filter { $0.role == .pace }.map(\.body) == ["Hello. How are you?"])
         #expect(persister.events.values.filter { $0.role == .pace }.map(\.text) == ["Hello. How are you?"])
         #expect(persister.events.values.contains { $0.origin == .typed && $0.text == transcript })
         #expect(manager.voiceState == .idle)
@@ -589,7 +585,8 @@ struct PaceJapanesePracticeManagerTests {
         }
         #expect(manager.conversationLanguageMode == .standard)
         #expect(manager.voiceState == .idle && manager.queuedChatTurnCount == 0)
-        #expect(speech.spokenTexts.contains { $0.contains("63") })
+        #expect(speech.spokenTexts.isEmpty)
+        #expect(manager.chatSession.messages.contains { $0.role == .pace && $0.body.contains("63") })
         #expect(planner.calls == 1)
         #expect(
             persister.events.values.contains {

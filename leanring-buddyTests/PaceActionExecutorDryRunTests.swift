@@ -15,7 +15,8 @@ struct PaceActionExecutorDryRunTests {
         let executor = PaceActionExecutor(
             actionsAreEnabledOverride: true, accessibilityPermissionCheck: { true }, readMyScreenIsEnabled: { true })
         let target = ScreenshotPixelLocation(xInScreenshotPixels: 10, yInScreenshotPixels: 10, screenNumber: 1)
-        let first = await executor.executeActionPlan(.serial(actions: [.click(target), .type("draft")]), screenCaptures: [])
+        let first = await executor.executeActionPlan(
+            .serial(actions: [.click(target), .type("draft")]), screenCaptures: [])
         #expect(first.count == 1)
         #expect(first.first?.requiresFreshInspectionPlan == true)
         let retry = await executor.executeActionPlan(.serial(actions: [.doubleClick(target)]), screenCaptures: [])
@@ -28,19 +29,25 @@ struct PaceActionExecutorDryRunTests {
         let location = ScreenshotPixelLocation(xInScreenshotPixels: 10, yInScreenshotPixels: 10, screenNumber: 1)
         let plan = PaceActionExecutionPlan.serial(actions: [.click(location)])
         func captures(_ byte: UInt8) -> [CompanionScreenCapture] {
-            [.init(displayIdentifier: 8, imageData: Data([byte]), label: "Screen 1", isCursorScreen: true,
-                   displayWidthInPoints: 100, displayHeightInPoints: 100,
-                   displayFrame: CGRect(x: 0, y: 0, width: 100, height: 100),
-                   screenshotWidthInPixels: 200, screenshotHeightInPixels: 200)]
+            [
+                .init(
+                    displayIdentifier: 8, imageData: Data([byte]), label: "Screen 1", isCursorScreen: true,
+                    displayWidthInPoints: 100, displayHeightInPoints: 100,
+                    displayFrame: CGRect(x: 0, y: 0, width: 100, height: 100),
+                    screenshotWidthInPixels: 200, screenshotHeightInPixels: 200)
+            ]
         }
         let fingerprint = try #require(PacePlannerClickFingerprint(plan: plan, captures: captures(1)))
         #expect(fingerprint != PacePlannerClickFingerprint(plan: plan, captures: captures(2)))
-        #expect(PacePlannerClickFingerprint(plan: .serial(actions: [.doubleClick(location)]), captures: captures(1)) == nil)
+        #expect(
+            PacePlannerClickFingerprint(plan: .serial(actions: [.doubleClick(location)]), captures: captures(1)) == nil)
         executor.previousPlannerClick = fingerprint
-        let firstRetry = await executor.executeActionPlanWithReceipt(plan, screenCaptures: captures(1), checksRepeatedClick: true)
+        let firstRetry = await executor.executeActionPlanWithReceipt(
+            plan, screenCaptures: captures(1), checksRepeatedClick: true)
         #expect(firstRetry.executedPlan.flattenedActions.isEmpty)
         #expect(firstRetry.observations.first?.requiresFreshInspectionPlan == true)
-        let finalRetry = await executor.executeActionPlanWithReceipt(plan, screenCaptures: captures(1), checksRepeatedClick: true)
+        let finalRetry = await executor.executeActionPlanWithReceipt(
+            plan, screenCaptures: captures(1), checksRepeatedClick: true)
         #expect(finalRetry.executedPlan.flattenedActions.isEmpty)
         #expect(finalRetry.observations.first?.stopsAgentLoop == true)
         executor.beginUserTurn()

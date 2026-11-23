@@ -16,8 +16,6 @@ extension PaceActionExecutor {
 
     // MARK: - Mouse
 
-    // MARK: - Mouse
-
     func clickBestCandidate(
         _ clickCandidateSet: PaceClickCandidateSet,
         screenCaptures: [CompanionScreenCapture]
@@ -186,19 +184,23 @@ extension PaceActionExecutor {
         let toolName = clickCount == 2 ? "double_click" : "click"
         guard await clickAtScreenshotLocation(location, screenCaptures: screenCaptures, clickCount: clickCount) else {
             guard !Task.isCancelled else {
-                return .init(toolName: toolName, summary: "Click interrupted.", userFacingSummary: "Stopped.", terminalReason: .inspectionInterrupted)
+                return .init(
+                    toolName: toolName, summary: "Click interrupted.", userFacingSummary: "Stopped.",
+                    terminalReason: .inspectionInterrupted)
             }
             let canInspect = !hasAttemptedInspectionRecovery && readMyScreenIsEnabled()
             if canInspect { hasAttemptedInspectionRecovery = true }
             return .init(
                 toolName: toolName,
-                summary: "Could not click the requested point. Inspect the current window before issuing another input.",
+                summary:
+                    "Could not click the requested point. Inspect the current window before issuing another input.",
                 userFacingSummary: canInspect ? "" : "I couldn’t click that target.",
                 terminalReason: canInspect ? .recoverableInspectionFailure : .inspectionInterrupted)
         }
         return .init(
             toolName: toolName,
-            summary: "Dispatched \(toolName) at \(location.approvalDescription). Verify the resulting view. If the requested conversation or control is already open, finish or proceed to the next requested step. If the target is missing, inspect the window by label before trying another click.",
+            summary:
+                "Dispatched \(toolName) at \(location.approvalDescription). Verify the resulting view. If the requested conversation or control is already open, finish or proceed to the next requested step. If the target is missing, inspect the window by label before trying another click.",
             userFacingSummary: clickCount == 2 ? "Double-click sent." : "Click sent.",
             didDispatchCoordinateClick: true)
     }
@@ -463,14 +465,14 @@ extension PaceActionExecutor {
     /// An unqualified scroll can skip inspection only over the active app's front window.
     func frontmostWindowNumberUnderPointer() -> Int? {
         guard let frontmostApp = NSWorkspace.shared.frontmostApplication,
-              frontmostApp.processIdentifier != ProcessInfo.processInfo.processIdentifier,
-              let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID)
+            frontmostApp.processIdentifier != ProcessInfo.processInfo.processIdentifier,
+            let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID)
                 as? [[String: Any]],
-              let frontWindow = windows.first(where: {
-                  ($0[kCGWindowOwnerPID as String] as? Int32) == frontmostApp.processIdentifier &&
-                  ($0[kCGWindowLayer as String] as? Int) == 0
-              }),
-              let frontWindowNumber = frontWindow[kCGWindowNumber as String] as? Int
+            let frontWindow = windows.first(where: {
+                ($0[kCGWindowOwnerPID as String] as? Int32) == frontmostApp.processIdentifier
+                    && ($0[kCGWindowLayer as String] as? Int) == 0
+            }),
+            let frontWindowNumber = frontWindow[kCGWindowNumber as String] as? Int
         else { return nil }
         let windowUnderPointer = NSWindow.windowNumber(at: NSEvent.mouseLocation, belowWindowWithWindowNumber: 0)
         return windowUnderPointer == frontWindowNumber ? frontWindowNumber : nil

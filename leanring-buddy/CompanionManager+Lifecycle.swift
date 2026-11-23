@@ -682,7 +682,9 @@ extension CompanionManager {
         if SystemLanguageModel.default.availability == .available {
             PaceDictationFastPath.shared.appleFMCleanupCallback = { text in
                 let session = LanguageModelSession(
-                    instructions: "Remove filler words, accidental repetitions and false starts. Preserve the meaning, tone and language. Output only the cleaned text.")
+                    instructions:
+                        "Remove filler words, accidental repetitions and false starts. Preserve the meaning, tone and language. Output only the cleaned text."
+                )
                 return try? await session.respond(to: text).content
             }
         }

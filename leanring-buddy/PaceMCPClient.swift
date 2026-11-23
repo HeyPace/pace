@@ -15,7 +15,6 @@ enum PaceMCPClientError: Error, LocalizedError, CustomStringConvertible {
     case invalidCommand(String)
     case launchFailed(String)
     case requestTimedOut(String)
-    case invalidResponse(String)
     case rpcError(String)
     case ambiguousApplicationTarget(String)
     case staleApplicationTarget(String)
@@ -52,8 +51,6 @@ enum PaceMCPClientError: Error, LocalizedError, CustomStringConvertible {
             return "MCP server launch failed: \(message)"
         case .requestTimedOut(let method):
             return "MCP request timed out: \(method)"
-        case .invalidResponse(let message):
-            return "MCP server returned an invalid response: \(message)"
         case .rpcError(let message):
             return "MCP server returned an error: \(message)"
         case .ambiguousApplicationTarget(let message):
@@ -673,90 +670,6 @@ private func executableURL(for command: String) throws -> URL {
     }
 
     throw PaceMCPClientError.invalidCommand(command)
-}
-
-private func sendJSONRPCMessage(_ jsonObject: [String: Any], to stdinHandle: FileHandle) throws {
-    let data = try JSONSerialization.data(withJSONObject: jsonObject, options: [])
-    var newlineTerminatedData = data
-    newlineTerminatedData.append(0x0A)
-    try stdinHandle.write(contentsOf: newlineTerminatedData)
-}
-
-private func readJSONRPCResponse(
-    id expectedID: Int,
-    from stdoutReader: PaceMCPLineReader,
-    timeoutInSeconds: TimeInterval
-) throws -> [String: Any] {
-    let deadline = Date().addingTimeInterval(timeoutInSeconds)
-
-    while Date() < deadline {
-        for lineData in stdoutReader.drainLines() {
-            guard !lineData.isEmpty else { continue }
-            guard let jsonObject = try JSONSerialization.jsonObject(with: lineData) as? [String: Any] else {
-                continue
-            }
-
-            if let errorObject = jsonObject["error"] as? [String: Any] {
-                throw PaceMCPClientError.rpcError(formatJSONRPCError(errorObject))
-            }
-
-            guard let responseID = jsonObject["id"] as? Int, responseID == expectedID else {
-                continue
-            }
-
-            return jsonObject
-        }
-
-        Thread.sleep(forTimeInterval: 0.01)
-    }
-
-    throw PaceMCPClientError.requestTimedOut("id \(expectedID)")
-}
-
-private final class PaceMCPLineReader {
-    private let fileHandle: FileHandle
-    private let lock = NSLock()
-    private var buffer = Data()
-    private var lines: [Data] = []
-
-    init(fileHandle: FileHandle) {
-        self.fileHandle = fileHandle
-        self.fileHandle.readabilityHandler = { [weak self] readableHandle in
-            let data = readableHandle.availableData
-            guard !data.isEmpty else { return }
-            self?.append(data)
-        }
-    }
-
-    func stop() {
-        fileHandle.readabilityHandler = nil
-    }
-
-    func drainLines() -> [Data] {
-        lock.lock()
-        defer { lock.unlock() }
-        let currentLines = lines
-        lines.removeAll()
-        return currentLines
-    }
-
-    private func append(_ data: Data) {
-        lock.lock()
-        defer { lock.unlock() }
-
-        buffer.append(data)
-        while let newlineIndex = buffer.firstIndex(of: 0x0A) {
-            let lineData = buffer.subdata(in: buffer.startIndex..<newlineIndex)
-            buffer.removeSubrange(buffer.startIndex...newlineIndex)
-            lines.append(lineData)
-        }
-    }
-}
-
-private func formatJSONRPCError(_ errorObject: [String: Any]) -> String {
-    let codeText = (errorObject["code"] as? Int).map { "\($0): " } ?? ""
-    let messageText = errorObject["message"] as? String ?? "Unknown error"
-    return "\(codeText)\(messageText)"
 }
 
 private func summarizeMCPToolCallResponse(_ response: [String: Any]) -> String {

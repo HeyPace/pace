@@ -37,7 +37,7 @@ extension PaceActionExecutor {
 
             let utf16Units = Array(String(unicodeCharacter).utf16)
             guard let keyDownEvent = CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: true),
-                  let keyUpEvent = CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: false)
+                let keyUpEvent = CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: false)
             else { return false }
             keyDownEvent.keyboardSetUnicodeString(stringLength: utf16Units.count, unicodeString: utf16Units)
             keyDownEvent.post(tap: .cghidEventTap)

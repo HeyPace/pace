@@ -157,8 +157,9 @@ struct PaceMCPClientIntegrationTests {
             """#
         for name in ["first", "second"] {
             let client = PaceMCPStdioClient(serverConfigurations: [
-                "peekaboo": .init(command: PaceMCPFixture.pythonThreeExecutablePath ?? "python3",
-                                  args: ["-u", "-c", program, name, UUID().uuidString])
+                "peekaboo": .init(
+                    command: PaceMCPFixture.pythonThreeExecutablePath ?? "python3",
+                    args: ["-u", "-c", program, name, UUID().uuidString])
             ])
             let first = try await client.toolCatalog(serverName: "peekaboo")
             let second = try await client.toolCatalog(serverName: "peekaboo")
