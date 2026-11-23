@@ -159,7 +159,7 @@ final class PaceScreenContextService {
             let readIdentifier = PaceScreenReadActivity.shared.beginReading()
             defer { PaceScreenReadActivity.shared.endReading(readIdentifier) }
             do {
-                let screenCaptures = try await CompanionScreenCaptureUtility.captureAllScreensAsJPEG()
+                let screenCaptures = try await CompanionScreenCaptureUtility.captureAllScreensAsJPEG(showsCursor: false)
                 guard let cursorScreenCapture = screenCaptures.first(where: { $0.isCursorScreen })
                     ?? screenCaptures.first else {
                     return nil

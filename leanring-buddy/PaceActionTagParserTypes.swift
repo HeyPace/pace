@@ -811,6 +811,12 @@ nonisolated struct PaceActionTagParseResult {
 nonisolated struct PaceFastActionParseResult {
     let spokenText: String
     let executionPlan: PaceActionExecutionPlan
+
+    var scrollsAtPointer: Bool {
+        let actions = executionPlan.flattenedActions
+        guard actions.count == 1, case .scroll(_, _, nil) = actions[0] else { return false }
+        return true
+    }
 }
 
 /// Deterministic parser for no-screen, no-reasoning commands that are common

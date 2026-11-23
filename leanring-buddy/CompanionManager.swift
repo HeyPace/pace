@@ -576,7 +576,7 @@ final class CompanionManager: ObservableObject {
     // preference in Settings takes effect immediately without a
     // service restart.
     var captureScreensForPlanner: () async throws -> [CompanionScreenCapture] = {
-        try await CompanionScreenCaptureUtility.captureAllScreensAsJPEG()
+        try await CompanionScreenCaptureUtility.captureAllScreensAsJPEG(showsCursor: false)
     }
 
     lazy var screenContextService: PaceScreenContextService = {

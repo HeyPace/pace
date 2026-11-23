@@ -1249,10 +1249,14 @@ extension CompanionManager {
                     preflightIssues: preflightIssues
                 ) {
                     let mutationCountBeforeExecution = actionExecutor.mutationLog.count
-                    let toolObservations = await actionExecutor.executeActionPlan(
-                        fastActionParseResult.executionPlan,
-                        screenCaptures: []
-                    )
+                    let toolObservations: [PaceActionExecutionObservation]
+                    if fastActionParseResult.scrollsAtPointer && !actionExecutor.pointerIsOverFrontmostWindow() {
+                        toolObservations = [.init(toolName: "scroll", summary: "The target window changed before scrolling.",
+                                                  userFacingSummary: "The window changed. Which pane should I scroll?")]
+                    } else {
+                        toolObservations = await actionExecutor.executeActionPlan(
+                            fastActionParseResult.executionPlan, screenCaptures: [])
+                    }
                     guard isActiveTurn(turnLease) else { return }
                     fastPathDispatchSummaryForDebug =
                         toolObservations.isEmpty
@@ -2290,7 +2294,8 @@ extension CompanionManager {
         // "open Music" shortcut.
         if !requestsInteractiveDiagram && !requestsGeneratedImage,
             researchTurnPlannerOverride == nil,
-            let fastActionParseResult = PaceFastActionCommandParser.parse(transcript: transcript)
+            let fastActionParseResult = PaceFastActionCommandParser.parse(transcript: transcript),
+            !fastActionParseResult.scrollsAtPointer || actionExecutor.pointerIsOverFrontmostWindow()
         {
             print("🎯 Intent: fastLocalAction — skipping screenshot, VLM, and planner")
             handleFastLocalActionPath(
