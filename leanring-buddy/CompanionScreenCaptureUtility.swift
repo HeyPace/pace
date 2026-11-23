@@ -20,6 +20,12 @@ struct CompanionScreenCapture {
     let displayFrame: CGRect
     let screenshotWidthInPixels: Int
     let screenshotHeightInPixels: Int
+    var cursorPixelLocation: CGPoint? = nil
+
+    var plannerImageLabel: String {
+        guard let cursorPixelLocation else { return label }
+        return label + " — pointer at screenshot pixel (\(Int(cursorPixelLocation.x)), \(Int(cursorPixelLocation.y)))"
+    }
 }
 
 @MainActor
@@ -133,6 +139,14 @@ enum CompanionScreenCaptureUtility {
                 screenLabel = "screen \(displayIndex + 1) of \(sortedDisplays.count) — secondary screen"
             }
 
+            // Keep the pointer available for “what am I pointing at?” without changing the image digest or cache key.
+            var cursorPixelLocation: CGPoint?
+            if !showsCursor, isCursorScreen, displayFrame.width > 0, displayFrame.height > 0 {
+                let x = (mouseLocation.x - displayFrame.minX) / displayFrame.width * CGFloat(configuration.width)
+                let y = (displayFrame.maxY - mouseLocation.y) / displayFrame.height * CGFloat(configuration.height)
+                cursorPixelLocation = CGPoint(x: min(CGFloat(configuration.width - 1), x),
+                                              y: min(CGFloat(configuration.height - 1), y))
+            }
             capturedScreens.append(CompanionScreenCapture(
                     displayIdentifier: display.displayID,
                     imageData: jpegData,
@@ -142,7 +156,8 @@ enum CompanionScreenCaptureUtility {
                 displayHeightInPoints: Int(displayFrame.height),
                 displayFrame: displayFrame,
                 screenshotWidthInPixels: configuration.width,
-                screenshotHeightInPixels: configuration.height
+                screenshotHeightInPixels: configuration.height,
+                cursorPixelLocation: cursorPixelLocation
             ))
         }
 

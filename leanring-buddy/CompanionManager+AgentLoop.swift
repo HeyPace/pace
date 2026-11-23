@@ -2636,7 +2636,7 @@ extension CompanionManager {
                         let labeledImages = screenCaptures.map { capture in
                             let dimensionInfo =
                                 " (image dimensions: \(capture.screenshotWidthInPixels)x\(capture.screenshotHeightInPixels) pixels)"
-                            return (data: capture.imageData, label: capture.label + dimensionInfo)
+                            return (data: capture.imageData, label: capture.plannerImageLabel + dimensionInfo)
                         }
 
                         // 3. Optionally enrich the user prompt with the local VLM's
@@ -3584,7 +3584,7 @@ extension CompanionManager {
             let labeledImages = screenCaptures.map { capture -> (data: Data, label: String) in
                 let dimensionInfo =
                     " (image dimensions: \(capture.screenshotWidthInPixels)x\(capture.screenshotHeightInPixels) pixels)"
-                return (data: capture.imageData, label: capture.label + dimensionInfo)
+                return (data: capture.imageData, label: capture.plannerImageLabel + dimensionInfo)
             }
             let screenContextStartedAt = Date()
             let screenContextPrompt = await self.screenContextService.buildUserPromptWithLocalVLMContextIfEnabled(
