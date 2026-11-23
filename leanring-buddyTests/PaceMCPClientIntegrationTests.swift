@@ -66,7 +66,10 @@ private enum PaceMCPFixture {
                         result = {"content": [{"type": "text", "text": "\n".join(calls) if calls else "NO_CALLS"}]}
                     else:
                         calls.append(name + ":" + target)
-                        if name in ["window", "see"] and target == "Google Chrome":
+                        if name in ["click", "scroll"] and args.get("snapshot") == "unconfirmed-fixture":
+                            text = name.capitalize() + " did not return a confirmed outcome. Fixture diagnostic."
+                            result = {"isError": True, "content": [{"type": "text", "text": text}]}
+                        elif name in ["window", "see"] and target == "Google Chrome":
                             result = {"isError": True, "content": [{"type": "text", "text": "Multiple apps match 'Google Chrome'. Did you mean: Google Chrome (PID:111), Google Chrome (PID:222)?"}]}
                         else:
                             if signal_root and target == "PID:111":
@@ -228,6 +231,36 @@ struct PaceMCPClientIntegrationTests {
             #expect(!PaceActionRunRecord.completed(observations: observations).showsInConversation)
             #expect(try String(contentsOf: receipt, encoding: .utf8) == toolName + "\n")
         }
+    }
+
+    @MainActor @Test(.enabled(if: PaceMCPFixture.isFixtureRunnable))
+    func unconfirmedPeekabooInputStopsQueuedStepsAndRequestsReadback() async throws {
+        let client = PaceMCPFixture.makeAmbiguityClient()
+        let executor = PaceActionExecutor(
+            actionsAreEnabledOverride: true, mcpClient: client, readMyScreenIsEnabled: { true })
+        let click = PaceMCPToolCall(
+            serverName: "peekaboo", toolName: "click", arguments: ["snapshot": .string("unconfirmed-fixture")])
+        let scroll = PaceMCPToolCall(
+            serverName: "peekaboo", toolName: "scroll", arguments: ["snapshot": .string("unconfirmed-fixture")])
+        let plan = PaceActionExecutionPlan.serial(actions: [.mcp(click), .mcp(scroll)])
+        let observations = await executor.executeActionPlan(plan, screenCaptures: [])
+        let observation = try #require(observations.first)
+        #expect(observations.count == 1)
+        #expect(observation.stopsActionPlan)
+        #expect(observation.requiresFreshInspectionPlan)
+        #expect(!observation.stopsAgentLoop)
+        #expect(observation.summary.contains("Do not repeat"))
+        let receipt = try await client.callTool(
+            .init(serverName: "peekaboo", toolName: "receipt", arguments: [:]))
+        #expect(receipt == "click:")
+        let repeatedClick = await executor.callMCPTool(
+            .init(serverName: "peekaboo", toolName: "click", arguments: ["snapshot": .string("fresh-fixture")]))
+        #expect(repeatedClick.summary.contains("skipped"))
+        let receiptAfterRepeat = try await client.callTool(
+            .init(serverName: "peekaboo", toolName: "receipt", arguments: [:]))
+        #expect(receiptAfterRepeat == "click:")
+        let secondUnconfirmed = await executor.callMCPTool(scroll)
+        #expect(secondUnconfirmed.stopsAgentLoop)
     }
 
     @MainActor @Test(.enabled(if: PaceMCPFixture.isFixtureRunnable))

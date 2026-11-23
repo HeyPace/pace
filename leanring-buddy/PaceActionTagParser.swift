@@ -912,7 +912,7 @@ nonisolated enum PaceActionTagParser {
                 issues.append("direction must be up or down")
             }
             if !scrollLocationArgumentsAreValid(arguments) {
-                issues.append("requires both scroll coordinates and a screen number when supplied")
+                issues.append("requires both scroll coordinates and a positive screen number if specified")
             }
         case "music.control", "music":
             let command = firstStringValue(for: ["command", "name"], in: arguments) ?? ""
@@ -1596,7 +1596,7 @@ nonisolated enum PaceActionTagParser {
                 }
             }
             if !scrollLocationArgumentsAreValid(mergedArguments) {
-                issues.append("requires both scroll coordinates and a screen number when supplied")
+                issues.append("requires both scroll coordinates and a positive screen number if specified")
             }
         case .openApp:
             if !hasNonEmptyString(for: ["app", "name"], in: mergedArguments) {

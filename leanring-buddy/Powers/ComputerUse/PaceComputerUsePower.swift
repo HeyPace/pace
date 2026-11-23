@@ -112,10 +112,10 @@ nonisolated enum PaceComputerUsePower {
             canonicalName: "scroll",
             aliases: [],
             schemaExample: #"{"tool":"scroll","direction":"down","amount":5}"#,
-            description: "scroll the focused surface.",
+            description: "scroll at the pointer, or target a pane with screenshot x, y, and screen.",
             riskLevel: .inputInjection,
-            executionSummary: "Posts a scroll wheel event.",
-            observationSummary: "No observation.",
+            executionSummary: "Posts a scroll wheel event at the requested location.",
+            observationSummary: "Reports dispatch or why the scroll could not be targeted.",
             exampleUtterance: "scroll down"
         ),
         PaceLocalToolDefinition(
@@ -222,11 +222,12 @@ nonisolated enum PaceComputerUsePower {
         For an Apple reminder, call Reminders.add once with args.title and, when requested, args.due in ISO 8601 with its UTC offset (YYYY-MM-DD for a date without a time). Use args.listName if the user names a list. A successful native save confirms creation. Stop there and report the due date. Do not create it again or look it up through a second tool.
 
         For a multi-step task whose targets will stay valid, use one envelope with a "calls" array of {"name":...,"args":{...}} entries. Pace runs them in order without re-planning between entries. Example for "open Safari and open a new tab":
-        {"spokenText":"opening safari and searching.","intent":"action","payload":{"calls":[
+        {"spokenText":"","intent":"action","payload":{"calls":[
           {"name":"App.launch","args":{"app":"Safari"}},
           {"name":"Key.press","args":{"key":"cmd+t"}}
         ]}}
         Put focus and keyboard changes in separate calls. If a click opens another view, inspect that view before choosing a target for the next action.
+        Prefer native AX.press and AX.scroll for a visible target with trusted coordinates in a Pace screenshot. Use Peekaboo to inspect an app when no current Pace screenshot shows the target. If an input outcome is uncertain, inspect the resulting view before deciding whether the next step is ready.
         To scroll a specific pane, use AX.scroll with direction, amount, x, y, and screen. Set x and y to a point inside the pane in the latest Pace screenshot, and screen to that screenshot's 1-based number. For a conversation, target the message history rather than the sidebar or composer. If the pane is missing or ambiguous, inspect or clarify first. For an untargeted scroll, omit x, y, and screen. When asked to draft text in another app, type into the verified composer and leave the draft for the user.
 
         when pointing is useful, append [POINT:x,y:label:desktop] inside spokenText for global desktop coordinates from Peekaboo/AX inspection. Use the center of the freshly observed target's bounds; desktop points can be negative on other displays. For a supplied Pace screenshot, use [POINT:x,y:label:screenN] with that screenshot's pixel coordinates and screen number. Never mix these coordinate spaces. If a named app's target is absent from the current screen context, inspect that app with Peekaboo before answering. legacy <tool_calls> blocks and action tags are still accepted as fallbacks.

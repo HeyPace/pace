@@ -446,13 +446,22 @@ extension PaceActionExecutor {
 
         var targetPoint: CGPoint?
         if let location {
-            guard readMyScreenIsEnabled(),
+            guard readMyScreenIsEnabled() else {
+                return .init(
+                    toolName: "scroll",
+                    summary: "Could not target the requested pane because Read My Screen is off.",
+                    userFacingSummary: "Turn on Read My Screen to scroll a specific pane.",
+                    terminalReason: .inspectionInterrupted)
+            }
+            guard
                 let point = convertScreenshotPixelToDisplayGlobalPoint(
                     screenshotPixelLocation: location, screenCaptures: screenCaptures, requiresExactLocation: true)
             else {
                 return .init(
                     toolName: "scroll",
-                    summary: "Could not locate the requested scroll area. Inspect the screen again.")
+                    summary: "Could not locate the requested scroll area. Inspect the screen again.",
+                    userFacingSummary: "I couldn’t locate that pane. Inspect the screen again before scrolling.",
+                    terminalReason: .inspectionInterrupted)
             }
             targetPoint = point
         }

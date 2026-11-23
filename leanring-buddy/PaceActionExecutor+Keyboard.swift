@@ -414,6 +414,18 @@ extension PaceActionExecutor {
             }
         }
 
+        if let unconfirmedPeekabooInput,
+            mcpToolCall.serverName == "peekaboo",
+            mcpToolCall.toolName == unconfirmedPeekabooInput.toolName,
+            mcpToolCall.arguments.filter({ $0.key != "snapshot" })
+                == unconfirmedPeekabooInput.arguments.filter({ $0.key != "snapshot" })
+        {
+            return .init(
+                toolName: toolObservationName,
+                summary: "Earlier input remains unverified. Repeated input was skipped.",
+                userFacingSummary: "That action may already have happened. I skipped the repeat.",
+                terminalReason: .inspectionInterrupted)
+        }
         let executionGeneration = applicationTargetGeneration
         do {
             let targetedToolCall = try boundPeekabooToolCall(mcpToolCall)
@@ -444,6 +456,22 @@ extension PaceActionExecutor {
                 terminalReason: .staleApplicationTarget
             )
         } catch {
+            if Self.isUnconfirmedPeekabooInput(error, toolCall: mcpToolCall) {
+                let canVerify =
+                    !hasAttemptedInspectionRecovery && !Task.isCancelled && actionsAreEnabled
+                    && readMyScreenIsEnabled() && executionGeneration == applicationTargetGeneration
+                if canVerify {
+                    hasAttemptedInspectionRecovery = true
+                    unconfirmedPeekabooInput = mcpToolCall
+                }
+                return PaceActionExecutionObservation(
+                    toolName: toolObservationName,
+                    summary: canVerify
+                        ? "The input may have landed. Inspect the resulting view before issuing any more input. If the requested change is visible, continue with the next step. Do not repeat the input."
+                        : "The input outcome remains unverified. No remaining plan actions were run.",
+                    userFacingSummary: canVerify ? "" : "I couldn’t verify where that action landed.",
+                    terminalReason: canVerify ? .recoverableInspectionFailure : .inspectionInterrupted)
+            }
             let isReadOnlyPeekabooInspection =
                 mcpToolCall.serverName == "peekaboo"
                 && PaceActionApprovalPolicy.permitsObservationOnly(.serial(actions: [.mcp(mcpToolCall)]))
@@ -524,6 +552,17 @@ extension PaceActionExecutor {
             return .authentication
         }
         return .other
+    }
+
+    private static func isUnconfirmedPeekabooInput(_ error: Error, toolCall: PaceMCPToolCall) -> Bool {
+        guard toolCall.serverName == "peekaboo",
+            ["click", "scroll"].contains(toolCall.toolName),
+            case PaceMCPClientError.rpcError(let diagnostic) = error
+        else { return false }
+        let prefix = "mcp tool reported an error: "
+        let normalized = diagnostic.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let message = normalized.hasPrefix(prefix) ? String(normalized.dropFirst(prefix.count)) : normalized
+        return message.hasPrefix("\(toolCall.toolName) did not return a confirmed outcome.")
     }
 
     private static func isRecoverableInspectionFailure(_ error: Error) -> Bool {

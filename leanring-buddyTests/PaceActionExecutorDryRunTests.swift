@@ -44,6 +44,13 @@ struct PaceActionExecutorDryRunTests {
         let result = try #require(results.first)
         #expect(result.toolName == "scroll")
         #expect(result.summary.contains("Could not locate"))
+        #expect(result.stopsActionPlan)
+
+        let privateExecutor = PaceActionExecutor(
+            actionsAreEnabledOverride: true, accessibilityPermissionCheck: { true }, readMyScreenIsEnabled: { false })
+        let blocked = await privateExecutor.executeActionPlan(.serial(actions: [action]), screenCaptures: [])
+        #expect(blocked.first?.summary.contains("Read My Screen is off") == true)
+        #expect(blocked.first?.stopsActionPlan == true)
     }
 
     @Test func launchedProcessBindsOnlyKnownNameSelectorsAndPreservesExactReceipts() throws {
