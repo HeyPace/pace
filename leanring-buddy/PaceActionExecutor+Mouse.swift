@@ -185,7 +185,10 @@ extension PaceActionExecutor {
         guard actionsAreEnabled else { return nil }
         let toolName = clickCount == 2 ? "double_click" : "click"
         guard await clickAtScreenshotLocation(location, screenCaptures: screenCaptures, clickCount: clickCount) else {
-            let canInspect = !hasAttemptedInspectionRecovery && !Task.isCancelled && readMyScreenIsEnabled()
+            guard !Task.isCancelled else {
+                return .init(toolName: toolName, summary: "Click interrupted.", userFacingSummary: "Stopped.", terminalReason: .inspectionInterrupted)
+            }
+            let canInspect = !hasAttemptedInspectionRecovery && readMyScreenIsEnabled()
             if canInspect { hasAttemptedInspectionRecovery = true }
             return .init(
                 toolName: toolName,
@@ -196,7 +199,7 @@ extension PaceActionExecutor {
         return .init(
             toolName: toolName,
             summary: "Dispatched \(toolName) at \(location.approvalDescription). Verify the resulting view. If the requested conversation or control is already open, finish or proceed to the next requested step. If the target is missing, inspect the window by label before trying another click.",
-            userFacingSummary: "")
+            userFacingSummary: clickCount == 2 ? "Double-click sent." : "Click sent.")
     }
 
     @discardableResult

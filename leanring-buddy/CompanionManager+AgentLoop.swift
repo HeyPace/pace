@@ -2392,7 +2392,6 @@ extension CompanionManager {
                     "\n\nPhysical scene observed locally from the paired iPad for this turn only:\n"
                     + physicalSceneContext
             }
-            let originalPlannerRequest = currentTurnUserPrompt
             var pendingPostActionFeedbackText: String?
             var inspectionHistory = PaceAgentInspectionHistory()
             var plannerLoopFinished = false
@@ -3344,14 +3343,14 @@ extension CompanionManager {
                         currentTurnUserPrompt =
                             """
                             original request:
-                            \(originalPlannerRequest)
+                            \(transcript)
 
                             continue this request. look at the current screen, then emit the next step's action tags. only emit [DONE] with a user-facing answer when the entire request is complete. if blocked, explain what remains unfinished.
                             """
                     } else {
                         currentTurnUserPrompt = """
                             original request:
-                            \(originalPlannerRequest)
+                            \(transcript)
 
                             completed tool requests and results (most recent inspection steps retained within the prompt budget):
                             \(inspectionHistoryPromptText)
