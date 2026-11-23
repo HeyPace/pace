@@ -219,7 +219,7 @@ nonisolated enum PaceParsedAction {
     case pressKey(name: String, modifiers: [PaceKeyboardModifier])
     case readClipboard
     case snapWindow(PaceWindowSnapRequest)
-    case scroll(PaceScrollDirection, amountInLines: Int)
+    case scroll(PaceScrollDirection, amountInLines: Int, location: ScreenshotPixelLocation? = nil)
     case openApplication(String)
     case openURL(String)
     case openBrowser(PaceBrowserOpenRequest)
@@ -365,7 +365,7 @@ nonisolated enum PaceParsedAction {
             return command.rawValue
         case .adjustVolume, .adjustBrightness:
             return auditOperationName
-        case .scroll(let direction, _):
+        case .scroll(let direction, _, _):
             return direction.rawValue
         case .snapWindow(let request):
             return request.position.rawValue
@@ -409,8 +409,9 @@ nonisolated enum PaceParsedAction {
             return "Read clipboard text"
         case .snapWindow(let snapWindowRequest):
             return "Snap focused window: \(snapWindowRequest.position.displayName)"
-        case .scroll(let direction, let amountInLines):
-            return "Scroll \(direction.rawValue) \(amountInLines) lines"
+        case .scroll(let direction, let amountInLines, let location):
+            let target = location.map { " at \($0.xInScreenshotPixels), \($0.yInScreenshotPixels)" } ?? ""
+            return "Scroll \(direction.rawValue) \(amountInLines) lines\(target)"
         case .openApplication(let applicationName):
             return "Open app: \(applicationName)"
         case .openURL(let urlString):

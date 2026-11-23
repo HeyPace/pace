@@ -735,7 +735,8 @@ nonisolated enum PaceActionTagParser {
             let amount = intValue(for: "amount", in: arguments)
                 ?? intValue(for: "steps", in: arguments)
                 ?? 3
-            return parseScrollPayload("\(direction):\(amount)")
+            return parseScrollPayload(
+                "\(direction):\(amount)", location: screenshotPixelLocation(from: arguments))
         case "music.control", "music":
             let command = firstStringValue(for: ["command", "name"], in: arguments) ?? ""
             return parseMusicPayload(command)
@@ -910,6 +911,9 @@ nonisolated enum PaceActionTagParser {
                !["up", "down"].contains(direction.lowercased()) {
                 issues.append("direction must be up or down")
             }
+            if !scrollLocationArgumentsAreValid(arguments) {
+                issues.append("requires both scroll coordinates and a screen number when supplied")
+            }
         case "music.control", "music":
             let command = firstStringValue(for: ["command", "name"], in: arguments) ?? ""
             if parseMusicPayload(command) == nil {
@@ -1002,6 +1006,14 @@ nonisolated enum PaceActionTagParser {
             .lowercased()
             .replacingOccurrences(of: "_", with: ".")
             .replacingOccurrences(of: "-", with: ".")
+    }
+
+    private static func scrollLocationArgumentsAreValid(_ arguments: [String: PaceMCPJSONValue]) -> Bool {
+        guard ["x", "y", "screen"].contains(where: { arguments[$0] != nil }) else { return true }
+        guard let location = screenshotPixelLocation(from: arguments),
+            location.xInScreenshotPixels >= 0, location.yInScreenshotPixels >= 0
+        else { return false }
+        return arguments["screen"] == nil || (location.screenNumber ?? 0) > 0
     }
 
     private static func screenshotPixelLocation(from arguments: [String: PaceMCPJSONValue]) -> ScreenshotPixelLocation? {
@@ -1127,7 +1139,7 @@ nonisolated enum PaceActionTagParser {
         guard let value = object[key] else { return nil }
         switch value {
         case .number(let numberValue):
-            return Int(numberValue)
+            return Int(exactly: numberValue.rounded(.towardZero))
         case .string(let stringValue):
             return Int(stringValue.trimmingCharacters(in: .whitespacesAndNewlines))
         case .bool, .array, .object, .null:
@@ -1399,7 +1411,8 @@ nonisolated enum PaceActionTagParser {
                     (toolCall.amount ?? toolCall.steps).map(String.init)
                 ]
                 .compactMap { $0 }
-                .joined(separator: ":")
+                .joined(separator: ":"),
+                location: screenshotPixelLocation(from: mergeMCPArguments(from: toolCall))
             )
         case .openApp:
             if let profile = firstStringValue(for: ["profile"], in: mergeMCPArguments(from: toolCall)) {
@@ -1581,6 +1594,9 @@ nonisolated enum PaceActionTagParser {
                 if !["up", "down"].contains(direction.lowercased()) {
                     issues.append("direction must be up or down")
                 }
+            }
+            if !scrollLocationArgumentsAreValid(mergedArguments) {
+                issues.append("requires both scroll coordinates and a screen number when supplied")
             }
         case .openApp:
             if !hasNonEmptyString(for: ["app", "name"], in: mergedArguments) {
@@ -2088,7 +2104,9 @@ nonisolated enum PaceActionTagParser {
     }
 
     /// Parses `up:3` / `down:5` into a scroll action.
-    private static func parseScrollPayload(_ payload: String) -> PaceParsedAction? {
+    private static func parseScrollPayload(
+        _ payload: String, location: ScreenshotPixelLocation? = nil
+    ) -> PaceParsedAction? {
         let payloadComponents = payload.split(separator: ":", omittingEmptySubsequences: true)
         guard let directionString = payloadComponents.first,
               let direction = PaceScrollDirection(rawValue: directionString.trimmingCharacters(in: .whitespaces).lowercased()) else {
@@ -2103,7 +2121,7 @@ nonisolated enum PaceActionTagParser {
             return 3
         }()
 
-        return .scroll(direction, amountInLines: amountInLines)
+        return .scroll(direction, amountInLines: amountInLines, location: location)
     }
 
     private static func parseOpenApplicationPayload(_ payload: String) -> PaceParsedAction? {

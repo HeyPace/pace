@@ -187,8 +187,9 @@ extension PaceActionExecutor {
             return readClipboardText()
         case .snapWindow(let snapWindowRequest):
             return snapFocusedWindow(snapWindowRequest)
-        case .scroll(let direction, let amount):
-            await scroll(direction: direction, amountInLines: amount)
+        case .scroll(let direction, let amount, let location):
+            return scroll(
+                direction: direction, amountInLines: amount, location: location, screenCaptures: screenCaptures)
         case .openApplication(let applicationName):
             return await openApplication(named: applicationName)
         case .openURL(let urlString):

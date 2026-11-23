@@ -436,26 +436,36 @@ extension PaceActionExecutor {
         return positionResult == .success && sizeResult == .success
     }
 
-    func scroll(direction: PaceScrollDirection, amountInLines: Int) async {
-        print("🖱️  Scroll \(direction) by \(amountInLines) lines (enabled: \(actionsAreEnabled))")
-        guard actionsAreEnabled else { return }
+    func scroll(
+        direction: PaceScrollDirection, amountInLines: Int, location: ScreenshotPixelLocation?,
+        screenCaptures: [CompanionScreenCapture]
+    ) -> PaceActionExecutionObservation {
+        let operation = "Scroll \(direction.rawValue) \(amountInLines) lines"
+        guard actionsAreEnabled else { return .init(toolName: "scroll", summary: "Would: \(operation).") }
+        guard !Task.isCancelled else { return .init(toolName: "scroll", summary: "Scroll cancelled.") }
 
-        let verticalDelta: Int32 = {
-            switch direction {
-            case .up: return Int32(amountInLines)
-            case .down: return -Int32(amountInLines)
+        var targetPoint: CGPoint?
+        if let location {
+            guard readMyScreenIsEnabled(),
+                let point = convertScreenshotPixelToDisplayGlobalPoint(
+                    screenshotPixelLocation: location, screenCaptures: screenCaptures, requiresExactLocation: true)
+            else {
+                return .init(
+                    toolName: "scroll",
+                    summary: "Could not locate the requested scroll area. Inspect the screen again.")
             }
-        }()
-
-        if let scrollEvent = CGEvent(
-            scrollWheelEvent2Source: nil,
-            units: .line,
-            wheelCount: 1,
-            wheel1: verticalDelta,
-            wheel2: 0,
-            wheel3: 0
-        ) {
-            scrollEvent.post(tap: .cghidEventTap)
+            targetPoint = point
         }
+
+        let verticalDelta = Int32(amountInLines) * (direction == .up ? 1 : -1)
+        guard
+            let event = CGEvent(
+                scrollWheelEvent2Source: nil, units: .line, wheelCount: 1, wheel1: verticalDelta, wheel2: 0, wheel3: 0)
+        else {
+            return .init(toolName: "scroll", summary: "Could not send the scroll event.")
+        }
+        if let targetPoint { event.location = targetPoint }
+        event.post(tap: .cghidEventTap)
+        return .init(toolName: "scroll", summary: "Scroll event sent. Inspect the pane for the result.")
     }
 }

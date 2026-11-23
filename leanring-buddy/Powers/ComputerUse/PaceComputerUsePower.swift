@@ -221,13 +221,13 @@ nonisolated enum PaceComputerUsePower {
 
         For an Apple reminder, call Reminders.add once with args.title and, when requested, args.due in ISO 8601 with its UTC offset (YYYY-MM-DD for a date without a time). Use args.listName if the user names a list. A successful native save confirms creation. Stop there and report the due date. Do not create it again or look it up through a second tool.
 
-        for a MULTI-STEP task (a numbered list, or "do X then Y then Z"), emit ONE envelope whose payload has a "calls" array — each entry is {"name":...,"args":{...}}, run in order. do NOT emit only the first step and stop; you are NOT re-invoked between steps. example for "open safari, open a new tab, then search":
+        For a multi-step task whose targets will stay valid, use one envelope with a "calls" array of {"name":...,"args":{...}} entries. Pace runs them in order without re-planning between entries. Example for "open Safari and open a new tab":
         {"spokenText":"opening safari and searching.","intent":"action","payload":{"calls":[
           {"name":"App.launch","args":{"app":"Safari"}},
-          {"name":"Key.press","args":{"key":"cmd+t"}},
-          {"name":"Key.press","args":{"key":"cmd+l"}}
+          {"name":"Key.press","args":{"key":"cmd+t"}}
         ]}}
-        put steps that need a focus/keyboard change in separate calls, in order.
+        Put focus and keyboard changes in separate calls. If a click opens another view, inspect that view before choosing a target for the next action.
+        To scroll a specific pane, use AX.scroll with direction, amount, x, y, and screen. Set x and y to a point inside the pane in the latest Pace screenshot, and screen to that screenshot's 1-based number. For a conversation, target the message history rather than the sidebar or composer. If the pane is missing or ambiguous, inspect or clarify first. For an untargeted scroll, omit x, y, and screen. When asked to draft text in another app, type into the verified composer and leave the draft for the user.
 
         when pointing is useful, append [POINT:x,y:label:desktop] inside spokenText for global desktop coordinates from Peekaboo/AX inspection. Use the center of the freshly observed target's bounds; desktop points can be negative on other displays. For a supplied Pace screenshot, use [POINT:x,y:label:screenN] with that screenshot's pixel coordinates and screen number. Never mix these coordinate spaces. If a named app's target is absent from the current screen context, inspect that app with Peekaboo before answering. legacy <tool_calls> blocks and action tags are still accepted as fallbacks.
 

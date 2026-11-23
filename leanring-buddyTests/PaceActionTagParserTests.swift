@@ -172,7 +172,7 @@ struct PaceActionTagParserTests {
     @Test func scrollTagParsesDirectionAndAmount() async throws {
         let parseResult = PaceActionTagParser.parseActions(from: "[SCROLL:down:5]")
 
-        guard case .scroll(let direction, let amountInLines) = parseResult.actions.first else {
+        guard case .scroll(let direction, let amountInLines, _) = parseResult.actions.first else {
             Issue.record("Expected a SCROLL action")
             return
         }
@@ -183,7 +183,7 @@ struct PaceActionTagParserTests {
     @Test func scrollTagWithoutAmountFallsBackToDefault() async throws {
         let parseResult = PaceActionTagParser.parseActions(from: "[SCROLL:up]")
 
-        guard case .scroll(let direction, let amountInLines) = parseResult.actions.first else {
+        guard case .scroll(let direction, let amountInLines, _) = parseResult.actions.first else {
             Issue.record("Expected a SCROLL action")
             return
         }
@@ -756,6 +756,31 @@ struct PaceActionTagParserTests {
         }
         #expect(reminderRequest.title == "send invoice")
         #expect(reminderRequest.notes == "today")
+    }
+
+    @Test func targetedScrollPreservesThePaneCoordinatesAndRejectsPartialTargets() {
+        let requests = [
+            #"{"spokenText":"","intent":"action","payload":{"name":"AX.scroll","args":{"direction":"up","amount":5,"x":640,"y":280,"screen":2}}}"#,
+            #"<tool_calls>[{"tool":"scroll","direction":"up","amount":5,"x":640,"y":280,"screen":2}]</tool_calls>"#,
+        ]
+        for request in requests {
+            let result = PaceActionTagParser.parseActions(from: request)
+            guard case .scroll(let direction, let amount, let location) = result.actions.first else {
+                Issue.record("Expected a scroll action with a pane target")
+                continue
+            }
+            #expect(direction == .up)
+            #expect(amount == 5)
+            #expect(location?.xInScreenshotPixels == 640)
+            #expect(location?.yInScreenshotPixels == 280)
+            #expect(location?.screenNumber == 2)
+        }
+
+        for args in [#""x":640"#, #""x":640,"y":280,"screen":0"#, #""x":1e99,"y":280"#] {
+            let prefix = #"{"spokenText":"","intent":"action","payload":{"name":"AX.scroll","args":{"direction":"up","#
+            let input = prefix + args + "}}}"
+            #expect(PaceActionTagParser.parseActions(from: input).actions.isEmpty)
+        }
     }
 
     @Test func scheduledReminderPayloadPreservesTheRequestedInstant() throws {

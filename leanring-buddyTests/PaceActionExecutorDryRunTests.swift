@@ -3,6 +3,7 @@
 //  leanring-buddyTests
 //
 
+import AppKit
 import CoreGraphics
 import Foundation
 import Testing
@@ -10,6 +11,41 @@ import Testing
 
 @MainActor
 struct PaceActionExecutorDryRunTests {
+    @Test func targetedScrollUsesTheSelectedDisplayAndRejectsItsEdges() throws {
+        let screenHeight = try #require(NSScreen.screens.first).frame.height
+        let primary = CompanionScreenCapture(
+            imageData: Data(), label: "Screen 1", isCursorScreen: true,
+            displayWidthInPoints: 800, displayHeightInPoints: 600,
+            displayFrame: CGRect(x: 0, y: screenHeight - 600, width: 800, height: 600),
+            screenshotWidthInPixels: 1600, screenshotHeightInPixels: 1200)
+        let secondary = CompanionScreenCapture(
+            imageData: Data(), label: "Screen 2", isCursorScreen: false,
+            displayWidthInPoints: 800, displayHeightInPoints: 600,
+            displayFrame: CGRect(x: -800, y: screenHeight - 600, width: 800, height: 600),
+            screenshotWidthInPixels: 1600, screenshotHeightInPixels: 1200)
+        let executor = PaceActionExecutor(actionsAreEnabledOverride: false)
+        let captures = [primary, secondary]
+        let location = ScreenshotPixelLocation(xInScreenshotPixels: 640, yInScreenshotPixels: 280, screenNumber: 2)
+        let edge = ScreenshotPixelLocation(xInScreenshotPixels: 1600, yInScreenshotPixels: 280, screenNumber: 2)
+        let globalPoint = executor.convertScreenshotPixelToDisplayGlobalPoint(
+            screenshotPixelLocation: location, screenCaptures: captures, requiresExactLocation: true)
+        let edgePoint = executor.convertScreenshotPixelToDisplayGlobalPoint(
+            screenshotPixelLocation: edge, screenCaptures: captures, requiresExactLocation: true)
+        #expect(globalPoint == CGPoint(x: -480, y: 140))
+        #expect(edgePoint == nil)
+    }
+
+    @Test func targetedScrollNeverFallsBackToTheCurrentPointerWhenCaptureIsUnavailable() async throws {
+        let location = ScreenshotPixelLocation(xInScreenshotPixels: 320, yInScreenshotPixels: 120, screenNumber: 2)
+        let action = PaceParsedAction.scroll(.up, amountInLines: 5, location: location)
+        let executor = PaceActionExecutor(
+            actionsAreEnabledOverride: true, accessibilityPermissionCheck: { true }, readMyScreenIsEnabled: { true })
+        let results = await executor.executeActionPlan(.serial(actions: [action]), screenCaptures: [])
+        let result = try #require(results.first)
+        #expect(result.toolName == "scroll")
+        #expect(result.summary.contains("Could not locate"))
+    }
+
     @Test func launchedProcessBindsOnlyKnownNameSelectorsAndPreservesExactReceipts() throws {
         let chromeURL = URL(fileURLWithPath: "/Applications/Google Chrome.app")
         let executor = PaceActionExecutor(
