@@ -2321,6 +2321,9 @@ extension CompanionManager {
                 guard let self else { return }
                 let result = await PaceDictationFastPath.shared.dictate(transcript: dictationText)
                 guard !Task.isCancelled else { return }
+                PaceAPIAuditLog.shared.record(
+                    subsystem: "action", operation: "dictate", target: "focused field", durationMilliseconds: 0,
+                    outcome: result == nil ? "error" : "posted", outputCharacterCount: result?.count)
                 if let typedText = result {
                     self.recordConversationTurn(
                         userTranscript: transcript,
