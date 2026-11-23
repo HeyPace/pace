@@ -3110,9 +3110,6 @@ extension CompanionManager {
                                 preflightIssues: preflightIssues
                             ) {
                                 if !PaceActionApprovalPolicy.permitsObservationOnly(actionParseResult.executionPlan) {
-                                    if hasPointCoordinate {
-                                        try? await Task.sleep(nanoseconds: 350_000_000)
-                                    }
                                     preActionObservationBaseline = PaceClickStateSnapshot.captureLightweight()
                                 }
                                 guard !Task.isCancelled else { return }
