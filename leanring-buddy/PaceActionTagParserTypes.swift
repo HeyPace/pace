@@ -103,6 +103,7 @@ nonisolated struct PaceActionExecutionObservation {
         case nil, .managedWorkflowUnavailable: return nil
         }
     }
+    let didDispatchCoordinateClick: Bool
     /// Non-nil only on an all-fail click, to request Set-of-Mark recovery.
     let setOfMarkRecovery: PaceSetOfMarkRecoveryRequest?
 
@@ -113,8 +114,10 @@ nonisolated struct PaceActionExecutionObservation {
         summary: String,
         userFacingSummary: String? = nil,
         setOfMarkRecovery: PaceSetOfMarkRecoveryRequest? = nil,
-        terminalReason: TerminalReason? = nil
+        terminalReason: TerminalReason? = nil,
+        didDispatchCoordinateClick: Bool = false
     ) {
+        self.didDispatchCoordinateClick = didDispatchCoordinateClick
         self.toolName = toolName
         self.summary = summary
         self.userFacingSummary = userFacingSummary
@@ -812,7 +815,7 @@ nonisolated struct PaceFastActionParseResult {
 
 /// Deterministic parser for no-screen, no-reasoning commands that are common
 /// enough to execute without burning a VLM/planner turn. It intentionally
-/// avoids clicks, typing, scrolling, and open-ended app names; those stay on
+/// avoids clicks, typing, pane-targeted scrolling, and open-ended app names; those stay on
 /// the normal planner path where screen context and approval copy are richer.
 nonisolated enum PaceFastActionCommandParser {
     private static let knownApplicationAliases: [String: String] = [
@@ -855,9 +858,17 @@ nonisolated enum PaceFastActionCommandParser {
         "zoom": "zoom.us",
     ]
 
-    static func parse(transcript: String) -> PaceFastActionParseResult? {
+    static func parse(transcript: String, isFinalTranscript: Bool = true) -> PaceFastActionParseResult? {
         let normalizedTranscript = normalizeTranscript(transcript)
         guard !normalizedTranscript.isEmpty else { return nil }
+
+        if isFinalTranscript, normalizedTranscript.hasPrefix("scroll "),
+            let direction = PaceScrollDirection(rawValue: String(normalizedTranscript.dropFirst("scroll ".count)))
+        {
+            return PaceFastActionParseResult(
+                spokenText: "Scrolling \(direction.rawValue).",
+                executionPlan: .serial(actions: [.scroll(direction, amountInLines: 3)]))
+        }
 
         if let musicCommand = parseMusicCommand(from: normalizedTranscript) {
             let spokenText = spokenTextForMusicCommand(musicCommand)

@@ -1592,10 +1592,22 @@ struct PaceActionTagParserTests {
         #expect(sendCommandResult?.executionPlan.flattenedActions.isEmpty ?? true)
     }
 
+    @Test func basicScrollRunsLocallyOnlyWhenTheUtteranceIsComplete() throws {
+        for direction in ["up", "down"] {
+            let result = PaceFastActionCommandParser.parse(transcript: "Hey Pace scroll \(direction).")
+            guard case .scroll(let parsed, let amount, nil) = result?.executionPlan.flattenedActions.first else {
+                Issue.record("Expected local scroll"); return
+            }
+            #expect(parsed.rawValue == direction)
+            #expect(amount == 3)
+            #expect(PaceFastActionCommandParser.parse(transcript: "scroll \(direction)", isFinalTranscript: false) == nil)
+        }
+    }
+
     @Test func fastActionParserDoesNotGrabAmbiguousScreenCommands() async throws {
         let ambiguousMenuResult = PaceFastActionCommandParser.parse(transcript: "open the file menu")
         let clickResult = PaceFastActionCommandParser.parse(transcript: "click the blue button")
-        let scrollResult = PaceFastActionCommandParser.parse(transcript: "scroll down")
+        let scrollResult = PaceFastActionCommandParser.parse(transcript: "scroll down in the conversation")
         let genericMoveResult = PaceFastActionCommandParser.parse(transcript: "move left")
 
         #expect(ambiguousMenuResult?.executionPlan.flattenedActions.isEmpty ?? true)

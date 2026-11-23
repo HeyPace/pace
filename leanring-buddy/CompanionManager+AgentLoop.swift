@@ -1185,7 +1185,7 @@ extension CompanionManager {
     /// 4. If the final transcript differs, the normal path runs and the
     ///    planner handles the full command (speculative action was a subset)
     func handleSpeculativeFastAction(transcript: String) {
-        guard let fastActionParseResult = PaceFastActionCommandParser.parse(transcript: transcript) else {
+        guard let fastActionParseResult = PaceFastActionCommandParser.parse(transcript: transcript, isFinalTranscript: false) else {
             print("⚡️ Speculative fast-action: no match for \"\(transcript)\" — falling back to normal path")
             return
         }
@@ -3136,7 +3136,8 @@ extension CompanionManager {
                                 } else {
                                     let executionReceipt = await actionExecutor.executeActionPlanWithReceipt(
                                         actionParseResult.executionPlan,
-                                        screenCaptures: screenCaptures
+                                        screenCaptures: screenCaptures,
+                                        checksRepeatedClick: true
                                     )
                                     toolObservations = executionReceipt.observations
                                 }

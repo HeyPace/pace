@@ -744,6 +744,7 @@ final class PaceActionExecutor {
     private(set) var applicationTargetGeneration = UUID()
     private var launchedApplicationTargets: [String: LaunchedApplicationTarget] = [:]
     var hasAttemptedInspectionRecovery = false
+    var previousPlannerClick: PacePlannerClickFingerprint?
     var unconfirmedPeekabooInput: PaceMCPToolCall?
     let runningApplicationBundleURL: (Int32) -> URL?
     let preferredInspectionProcessIdentifiers: @MainActor () -> [Int32]
@@ -758,6 +759,7 @@ final class PaceActionExecutor {
         remindersSavedThisTurn.removeAll()
         launchedApplicationTargets.removeAll()
         hasAttemptedInspectionRecovery = false
+        previousPlannerClick = nil
         unconfirmedPeekabooInput = nil
     }
 

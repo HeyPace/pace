@@ -65,15 +65,17 @@ final class PaceDictationFastPath {
         // Step 2: optional Apple FM cleanup for disfluencies.
         // This is the only async step and it's optional — if Apple FM
         // isn't available, we skip it and use the deterministic output.
-        if let appleFMCleanupCallback, !cleanedText.isEmpty {
+        if let appleFMCleanupCallback, mode?.lowercased() != "code",
+            Self.hasSpokenDisfluency(cleanedText)
+        {
             PaceLatencyBudget.shared.mark(.plannerStart)
-            if let fmCleaned = await appleFMCleanupCallback(cleanedText) {
+            if let fmCleaned = await appleFMCleanupCallback(cleanedText), !fmCleaned.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 cleanedText = fmCleaned
             }
             PaceLatencyBudget.shared.mark(.plannerComplete)
         }
 
-        guard !cleanedText.isEmpty else { return nil }
+        guard !Task.isCancelled, !cleanedText.isEmpty else { return nil }
 
         // Step 3: type the text directly into the focused field.
         PaceLatencyBudget.shared.mark(.toolExecStart)
@@ -84,6 +86,10 @@ final class PaceDictationFastPath {
         print("📝 Dictation fast path: typed \(cleanedText.count) chars, skipped planner/VLM/TTS")
 
         return cleanedText
+    }
+
+    static func hasSpokenDisfluency(_ text: String) -> Bool {
+        text.range(of: #"(?i)\b(?:um+|uh+|erm+)\b|\b([\p{L}]+)\s+\1\b"#, options: .regularExpression) != nil
     }
 
     /// Check if a transcript looks like a dictation command.

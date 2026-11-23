@@ -507,6 +507,7 @@ private final class PaceMCPPersistentSessionSlot: @unchecked Sendable {
 }
 
 private final class PaceMCPPersistentSession {
+    private let cachesDesktopCatalog: Bool
     let configuration: PaceMCPServerConfiguration
     let process = Process()
     private let stdinPipe = Pipe()
@@ -517,6 +518,7 @@ private final class PaceMCPPersistentSession {
     private var hasScheduledClose = false
 
     init(serverName: String, configuration: PaceMCPServerConfiguration, timeout: TimeInterval) throws {
+        cachesDesktopCatalog = ["peekaboo", "playwright"].contains(serverName)
         self.configuration = configuration
         guard let nullHandle = FileHandle(forWritingAtPath: "/dev/null") else {
             throw PaceMCPClientError.launchFailed("Could not open stderr sink")
@@ -554,10 +556,14 @@ private final class PaceMCPPersistentSession {
 
     deinit { close() }
 
+    // The session slot serializes requests and replaces this instance on a process or configuration change.
+    private var desktopCatalog: (response: [String: Any], expires: ContinuousClock.Instant)?
+
     func request(method: String, parameters: [String: Any], timeout: TimeInterval) throws -> [String: Any] {
         let client = self.client
         let resultData: Data
         if method == "tools/list" {
+            if let desktopCatalog, ContinuousClock.now < desktopCatalog.expires { return desktopCatalog.response }
             resultData = try waitForMCPResult(timeout: timeout) {
                 var tools: [MCP.Tool] = []
                 var cursor: String?
@@ -568,7 +574,11 @@ private final class PaceMCPPersistentSession {
                 } while cursor != nil
                 return try JSONEncoder().encode(tools)
             }
-            return ["result": ["tools": try JSONSerialization.jsonObject(with: resultData)]]
+            let response: [String: Any] = ["result": ["tools": try JSONSerialization.jsonObject(with: resultData)]]
+            if cachesDesktopCatalog {
+                desktopCatalog = (response, .now.advanced(by: .seconds(15)))
+            }
+            return response
         }
         let name = parameters["name"] as? String ?? ""
         let argumentData = try JSONSerialization.data(withJSONObject: parameters["arguments"] ?? [:])

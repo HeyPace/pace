@@ -60,6 +60,12 @@ struct PaceDictationFastPathTests {
         #expect(result == "hello world")
     }
 
+    @Test func cleanProseSkipsModelCleanup() {
+        #expect(!PaceDictationFastPath.hasSpokenDisfluency("I like the summer schedule."))
+        #expect(PaceDictationFastPath.hasSpokenDisfluency("Um, look at Thursday."))
+        #expect(PaceDictationFastPath.hasSpokenDisfluency("We we should check Thursday."))
+    }
+
     // MARK: - Dictation pipeline
 
     @Test

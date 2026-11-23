@@ -199,7 +199,8 @@ extension PaceActionExecutor {
         return .init(
             toolName: toolName,
             summary: "Dispatched \(toolName) at \(location.approvalDescription). Verify the resulting view. If the requested conversation or control is already open, finish or proceed to the next requested step. If the target is missing, inspect the window by label before trying another click.",
-            userFacingSummary: clickCount == 2 ? "Double-click sent." : "Click sent.")
+            userFacingSummary: clickCount == 2 ? "Double-click sent." : "Click sent.",
+            didDispatchCoordinateClick: true)
     }
 
     @discardableResult
@@ -502,6 +503,8 @@ extension PaceActionExecutor {
         }
         if let targetPoint { event.location = targetPoint }
         event.post(tap: .cghidEventTap)
-        return .init(toolName: "scroll", summary: "Scroll event sent. Inspect the pane for the result.")
+        return .init(
+            toolName: "scroll", summary: "Scroll event sent. Inspect the pane for the result.",
+            userFacingSummary: "Scroll \(direction.rawValue) sent.")
     }
 }

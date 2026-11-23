@@ -140,6 +140,34 @@ private enum PaceMCPFixture {
 @Suite(.serialized)
 struct PaceMCPClientIntegrationTests {
     @Test(.enabled(if: PaceMCPFixture.isFixtureRunnable))
+    func nearbyDesktopCatalogReadsReuseTheCurrentProducerOnly() async throws {
+        let program = #"""
+            import json, sys
+            count = 0
+            for line in sys.stdin:
+                request = json.loads(line)
+                if "id" not in request:
+                    continue
+                if request["method"] == "initialize":
+                    result = {"protocolVersion":"2025-03-26","capabilities":{"tools":{}},"serverInfo":{"name":"fixture","version":"1"}}
+                elif request["method"] == "tools/list":
+                    count += 1
+                    result = {"tools":[{"name":sys.argv[1]+str(count),"inputSchema":{"type":"object","properties":{}}}]}
+                print(json.dumps({"jsonrpc":"2.0","id":request["id"],"result":result}), flush=True)
+            """#
+        for name in ["first", "second"] {
+            let client = PaceMCPStdioClient(serverConfigurations: [
+                "peekaboo": .init(command: PaceMCPFixture.pythonThreeExecutablePath ?? "python3",
+                                  args: ["-u", "-c", program, name, UUID().uuidString])
+            ])
+            let first = try await client.toolCatalog(serverName: "peekaboo")
+            let second = try await client.toolCatalog(serverName: "peekaboo")
+            #expect(first.contains(name + "1"))
+            #expect(first == second)
+        }
+    }
+
+    @Test(.enabled(if: PaceMCPFixture.isFixtureRunnable))
     func rapidConfigurationSwitchesKeepSDKResponsesWithTheirOwnProducer() async throws {
         let program = #"""
             import json, sys

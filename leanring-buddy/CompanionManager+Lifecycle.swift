@@ -681,20 +681,9 @@ extension CompanionManager {
         // when Apple Intelligence is available.
         if SystemLanguageModel.default.availability == .available {
             PaceDictationFastPath.shared.appleFMCleanupCallback = { text in
-                await withCheckedContinuation { continuation in
-                    Task { @MainActor in
-                        do {
-                            let session = LanguageModelSession(
-                                instructions:
-                                    "Remove filler words (um, uh, like), repeated words, and false starts from the following dictated text. Preserve the original meaning, tone, and language. Output ONLY the cleaned text, no explanation."
-                            )
-                            let response = try await session.respond(to: text)
-                            continuation.resume(returning: response.content)
-                        } catch {
-                            continuation.resume(returning: nil)
-                        }
-                    }
-                }
+                let session = LanguageModelSession(
+                    instructions: "Remove filler words, accidental repetitions and false starts. Preserve the meaning, tone and language. Output only the cleaned text.")
+                return try? await session.respond(to: text).content
             }
         }
 

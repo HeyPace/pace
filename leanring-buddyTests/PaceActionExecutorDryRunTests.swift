@@ -22,6 +22,31 @@ struct PaceActionExecutorDryRunTests {
         #expect(retry.first?.stopsAgentLoop == true)
     }
 
+    @Test func repeatedIdenticalPlannerClickRequestsOneInspectionAndNeverDispatches() async throws {
+        let executor = PaceActionExecutor(
+            actionsAreEnabledOverride: true, accessibilityPermissionCheck: { true }, readMyScreenIsEnabled: { true })
+        let location = ScreenshotPixelLocation(xInScreenshotPixels: 10, yInScreenshotPixels: 10, screenNumber: 1)
+        let plan = PaceActionExecutionPlan.serial(actions: [.click(location)])
+        func captures(_ byte: UInt8) -> [CompanionScreenCapture] {
+            [.init(displayIdentifier: 8, imageData: Data([byte]), label: "Screen 1", isCursorScreen: true,
+                   displayWidthInPoints: 100, displayHeightInPoints: 100,
+                   displayFrame: CGRect(x: 0, y: 0, width: 100, height: 100),
+                   screenshotWidthInPixels: 200, screenshotHeightInPixels: 200)]
+        }
+        let fingerprint = try #require(PacePlannerClickFingerprint(plan: plan, captures: captures(1)))
+        #expect(fingerprint != PacePlannerClickFingerprint(plan: plan, captures: captures(2)))
+        #expect(PacePlannerClickFingerprint(plan: .serial(actions: [.doubleClick(location)]), captures: captures(1)) == nil)
+        executor.previousPlannerClick = fingerprint
+        let firstRetry = await executor.executeActionPlanWithReceipt(plan, screenCaptures: captures(1), checksRepeatedClick: true)
+        #expect(firstRetry.executedPlan.flattenedActions.isEmpty)
+        #expect(firstRetry.observations.first?.requiresFreshInspectionPlan == true)
+        let finalRetry = await executor.executeActionPlanWithReceipt(plan, screenCaptures: captures(1), checksRepeatedClick: true)
+        #expect(finalRetry.executedPlan.flattenedActions.isEmpty)
+        #expect(finalRetry.observations.first?.stopsAgentLoop == true)
+        executor.beginUserTurn()
+        #expect(executor.previousPlannerClick == nil)
+    }
+
     @Test func targetedScrollUsesTheSelectedDisplayAndRejectsItsEdges() throws {
         let screenHeight = try #require(NSScreen.screens.first).frame.height
         let primary = CompanionScreenCapture(

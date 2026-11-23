@@ -6,7 +6,35 @@
 //  executeActionPlan dispatch and streaming mail draft entry points.
 //
 
+import CryptoKit
 import Foundation
+
+struct PacePlannerClickFingerprint: Equatable {
+    let x: Int
+    let y: Int
+    let displayIdentifier: UInt32
+    let displayFrame: CGRect
+    let imageDigest: SHA256.Digest
+
+    init?(plan: PaceActionExecutionPlan, captures: [CompanionScreenCapture]) {
+        let actions = plan.flattenedActions
+        guard actions.count == 1, case .click(let location) = actions[0] else { return nil }
+        let capture: CompanionScreenCapture?
+        if let screen = location.screenNumber {
+            guard screen >= 1, screen <= captures.count else { return nil }
+            capture = captures[screen - 1]
+        } else {
+            capture = captures.first(where: { $0.isCursorScreen }) ?? captures.first
+        }
+        guard let capture, !capture.imageData.isEmpty else { return nil }
+        x = location.xInScreenshotPixels
+        y = location.yInScreenshotPixels
+        displayIdentifier = capture.displayIdentifier
+        displayFrame = capture.displayFrame
+        imageDigest = SHA256.hash(data: capture.imageData)
+    }
+}
+
 
 @MainActor
 extension PaceActionExecutor {
@@ -30,7 +58,8 @@ extension PaceActionExecutor {
 
     func executeActionPlanWithReceipt(
         _ actionExecutionPlan: PaceActionExecutionPlan,
-        screenCaptures: [CompanionScreenCapture]
+        screenCaptures: [CompanionScreenCapture],
+        checksRepeatedClick: Bool = false
     ) async -> PaceActionExecutionReceipt {
         var observations: [PaceActionExecutionObservation] = []
         var executedActions: [PaceParsedAction] = []
@@ -38,6 +67,21 @@ extension PaceActionExecutor {
             .init(observations: observations, executedPlan: .serial(actions: executedActions))
         }
         let executionGeneration = applicationTargetGeneration
+        let currentClick = checksRepeatedClick && actionsAreEnabled && readMyScreenIsEnabled()
+            ? PacePlannerClickFingerprint(plan: actionExecutionPlan, captures: screenCaptures) : nil
+        guard !Task.isCancelled else { return receipt() }
+        if let currentClick, previousPlannerClick == currentClick,
+            managedPowerExecutionCheck?() != false, accessibilityPermissionCheck() {
+            let canInspect = !hasAttemptedInspectionRecovery
+            if canInspect { hasAttemptedInspectionRecovery = true }
+            observations.append(.init(
+                toolName: "click",
+                summary: "Skipped a repeated click at the same point on an unchanged screenshot. Inspect the intended control by name or report what is missing.",
+                userFacingSummary: canInspect ? "" : "I couldn’t verify that control.",
+                terminalReason: canInspect ? .recoverableInspectionFailure : .inspectionInterrupted))
+            return receipt()
+        }
+        previousPlannerClick = nil
 
         for (stepIndex, step) in actionExecutionPlan.steps.enumerated() {
             guard !Task.isCancelled else { return receipt() }
@@ -65,6 +109,10 @@ extension PaceActionExecutor {
             }
         }
 
+        if executionGeneration == applicationTargetGeneration,
+            observations.count == 1, observations.first?.didDispatchCoordinateClick == true {
+            previousPlannerClick = currentClick
+        }
         return receipt()
     }
 
@@ -124,6 +172,7 @@ extension PaceActionExecutor {
         _ action: PaceParsedAction,
         screenCaptures: [CompanionScreenCapture]
     ) async -> PaceActionExecutionObservation? {
+        let startedAt = ProcessInfo.processInfo.systemUptime
         let observation = await dispatchSingleAction(action, screenCaptures: screenCaptures)
         let outcomeText: String
         if let observation,
@@ -139,7 +188,7 @@ extension PaceActionExecutor {
             subsystem: "action",
             operation: action.auditOperationName,
             target: action.auditTarget,
-            durationMilliseconds: 0,
+            durationMilliseconds: Int((ProcessInfo.processInfo.systemUptime - startedAt) * 1_000),
             outcome: outcomeText,
             outputCharacterCount: observation?.summary.count,
             detail: observation?.summary.prefix(160).description
