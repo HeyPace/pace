@@ -1205,7 +1205,8 @@ extension CompanionManager {
         transcript: String,
         fastActionParseResult: PaceFastActionParseResult,
         shouldRecordConversationTurn: Bool = true,
-        acceptedTurnIdentifier: String? = nil
+        acceptedTurnIdentifier: String? = nil,
+        scrollTargetWindowNumber: Int? = nil
     ) {
         let turnLease = turnLeaseRegistry.currentLease
         let spokenText = fastActionParseResult.spokenText
@@ -1250,7 +1251,8 @@ extension CompanionManager {
                 ) {
                     let mutationCountBeforeExecution = actionExecutor.mutationLog.count
                     let toolObservations: [PaceActionExecutionObservation]
-                    if fastActionParseResult.scrollsAtPointer && !actionExecutor.pointerIsOverFrontmostWindow() {
+                    if fastActionParseResult.scrollsAtPointer,
+                        scrollTargetWindowNumber == nil || actionExecutor.frontmostWindowNumberUnderPointer() != scrollTargetWindowNumber {
                         toolObservations = [.init(toolName: "scroll", summary: "The target window changed before scrolling.",
                                                   userFacingSummary: "The window changed. Which pane should I scroll?")]
                     } else {
@@ -2294,16 +2296,20 @@ extension CompanionManager {
         // "open Music" shortcut.
         if !requestsInteractiveDiagram && !requestsGeneratedImage,
             researchTurnPlannerOverride == nil,
-            let fastActionParseResult = PaceFastActionCommandParser.parse(transcript: transcript),
-            !fastActionParseResult.scrollsAtPointer || actionExecutor.pointerIsOverFrontmostWindow()
+            let fastActionParseResult = PaceFastActionCommandParser.parse(transcript: transcript)
         {
-            print("🎯 Intent: fastLocalAction — skipping screenshot, VLM, and planner")
-            handleFastLocalActionPath(
-                transcript: transcript,
-                fastActionParseResult: fastActionParseResult,
-                acceptedTurnIdentifier: acceptedTurnIdentifier
-            )
-            return
+            let scrollTargetWindowNumber = fastActionParseResult.scrollsAtPointer
+                ? actionExecutor.frontmostWindowNumberUnderPointer() : nil
+            if !fastActionParseResult.scrollsAtPointer || scrollTargetWindowNumber != nil {
+                print("🎯 Intent: fastLocalAction — skipping screenshot, VLM, and planner")
+                handleFastLocalActionPath(
+                    transcript: transcript,
+                    fastActionParseResult: fastActionParseResult,
+                    acceptedTurnIdentifier: acceptedTurnIdentifier,
+                    scrollTargetWindowNumber: scrollTargetWindowNumber
+                )
+                return
+            }
         }
         // Subagent decomposition: "research X, Y, and Z" → 3 parallel
         // subagents. Routed before the planner so it doesn't burn a

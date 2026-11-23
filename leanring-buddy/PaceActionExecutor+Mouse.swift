@@ -461,7 +461,7 @@ extension PaceActionExecutor {
     }
 
     /// An unqualified scroll can skip inspection only over the active app's front window.
-    func pointerIsOverFrontmostWindow() -> Bool {
+    func frontmostWindowNumberUnderPointer() -> Int? {
         guard let frontmostApp = NSWorkspace.shared.frontmostApplication,
               frontmostApp.processIdentifier != ProcessInfo.processInfo.processIdentifier,
               let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID)
@@ -471,8 +471,9 @@ extension PaceActionExecutor {
                   ($0[kCGWindowLayer as String] as? Int) == 0
               }),
               let frontWindowNumber = frontWindow[kCGWindowNumber as String] as? Int
-        else { return false }
-        return NSWindow.windowNumber(at: NSEvent.mouseLocation, belowWindowWithWindowNumber: 0) == frontWindowNumber
+        else { return nil }
+        let windowUnderPointer = NSWindow.windowNumber(at: NSEvent.mouseLocation, belowWindowWithWindowNumber: 0)
+        return windowUnderPointer == frontWindowNumber ? frontWindowNumber : nil
     }
 
     func scroll(
