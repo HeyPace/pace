@@ -56,6 +56,36 @@ class ClickAlternativesTests(unittest.TestCase):
             self.assertFalse(self.score("RESPOND")["full_pass"])
 
 
+class FixtureCompletionTests(unittest.TestCase):
+    def setUp(self):
+        self.fixture = HARNESS.parse_fixture(
+            HARNESS.REPO_ROOT / "evals/fm-fixtures-actions/open-app-calculator.txt")
+
+    def score(self, *, terminal, result="ok: opened Calculator"):
+        steps = [{"tool": "open_app", "args": {"app": "Calculator"}, "result": result}]
+        return HARNESS.score_fixture(
+            self.fixture, steps, [{"label": "open_app", "ms": 0}], [], terminal, None)
+
+    def test_named_tool_needs_success_and_done(self):
+        self.assertTrue(self.score(terminal="DONE")["full_pass"])
+        for label in ("ASK_USER", "RESPOND"):
+            with self.subTest(label=label):
+                self.assertFalse(self.score(terminal=label)["full_pass"])
+        self.assertFalse(self.score(terminal="DONE", result="error: app unavailable")["full_pass"])
+
+    def test_malformed_argument_clause_cannot_pass(self):
+        self.fixture["expectation"]["argument_checks"] = ["open_app.app=Calculator"]
+        self.assertFalse(self.score(terminal="DONE")["full_pass"])
+
+    def test_missing_unknown_or_noninteger_click_target_is_a_failure(self):
+        fixture = {"screen_elements": [{"id": 1, "label": "Save"}]}
+        for tool in ("click", "double_click"):
+            self.assertTrue(HARNESS.simulated_result(tool, {"element_id": 1}, fixture).startswith("ok:"))
+            for arguments in ({}, {"element_id": True}, {"element_id": 1.0}, {"element_id": 2}):
+                with self.subTest(tool=tool, arguments=arguments):
+                    self.assertTrue(HARNESS.simulated_result(tool, arguments, fixture).startswith("error:"))
+
+
 class TeacherAccessTests(unittest.TestCase):
     def setUp(self):
         specification = importlib.util.spec_from_file_location("fresh_jev_access", SCRIPT_PATH)

@@ -581,8 +581,11 @@ def extract_arguments(fixture, completed_steps, tool_name, tool_catalog, local_m
 
 
 def simulated_result(tool_name, tool_arguments, fixture):
-    if tool_name in ("click", "double_click") and "element_id" in tool_arguments:
-        element = next((element for element in fixture["screen_elements"] if element["id"] == tool_arguments["element_id"]), None)
+    if tool_name in ("click", "double_click"):
+        element_id = tool_arguments.get("element_id")
+        if type(element_id) is not int:
+            return "error: click needs a captured element ID"
+        element = next((element for element in fixture["screen_elements"] if element["id"] == element_id), None)
         return f"ok: clicked '{element['label']}'" if element else "error: no such element"
     if tool_name == "open_app":
         return f"ok: {tool_arguments.get('app', 'app')} is now open and frontmost"
@@ -644,9 +647,9 @@ def run_fixture(fixture, arm_name, tool_catalog, local_model_identifier, max_ste
 
 def argument_check_passes(argument_check, completed_steps):
     # Format: tool.arg~=substring   (case-insensitive contains)
-    check_match = re.match(r"(\w+)\.(\w+)~=(.+)", argument_check)
+    check_match = re.fullmatch(r"(\w+)\.(\w+)~=(.+)", argument_check)
     if not check_match:
-        return True
+        return False
     tool_name, argument_name, expected_substring = check_match.groups()
     return any(step["tool"] == tool_name and expected_substring.lower() in str(step["args"].get(argument_name, "")).lower()
                for step in completed_steps)
@@ -656,31 +659,37 @@ def score_fixture(fixture, completed_steps, route_calls, argument_call_ms, termi
     expectation = fixture["expectation"]
     first_step_label = route_calls[0]["label"] if route_calls else None
     tools_called = [step["tool"] for step in completed_steps]
+    successful_steps = [step for step in completed_steps
+                        if step["result"] == "ok" or step["result"].startswith("ok:")]
+    first_action_succeeded = bool(successful_steps) and completed_steps[0] is successful_steps[0]
 
     first_step_correct = first_step_label in expectation["acceptable_first_steps"]
     if expectation["kind"] == "click" and not first_step_correct:
         # Clicking a dock icon and open_app of that same app are equivalent outcomes.
         expected_labels = {element["label"].lower() for element in fixture["screen_elements"]
                            if element["id"] in expectation["expected_click_ids"] and element["role"] == "dock_icon"}
-        first_step_correct = (first_step_label == "open_app" and completed_steps
+        first_step_correct = (first_step_label == "open_app" and first_action_succeeded
                               and str(completed_steps[0]["args"].get("app", "")).lower() in expected_labels)
 
     arguments_correct = True
     if expectation["kind"] == "click" and first_step_label in ("click", "double_click") and completed_steps:
-        arguments_correct = completed_steps[0]["args"].get("element_id") in expectation["expected_click_ids"]
+        element_id = completed_steps[0]["args"].get("element_id")
+        arguments_correct = (first_action_succeeded and type(element_id) is int
+                             and element_id in expectation["expected_click_ids"])
     for argument_check in expectation["argument_checks"]:
-        arguments_correct = arguments_correct and argument_check_passes(argument_check, completed_steps)
+        arguments_correct = arguments_correct and argument_check_passes(argument_check, successful_steps)
     if expectation["body_required_min_words"]:
         longest_body_word_count = max(
             [len(str(step["args"].get(argument_name, "")).split())
-             for step in completed_steps if step["tool"] in COMPOSE_TOOLS
+             for step in successful_steps if step["tool"] in COMPOSE_TOOLS
              for argument_name in COMPOSE_BODY_ARGUMENT_NAMES] or [0])
         arguments_correct = arguments_correct and longest_body_word_count >= expectation["body_required_min_words"]
 
     no_forbidden_tools = not (set(tools_called) & expectation["forbidden_tools"])
-    enough_actions = len(completed_steps) >= expectation["min_actions"]
+    enough_actions = len(successful_steps) >= expectation["min_actions"]
     # Tool-kind cases should end with an explicit DONE (the loop knew when to stop).
-    terminated_cleanly = terminal_label in CONTROL_LABEL_DESCRIPTIONS
+    terminated_cleanly = (terminal_label == "DONE" if expectation["kind"] == "tool"
+                          else terminal_label in CONTROL_LABEL_DESCRIPTIONS)
     full_pass = (not error_text and first_step_correct and arguments_correct and no_forbidden_tools
                  and enough_actions and terminated_cleanly)
     return {
