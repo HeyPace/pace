@@ -61,7 +61,8 @@ struct PaceRequestFeedbackTests {
         let child = manager.acceptConversationRequest("Reply", origin: .typed, threadRootID: root.id)
         let main = manager.acceptConversationRequest("Main request", origin: .typed)
         for event in [child, main] {
-            manager.chatTurnQueue.enqueue(.init(transcript: event.text, optimisticMessageIdentifier: event.id))
+            manager.chatTurnQueue.enqueue(
+                .init(transcript: event.text, shouldMuteTTS: true, optimisticMessageIdentifier: event.id))
         }
         session.draftMessageText = "Main draft"
         #expect(manager.firstQueuedLocationOutsideCurrentChat == .conversation(root.id))
