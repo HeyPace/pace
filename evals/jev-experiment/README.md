@@ -17,10 +17,14 @@ Both arms share labels, the arg extractor (`qwen/qwen3.5-4b`, Pace's default pla
 ## Setup
 
 - 123 scorable fixtures from `evals/fm-fixtures*` (excluding VLM). Expected first step comes from `EXPECT_ACTION` (tool), `EXPECT_INTENT` clarify/confirm_destructive (ASK_USER), out_of_scope or `EXPECT_CLICK_ID: -1` (RESPOND), `EXPECT_CLICK_ID ≥ 0` (click with that element), `BODY_MUST_NOT_BE_EMPTY` (compose).
-- "Full pass" = right first step + right args + no forbidden tool + min actions + the loop ended on a control label (not the repeat guard or step cap).
+- Scoring contract 2 requires the right first step, valid arguments, no forbidden tool attempts, and enough successful simulated actions. Named-tool cases must end on DONE. Other cases must end on a control label. Reports from the current harness carry `scoring_contract_version: 2`.
 - Jev route: **keyless `classifier.dev`, tier fast (`jev-1.13.0`)**, not the direct `api.typesafe.ai` `jev-latest` API — no `TYPESAFE_API_KEY` was found in any Infisical project. Keyless calls were paced ≥7 s apart (shared free allowance); pacing and retry backoff are excluded from latency.
 
 ## Results
+
+The historical tables and raw reports below used the original scorer. Compare
+them to fresh runs only after rescoring the same traces. Under scoring contract 2,
+an adapter without DONE cannot complete a named-tool fixture.
 
 | | Jev router | Local qwen3.5-4b router |
 |---|---|---|
