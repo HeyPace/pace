@@ -223,7 +223,6 @@ private struct PaceControlHoverHighlight: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .focusable(isEnabled)
             .focused($isKeyboardFocused)
             .overlay {
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)

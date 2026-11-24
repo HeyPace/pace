@@ -110,7 +110,7 @@ struct PacePlannerSettingsTab: View {
         case .directAPI:
             return (
                 "Direct API",
-                "Use your own provider API key, stored in macOS Keychain."
+                "Send planning requests to your provider using an API key stored in macOS Keychain."
             )
         case .appleFoundationModels:
             return (

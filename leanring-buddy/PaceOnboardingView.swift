@@ -807,6 +807,7 @@ struct PaceOnboardingView: View {
         .transaction { transaction in
             if reduceMotion { transaction.disablesAnimations = true }
         }
+        .paceControlHoverHighlight(cornerRadius: DS.Radius.control, isEnabled: isEnabled)
         .pointerCursor(isEnabled: isEnabled)
         .disabled(!isEnabled)
         .opacity(isEnabled ? 1 : 0.45)
@@ -821,6 +822,7 @@ struct PaceOnboardingView: View {
             .transaction { transaction in
                 if reduceMotion { transaction.disablesAnimations = true }
             }
+            .paceControlHoverHighlight(cornerRadius: DS.Radius.control)
             .pointerCursor()
     }
 
