@@ -12,74 +12,79 @@ import Foundation
 import SaaSMakerUI
 import SwiftUI
 
-struct PaceSubsystemUsageStats: Identifiable, Equatable {
+nonisolated struct PaceSubsystemUsageStats: Identifiable, Equatable {
     let id: String
     let subsystem: String
     let target: String
     let callCount: Int
-    let errorPercent: Int
+    let failureCount: Int
     let p50Milliseconds: Int
     let p95Milliseconds: Int
 }
 
 struct PaceUsageAnalyticsView: View {
-    @State private var statsRows: [PaceSubsystemUsageStats] = []
-    @State private var lastRefreshAt: Date?
-    @State private var totalTurnsInWindow: Int = 0
-
-    private let lookbackInHours: Int = 24
+    @State private var snapshot = PaceUsageSnapshot()
+    @State private var refreshSequence = 0
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
-                VStack(alignment: .leading, spacing: 2) {
-                    SMSectionHeader("", accent: "usage", size: 28)
-                    Text("Last \(lookbackInHours)h — \(totalTurnsInWindow) turn(s) tracked")
-                        .font(.system(size: 12))
-                        .foregroundColor(.secondary)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Last 24 hours").font(.headline)
+                    Text("Recorded on this Mac").font(.callout).foregroundStyle(.secondary)
                 }
                 Spacer()
-                Button(action: refresh) {
+                Button {
+                    refreshSequence += 1
+                } label: {
                     Image(systemName: "arrow.clockwise")
+                        .frame(width: 30, height: 30)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .paceControlHoverHighlight(cornerRadius: 6)
                 .pointerCursor()
+                .accessibilityLabel("Refresh usage")
+                .help("Refresh usage")
             }
             .padding(.horizontal, 24)
-            .padding(.top, 24)
+            .padding(.top, 22)
 
-            if statsRows.isEmpty {
-                VStack {
-                    Spacer()
-                    Text("No audit entries yet in the last \(lookbackInHours) hours.")
-                        .foregroundColor(.secondary)
-                        .font(.system(size: 13))
-                    Spacer()
-                }
-                .frame(maxWidth: .infinity)
+            HStack(spacing: 30) {
+                metric("Turns", value: snapshot.turnCount)
+                metric("MCP tools used", value: snapshot.toolCount)
+                metric("Failure records", value: snapshot.failureCount)
+            }
+            .padding(.horizontal, 24)
+            .padding(.vertical, 16)
+
+            if snapshot.rows.isEmpty {
+                ContentUnavailableView(
+                    "No recent activity", systemImage: "clock",
+                    description: Text("Requests and tool activity from the last 24 hours appear here."))
             } else {
-                Table(statsRows) {
-                    TableColumn("subsystem") { row in
+                Table(snapshot.rows) {
+                    TableColumn("Subsystem") { row in
                         Text(row.subsystem)
                     }
                     .width(min: 90, ideal: 110)
-                    TableColumn("target") { row in
-                        Text(row.target).font(DS.Typography.metadata)
+                    TableColumn("Target") { row in
+                        Text(row.target.isEmpty ? "—" : row.target).font(DS.Typography.metadata)
                     }
-                    TableColumn("calls") { row in
+                    TableColumn("Events") { row in
                         Text("\(row.callCount)")
                     }
                     .width(min: 50, ideal: 60)
-                    TableColumn("error %") { row in
-                        Text("\(row.errorPercent)%")
-                            .foregroundColor(row.errorPercent > 0 ? .orange : .secondary)
+                    TableColumn("Failures") { row in
+                        Text("\(row.failureCount)")
+                            .foregroundColor(row.failureCount > 0 ? .orange : .secondary)
                     }
                     .width(min: 60, ideal: 70)
-                    TableColumn("p50 ms") { row in
+                    TableColumn("Median ms") { row in
                         Text("\(row.p50Milliseconds)")
                     }
                     .width(min: 60, ideal: 70)
-                    TableColumn("p95 ms") { row in
+                    TableColumn("P95 ms") { row in
                         Text("\(row.p95Milliseconds)")
                     }
                     .width(min: 60, ideal: 70)
@@ -88,53 +93,72 @@ struct PaceUsageAnalyticsView: View {
                 .padding(.top, 12)
             }
         }
-        .onAppear(perform: refresh)
+        .task(id: refreshSequence) {
+            let result = await Task.detached(priority: .utility) {
+                PaceUsageSnapshot(logData: PaceAPIAuditLog.shared.retainedLogData(), now: Date())
+            }.value
+            if !Task.isCancelled { snapshot = result }
+        }
     }
 
-    private func refresh() {
-        let auditLogURL = FileManager.default
-            .urls(for: .applicationSupportDirectory, in: .userDomainMask)
-            .first?
-            .appendingPathComponent("Pace/api-audit.jsonl")
-        guard let auditLogURL,
-              let auditLogContents = try? String(contentsOf: auditLogURL, encoding: .utf8) else {
-            statsRows = []
-            totalTurnsInWindow = 0
-            return
+    private func metric(_ title: String, value: Int) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(value.formatted()).font(.title2.weight(.semibold)).monospacedDigit()
+            Text(title).font(.callout).foregroundStyle(.secondary)
         }
+        .accessibilityElement(children: .combine)
+    }
+}
 
+nonisolated struct PaceUsageSnapshot {
+    var rows: [PaceSubsystemUsageStats] = []
+    var turnCount = 0
+    var toolCount = 0
+    var failureCount = 0
+
+    init() {}
+
+    init(logData: [Data], now: Date) {
         let isoFormatter = ISO8601DateFormatter()
         isoFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         let isoFormatterNoFractional = ISO8601DateFormatter()
-        let cutoffDate = Date().addingTimeInterval(-Double(lookbackInHours) * 3600)
+        let cutoffDate = now.addingTimeInterval(-24 * 3600)
 
         var statsBucket: [String: [(durationMilliseconds: Int, isError: Bool)]] = [:]
+        var usedMCPTools = Set<String>()
         var seenTurnIds: Set<String> = []
         var keyToHumanLabel: [String: (subsystem: String, target: String)] = [:]
-        for line in auditLogContents.split(separator: "\n") {
-            guard let entryData = line.data(using: .utf8),
-                  let entryDictionary = try? JSONSerialization.jsonObject(with: entryData) as? [String: Any] else {
-                continue
+        for generation in logData {
+            for entryData in generation.split(separator: 0x0A) {
+                guard let entryDictionary = try? JSONSerialization.jsonObject(with: entryData) as? [String: Any] else {
+                    continue
+                }
+                guard let timestampString = entryDictionary["at"] as? String,
+                    let timestampDate = isoFormatter.date(from: timestampString)
+                        ?? isoFormatterNoFractional.date(from: timestampString),
+                    timestampDate >= cutoffDate, timestampDate <= now
+                else {
+                    continue
+                }
+                if let turnId = entryDictionary["turnId"] as? String, !turnId.isEmpty {
+                    seenTurnIds.insert(turnId)
+                }
+                let subsystem = (entryDictionary["subsystem"] as? String) ?? "?"
+                let target = (entryDictionary["target"] as? String) ?? "?"
+                if subsystem == "mcp", entryDictionary["operation"] as? String == "tools/call",
+                    !target.isEmpty, target != "?"
+                {
+                    usedMCPTools.insert(target)
+                }
+                let bucketKey = "\(subsystem)|\(target)"
+                keyToHumanLabel[bucketKey] = (subsystem, target)
+                let durationMilliseconds = (entryDictionary["durationMilliseconds"] as? Int) ?? 0
+                let isError = PaceAPIAuditEntry.isRecordedFailure(entryDictionary["outcome"] as? String ?? "")
+                statsBucket[bucketKey, default: []].append((durationMilliseconds, isError))
             }
-            guard let timestampString = entryDictionary["at"] as? String,
-                  let timestampDate = isoFormatter.date(from: timestampString)
-                    ?? isoFormatterNoFractional.date(from: timestampString),
-                  timestampDate >= cutoffDate else {
-                continue
-            }
-            if let turnId = entryDictionary["turnId"] as? String {
-                seenTurnIds.insert(turnId)
-            }
-            let subsystem = (entryDictionary["subsystem"] as? String) ?? "?"
-            let target = (entryDictionary["target"] as? String) ?? "?"
-            let bucketKey = "\(subsystem)|\(target)"
-            keyToHumanLabel[bucketKey] = (subsystem, target)
-            let durationMilliseconds = (entryDictionary["durationMilliseconds"] as? Int) ?? 0
-            let isError = (entryDictionary["outcome"] as? String) != "ok"
-            statsBucket[bucketKey, default: []].append((durationMilliseconds, isError))
         }
 
-        statsRows = statsBucket.map { bucketKey, samples in
+        rows = statsBucket.map { bucketKey, samples in
             let durations = samples.map(\.durationMilliseconds).sorted()
             let errorCount = samples.filter(\.isError).count
             let label = keyToHumanLabel[bucketKey]!
@@ -143,19 +167,28 @@ struct PaceUsageAnalyticsView: View {
                 subsystem: label.subsystem,
                 target: label.target,
                 callCount: samples.count,
-                errorPercent: Int(Double(errorCount) / Double(samples.count) * 100.0),
-                p50Milliseconds: percentile(durations, fraction: 0.50),
-                p95Milliseconds: percentile(durations, fraction: 0.95)
+                failureCount: errorCount,
+                p50Milliseconds: Self.percentile(durations, fraction: 0.50),
+                p95Milliseconds: Self.percentile(durations, fraction: 0.95)
             )
-        }.sorted { $0.callCount > $1.callCount }
+        }.sorted { first, second in
+            first.callCount == second.callCount ? first.id < second.id : first.callCount > second.callCount
+        }
 
-        totalTurnsInWindow = seenTurnIds.count
-        lastRefreshAt = Date()
+        turnCount = seenTurnIds.count
+        toolCount = usedMCPTools.count
+        failureCount = rows.reduce(0) { $0 + $1.failureCount }
     }
 
-    private func percentile(_ sortedSamples: [Int], fraction: Double) -> Int {
+    private static func percentile(_ sortedSamples: [Int], fraction: Double) -> Int {
         guard !sortedSamples.isEmpty else { return 0 }
-        let bucketIndex = min(sortedSamples.count - 1, Int(Double(sortedSamples.count) * fraction))
+        if fraction == 0.50, sortedSamples.count.isMultiple(of: 2) {
+            let middle = sortedSamples.count / 2
+            let lower = sortedSamples[middle - 1]
+            let upper = sortedSamples[middle]
+            return lower + (upper - lower) / 2
+        }
+        let bucketIndex = Int(ceil(Double(sortedSamples.count) * fraction)) - 1
         return sortedSamples[bucketIndex]
     }
 }

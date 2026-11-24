@@ -741,6 +741,8 @@ nonisolated enum PaceCommandCenterDestination: String, CaseIterable, Identifiabl
     case debug
     case doctor
 
+    static let everydayDestinations: [Self] = [.skills, .mcp, .usage, .activity]
+
     var id: String { rawValue }
 
     var group: PaceCommandCenterGroup {
@@ -760,7 +762,7 @@ nonisolated enum PaceCommandCenterDestination: String, CaseIterable, Identifiabl
     var title: String {
         switch self {
         case .conversations: return "Conversations"
-        case .skills: return "Automations"
+        case .skills: return "Powers & automations"
         case .flows: return "Multi-step automations"
         case .tasks: return "Scheduled tasks"
         case .usage: return "Local usage"

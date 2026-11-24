@@ -41,6 +41,35 @@ struct PaceActivitySettingsTab: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Recent actions")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(DS.Colors.textSecondary)
+
+                if companionManager.recentActionResults.isEmpty {
+                    Text("Actions Pace runs in this session will appear here.")
+                        .font(.system(size: 12))
+                        .foregroundColor(DS.Colors.textTertiary)
+                } else {
+                    ForEach(companionManager.recentActionResults.prefix(8)) { actionResult in
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(actionResult.title)
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundColor(DS.Colors.textPrimary)
+                            Text(actionResult.detail)
+                                .font(.system(size: 11))
+                                .foregroundColor(DS.Colors.textTertiary)
+                                .lineLimit(3)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.vertical, 5)
+                    }
+                }
+            }
+
+            Divider()
+                .background(DS.Colors.borderSubtle)
+
             threadSummarySection
 
             Divider()
@@ -77,35 +106,6 @@ struct PaceActivitySettingsTab: View {
                     }
                 }
             }
-
-            Divider()
-                .background(DS.Colors.borderSubtle)
-
-            VStack(alignment: .leading, spacing: 8) {
-                Text("recent actions")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundColor(DS.Colors.textSecondary)
-
-                if companionManager.recentActionResults.isEmpty {
-                    Text("No approved actions yet.")
-                        .font(.system(size: 12))
-                        .foregroundColor(DS.Colors.textTertiary)
-                } else {
-                    ForEach(companionManager.recentActionResults.prefix(8)) { actionResult in
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text(actionResult.title)
-                                .font(.system(size: 12, weight: .medium))
-                                .foregroundColor(DS.Colors.textPrimary)
-                            Text(actionResult.detail)
-                                .font(.system(size: 11))
-                                .foregroundColor(DS.Colors.textTertiary)
-                                .lineLimit(3)
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.vertical, 5)
-                    }
-                }
-            }
         }
     }
 
@@ -123,7 +123,9 @@ struct PaceActivitySettingsTab: View {
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundColor(DS.Colors.textSecondary)
 
-            Text("Pace keeps the last few turns verbatim and rolls everything older into a one-paragraph summary so it stays coherent across a long conversation. This conversation only — never saved to disk.")
+            Text(
+                "Pace keeps recent turns and a summary of earlier messages on this Mac so you can resume the conversation."
+            )
                 .font(.system(size: 12))
                 .foregroundColor(DS.Colors.textTertiary)
                 .fixedSize(horizontal: false, vertical: true)

@@ -10,11 +10,12 @@ struct PaceEssentialsSettingsView: View {
     @State private var showsAdvancedControls = false
 
     private static let privacyDestinations: [PaceCommandCenterDestination] = [
-        .privacy, .permissions, .memory, .activity, .usage, .conversations,
+        .privacy, .permissions, .memory, .conversations,
     ]
 
     private static let advancedDestinations = PaceCommandCenterDestination.allCases.filter {
-        !privacyDestinations.contains($0) && ![.planner, .voice, .about, .doctor].contains($0)
+        !PaceCommandCenterDestination.everydayDestinations.contains($0) && !privacyDestinations.contains($0)
+            && ![.planner, .voice, .about, .doctor].contains($0)
     }
 
     private enum Appearance {
@@ -33,6 +34,8 @@ struct PaceEssentialsSettingsView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 header
+                destinationGrid(PaceCommandCenterDestination.everydayDestinations)
+                    .padding(.vertical, 10)
                 plannerConnection
                 essentialControls
                 shortcutStrip
@@ -47,7 +50,7 @@ struct PaceEssentialsSettingsView: View {
                     )
                     disclosure(
                         title: "Advanced",
-                        summary: "Tools, automations, models & troubleshooting",
+                        summary: "Models, workflows & troubleshooting",
                         isExpanded: $showsAdvancedControls,
                         destinations: Self.advancedDestinations
                     )
@@ -430,37 +433,45 @@ struct PaceEssentialsSettingsView: View {
             .accessibilityHint(summary)
 
             if isExpanded.wrappedValue {
-                LazyVGrid(
-                    columns: [GridItem(.adaptive(minimum: 205), spacing: 18)],
-                    alignment: .leading,
-                    spacing: 0
-                ) {
-                    ForEach(destinations) { destination in
-                        Button {
-                            onSelectDestination(destination)
-                        } label: {
-                            HStack(spacing: 8) {
-                                Text(destinationTitle(destination))
-                                    .font(.system(size: 12))
-                                    .foregroundStyle(Appearance.secondary)
-                                Spacer(minLength: 0)
-                                Image(systemName: "chevron.right")
-                                    .font(.system(size: 9, weight: .medium))
-                                    .foregroundStyle(Appearance.tertiary)
-                            }
-                            .frame(minHeight: 34)
-                            .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                        .paceControlHoverHighlight(cornerRadius: 5)
-                        .pointerCursor()
-                        .accessibilityHint(destination.subtitle)
-                    }
-                }
-                .padding(.bottom, 12)
+                destinationGrid(destinations)
+                    .padding(.bottom, 12)
             }
         }
         .overlay(alignment: .bottom) { separator }
+    }
+
+    private func destinationGrid(_ destinations: [PaceCommandCenterDestination]) -> some View {
+        LazyVGrid(
+            columns: [GridItem(.adaptive(minimum: 205), spacing: 18)],
+            alignment: .leading,
+            spacing: 0
+        ) {
+            ForEach(destinations) { destination in
+                Button {
+                    onSelectDestination(destination)
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: destination.symbolName)
+                            .frame(width: 17)
+                            .foregroundStyle(Appearance.secondary)
+                        Text(destinationTitle(destination))
+                            .font(.system(size: 12))
+                            .foregroundStyle(Appearance.secondary)
+                        Spacer(minLength: 0)
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 9, weight: .medium))
+                            .foregroundStyle(Appearance.tertiary)
+                    }
+                    .padding(.horizontal, 6)
+                    .frame(minHeight: 36)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .paceControlHoverHighlight(cornerRadius: 5)
+                .pointerCursor()
+                .accessibilityHint(destination.subtitle)
+            }
+        }
     }
 
     private func destinationTitle(_ destination: PaceCommandCenterDestination) -> String {

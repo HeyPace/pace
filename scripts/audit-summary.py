@@ -13,6 +13,7 @@ Usage:
 
 import argparse
 import json
+import math
 import os
 import sys
 from collections import defaultdict
@@ -24,8 +25,24 @@ LOG_PATH = os.path.expanduser("~/Library/Application Support/Pace/api-audit.json
 def percentile(sorted_values, fraction):
     if not sorted_values:
         return 0
-    index = min(len(sorted_values) - 1, int(len(sorted_values) * fraction))
+    if fraction == 0.5 and len(sorted_values) % 2 == 0:
+        middle = len(sorted_values) // 2
+        return (sorted_values[middle - 1] + sorted_values[middle]) // 2
+    index = math.ceil(len(sorted_values) * fraction) - 1
     return sorted_values[index]
+
+
+def is_recorded_failure(outcome):
+    if not isinstance(outcome, str):
+        return False
+    if outcome.startswith("http_") and outcome[5:].isdigit():
+        return not 200 <= int(outcome[5:]) < 300
+    return (
+        outcome in {"error", "failed", "bad_response", "non_http_response", "non_2xx",
+                    "invalid_structured_json", "count_mismatch"}
+        or outcome.endswith(("_error", "_failed"))
+        or outcome.startswith("failed_")
+    )
 
 
 def load_entries(cutoff):
@@ -64,11 +81,11 @@ def render_turn_timeline(entries):
         turn_entries = sorted(by_turn[turn_id], key=lambda e: e.get("at", ""))
         first_at = turn_entries[0].get("at", "")
         total_ms = sum(e.get("durationMilliseconds", 0) for e in turn_entries)
-        any_error = any(e.get("outcome") != "ok" for e in turn_entries)
+        any_error = any(is_recorded_failure(e.get("outcome")) for e in turn_entries)
         marker = "✗" if any_error else "✓"
         print(f"{marker} turn {turn_id[:8]}  start={first_at}  total={total_ms}ms")
         for entry in turn_entries:
-            outcome_marker = "  " if entry.get("outcome") == "ok" else "!!"
+            outcome_marker = "!!" if is_recorded_failure(entry.get("outcome")) else "  "
             target = (entry.get("target") or "")[:36]
             print(f"   {outcome_marker} {entry.get('subsystem'):<10} {entry.get('operation','')[:22]:<22} {target:<36} {entry.get('durationMilliseconds',0):>6}ms  {entry.get('outcome')}")
 
@@ -103,14 +120,14 @@ def main():
     print("-" * len(header))
     for (subsystem, target), group in sorted(groups.items()):
         durations = sorted(e.get("durationMilliseconds", 0) for e in group)
-        errors = sum(1 for e in group if e.get("outcome") != "ok")
+        errors = sum(1 for e in group if is_recorded_failure(e.get("outcome")))
         print(
             f"{subsystem:<12} {target[:42]:<42} {len(group):>5} "
             f"{100 * errors / len(group):>4.0f}% "
             f"{percentile(durations, 0.50):>7} {percentile(durations, 0.95):>7} {durations[-1]:>7}"
         )
 
-    failures = [e for e in entries if e.get("outcome") != "ok"]
+    failures = [e for e in entries if is_recorded_failure(e.get("outcome"))]
     if failures:
         print(f"\nlast {min(5, len(failures))} failure(s):")
         for entry in failures[-5:]:

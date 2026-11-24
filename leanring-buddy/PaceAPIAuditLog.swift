@@ -37,6 +37,19 @@ nonisolated struct PaceAPIAuditEntry: Codable, Equatable {
     /// `usage.output_tokens` / OpenAI `usage.completion_tokens`).
     let outputTokenCount: Int?
 
+    static func isRecordedFailure(_ outcome: String) -> Bool {
+        if outcome.hasPrefix("http_"), let code = Int(outcome.dropFirst(5)) {
+            return !(200..<300).contains(code)
+        }
+        switch outcome {
+        case "error", "failed", "bad_response", "non_http_response", "non_2xx",
+            "invalid_structured_json", "count_mismatch":
+            return true
+        default:
+            return outcome.hasSuffix("_error") || outcome.hasSuffix("_failed") || outcome.hasPrefix("failed_")
+        }
+    }
+
     /// Backwards-compatible decoder: older audit lines on disk don't
     /// carry the token fields. They decode to nil.
     init(
@@ -143,6 +156,13 @@ nonisolated final class PaceAPIAuditLog: @unchecked Sendable {
     /// Synchronously flushes pending writes — for tests.
     func waitForPendingWrites() {
         queue.sync {}
+    }
+
+    /// Capture both generations on the writer queue so rotation cannot split a usage snapshot.
+    func retainedLogData() -> [Data] {
+        queue.sync {
+            [logFileURL.appendingPathExtension("1"), logFileURL].compactMap { try? Data(contentsOf: $0) }
+        }
     }
 
     /// Read-only API used by the Privacy dashboard to surface the

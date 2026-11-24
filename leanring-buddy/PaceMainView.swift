@@ -73,6 +73,21 @@ struct PaceMainView: View {
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(DS.Colors.textPrimary)
             Spacer()
+            Menu {
+                ForEach(PaceCommandCenterDestination.everydayDestinations) { item in
+                    Button {
+                        showDestination(item)
+                    } label: {
+                        Label(item.title, systemImage: item.symbolName)
+                    }
+                }
+            } label: {
+                Label("Go to", systemImage: "list.bullet")
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+            .pointerCursor()
+            .accessibilityLabel("Go to another settings page")
         }
         .padding(.horizontal, 24)
         .frame(minHeight: 46)
@@ -85,7 +100,7 @@ struct PaceMainView: View {
         case .conversations:
             PaceConversationsView(companionManager: companionManager)
         case .skills:
-            PaceSkillsView()
+            PaceSkillsView(onManageConnections: { showDestination(.mcp) })
         case .usage:
             PaceUsageAnalyticsView()
         case .privacy:

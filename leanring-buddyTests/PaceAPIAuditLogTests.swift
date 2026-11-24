@@ -17,6 +17,50 @@ struct PaceAPIAuditLogTests {
         #expect(installedURL.path.hasSuffix("/Pace/api-audit.jsonl"))
     }
 
+    @Test func usageCountsOnlyRecordedFailuresAcrossBothLogGenerations() throws {
+        let logURL = makeTemporaryLogURL()
+        let directory = logURL.deletingLastPathComponent()
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let audit = PaceAPIAuditLog(logFileURL: logURL)
+        _ = audit.beginTurn()
+        for (milliseconds, outcome) in [(1, "ok"), (9, "transport_error")] {
+            audit.record(
+                subsystem: "mcp", operation: "tools/call", target: "browse.status",
+                durationMilliseconds: milliseconds, outcome: outcome, at: now)
+        }
+        audit.waitForPendingWrites()
+        try FileManager.default.moveItem(at: logURL, to: logURL.appendingPathExtension("1"))
+        audit.record(
+            subsystem: "tts", operation: "speak", target: "voice", durationMilliseconds: 0,
+            outcome: "skipped_muted", at: now)
+        audit.record(
+            subsystem: "mcp", operation: "tools/list", target: "browse", durationMilliseconds: 3,
+            outcome: "ok", at: now)
+        audit.record(
+            subsystem: "mcp", operation: "tools/call", target: "old", durationMilliseconds: 0,
+            outcome: "error", at: now.addingTimeInterval(-86_401))
+        let snapshot = PaceUsageSnapshot(logData: audit.retainedLogData(), now: now)
+        #expect(snapshot.turnCount == 1)
+        #expect(snapshot.toolCount == 1)
+        #expect(snapshot.failureCount == 1)
+        #expect(snapshot.rows.count == 3)
+        let browse = try #require(snapshot.rows.first { $0.target == "browse.status" })
+        #expect(browse.callCount == 2)
+        #expect(browse.p50Milliseconds == 5)
+        #expect(browse.p95Milliseconds == 9)
+    }
+
+    @Test func auditOutcomeClassification() {
+        for outcome in ["failed", "decode_error", "fetch_failed", "failed_validation", "http_503", "non_2xx"] {
+            #expect(PaceAPIAuditEntry.isRecordedFailure(outcome))
+        }
+        for outcome in ["loaded", "skipped_muted", "cancelled", "unknown", "http_200"] {
+            #expect(!PaceAPIAuditEntry.isRecordedFailure(outcome))
+        }
+    }
+
     private func makeTemporaryLogURL() -> URL {
         URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("pace-audit-tests-\(UUID().uuidString)", isDirectory: true)

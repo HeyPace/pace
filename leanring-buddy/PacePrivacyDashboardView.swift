@@ -384,7 +384,7 @@ struct PacePrivacyDashboardView: View {
                 .frame(width: 60, alignment: .trailing)
             Text(entry.outcome)
                 .font(.system(size: 11))
-                .foregroundColor(entry.outcome == "ok" ? .secondary : .orange)
+                .foregroundColor(PaceAPIAuditEntry.isRecordedFailure(entry.outcome) ? .orange : .secondary)
                 .frame(width: 60, alignment: .leading)
         }
         .padding(.vertical, 4)

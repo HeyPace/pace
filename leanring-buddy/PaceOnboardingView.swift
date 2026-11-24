@@ -155,12 +155,16 @@ struct PaceOnboardingView: View {
                     Button {
                         navigateBack()
                     } label: {
-                        Label("back", systemImage: "chevron.left")
+                        Label("Back", systemImage: "chevron.left")
+                            .padding(.horizontal, 6)
+                            .frame(minHeight: 30)
+                            .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
                     .font(DS.Typography.captionStrong)
                     .foregroundStyle(DS.Colors.textSecondary)
                     .pointerCursor()
+                    .paceControlHoverHighlight(cornerRadius: 6)
                     .keyboardShortcut("[", modifiers: [.command])
                     .accessibilityHint("Returns to the previous introduction step")
                 }
@@ -169,12 +173,18 @@ struct PaceOnboardingView: View {
                     .font(DS.Typography.metadata)
                     .foregroundStyle(DS.Colors.textTertiary)
 
-                Button("skip introduction") {
+                Button {
                     skipJourney()
+                } label: {
+                    Text("Skip introduction")
+                        .padding(.horizontal, 6)
+                        .frame(minHeight: 30)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(DS.Colors.textSecondary)
                 .pointerCursor()
+                .paceControlHoverHighlight(cornerRadius: 6)
                 .keyboardShortcut(.escape, modifiers: [])
                 .accessibilityHint("Closes the introduction without changing permissions")
             }

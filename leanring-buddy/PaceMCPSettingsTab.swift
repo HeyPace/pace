@@ -39,48 +39,14 @@ struct PaceMCPSettingsTab: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            VStack(alignment: .leading, spacing: 6) {
-                Text("config file")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundColor(DS.Colors.textSecondary)
-                Text(PaceMCPServerRegistry.configurationPaths[0].path)
-                    .font(.system(size: 12, design: .monospaced))
-                    .foregroundColor(DS.Colors.textTertiary)
-                    .textSelection(.enabled)
-            }
-
-            HStack(spacing: 10) {
-                paceSettingsButton("create / open", systemName: "doc.badge.gearshape") {
-                    createMCPConfigIfNeeded()
-                    openPrimaryMCPConfig()
-                    refreshMCPServerNames()
-                }
-                paceSettingsButton("reveal", systemName: "folder") {
-                    createMCPConfigIfNeeded()
-                    NSWorkspace.shared.activateFileViewerSelecting([PaceMCPServerRegistry.configurationPaths[0]])
-                    refreshMCPServerNames()
-                }
-                paceSettingsButton("refresh", systemName: "arrow.clockwise") {
-                    refreshMCPServerNames()
-                }
-            }
-
-            Divider()
-                .background(DS.Colors.borderSubtle)
-
-            mcpCatalogSection
-
-            Divider()
-                .background(DS.Colors.borderSubtle)
-
             VStack(alignment: .leading, spacing: 8) {
-                Text("configured servers")
+                Text("Configured servers (\(configuredMCPServerNames.count))")
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundColor(DS.Colors.textSecondary)
 
                 if configuredMCPServerNames.isEmpty {
                     Text(
-                        "No MCP servers configured yet. Install one from the catalog above, or use Create / Open to seed the file."
+                        "Choose a server below or open the configuration file to connect a custom tool."
                     )
                     .font(.system(size: 12))
                     .foregroundColor(DS.Colors.textTertiary)
@@ -119,6 +85,39 @@ struct PaceMCPSettingsTab: View {
                     }
                 }
             }
+
+            Divider()
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("config file")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(DS.Colors.textSecondary)
+                Text(PaceMCPServerRegistry.configurationPaths[0].path)
+                    .font(.system(size: 12, design: .monospaced))
+                    .foregroundColor(DS.Colors.textTertiary)
+                    .textSelection(.enabled)
+            }
+
+            HStack(spacing: 10) {
+                paceSettingsButton("create / open", systemName: "doc.badge.gearshape") {
+                    createMCPConfigIfNeeded()
+                    openPrimaryMCPConfig()
+                    refreshMCPServerNames()
+                }
+                paceSettingsButton("reveal", systemName: "folder") {
+                    createMCPConfigIfNeeded()
+                    NSWorkspace.shared.activateFileViewerSelecting([PaceMCPServerRegistry.configurationPaths[0]])
+                    refreshMCPServerNames()
+                }
+                paceSettingsButton("refresh", systemName: "arrow.clockwise") {
+                    refreshMCPServerNames()
+                }
+            }
+
+            Divider()
+                .background(DS.Colors.borderSubtle)
+
+            mcpCatalogSection
         }
         .onAppear {
             refreshMCPServerNames()

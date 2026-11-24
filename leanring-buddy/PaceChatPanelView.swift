@@ -116,15 +116,18 @@ struct PaceChatPanelView: View {
             Button(action: {
                 PaceSettingsWindowManager.shared.show(companionManager: companionManager)
             }) {
-                Image(systemName: "gearshape")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundColor(DS.Colors.textTertiary)
-                    .frame(width: 22, height: 22)
-                    .background(Circle().fill(Color.white.opacity(0.08)))
+                Label("Settings", systemImage: "gearshape")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(DS.Colors.textSecondary)
+                    .padding(.horizontal, 7)
+                    .frame(minHeight: 30)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .paceControlHoverHighlight(cornerRadius: 6)
             .pointerCursor()
-            .help("Settings — planner, voice, permissions, memory, activity")
+            .keyboardShortcut(",", modifiers: [.command])
+            .help("Open Pace settings")
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 12)

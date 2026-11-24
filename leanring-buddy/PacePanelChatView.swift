@@ -164,7 +164,8 @@ struct PacePanelChatView: View {
             ) {
                 showsHistory.toggle()
             }
-            iconButton(systemName: "gearshape", help: "Open Pace settings") {
+            iconButton(systemName: "gearshape", help: "Open Pace settings", title: isEmbeddedInNotch ? nil : "Settings")
+            {
                 PaceSettingsWindowManager.shared.show(companionManager: companionManager)
             }
             .keyboardShortcut(",", modifiers: [.command])
@@ -191,13 +192,19 @@ struct PacePanelChatView: View {
     private func iconButton(
         systemName: String,
         help: String,
+        title: String? = nil,
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
-            Image(systemName: systemName)
-                .font(.system(size: 12, weight: .regular))
-                .foregroundColor(DS.Colors.textSecondary)
-                .frame(width: 28, height: 28)
+            HStack(spacing: 5) {
+                Image(systemName: systemName)
+                if let title { Text(title) }
+            }
+            .font(.system(size: 12, weight: .medium))
+            .foregroundStyle(DS.Colors.textSecondary)
+            .padding(.horizontal, title == nil ? 0 : 6)
+            .frame(minWidth: 30, minHeight: 30)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .paceControlHoverHighlight(cornerRadius: 6)

@@ -26,6 +26,8 @@ import SwiftUI
 // MARK: - PaceSkillsView
 
 struct PaceSkillsView: View {
+    var onManageConnections: (() -> Void)? = nil
+    @State private var showsBuiltInPowers = false
     @State private var searchQuery: String = ""
     @State private var configuredMCPServerNames: [String] = []
     @State private var lastCopiedExampleUtteranceSlug: String? = nil
@@ -49,11 +51,10 @@ struct PaceSkillsView: View {
             LazyVStack(alignment: .leading, spacing: 18) {
                 sectionHeader
                 searchField
+                builtInPowersSection
                 yourSkillsSection
+                mcpSkillsSection
                 localSkillsSection
-                if !configuredMCPServerNames.isEmpty {
-                    mcpSkillsSection
-                }
             }
             .padding(24)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -73,7 +74,7 @@ struct PaceSkillsView: View {
 
     private var sectionHeader: some View {
         VStack(alignment: .leading, spacing: 6) {
-            SMSectionHeader("", accent: "automations", size: 28)
+            SMSectionHeader("", accent: "Powers & automations", size: 28)
             Text("Teach Pace a repeatable action in plain language, or browse what it can already run on this Mac.")
                 .font(DS.Typography.body)
                 .foregroundStyle(DS.Colors.textSecondary)
@@ -82,8 +83,49 @@ struct PaceSkillsView: View {
     }
 
     private var searchField: some View {
-        TextField("Search automations…", text: $searchQuery)
+        TextField("Search powers, automations, and tools…", text: $searchQuery)
             .textFieldStyle(.roundedBorder)
+    }
+
+    private var builtInPowersSection: some View {
+        let powers = PacePowerCatalog.preinstalled.powers
+        let query = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        let matching =
+            query.isEmpty
+            ? powers
+            : powers.filter {
+                $0.title.localizedCaseInsensitiveContains(query) || $0.summary.localizedCaseInsensitiveContains(query)
+            }
+        return VStack(alignment: .leading, spacing: 8) {
+            if query.isEmpty {
+                Button {
+                    showsBuiltInPowers.toggle()
+                } label: {
+                    Label(
+                        "Built-in powers (\(powers.count))",
+                        systemImage: showsBuiltInPowers ? "chevron.down" : "chevron.right"
+                    )
+                    .font(.headline)
+                    .padding(.vertical, 5)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .paceControlHoverHighlight(cornerRadius: 5)
+                .pointerCursor()
+                .accessibilityValue(showsBuiltInPowers ? "Expanded" : "Collapsed")
+            } else if !matching.isEmpty {
+                Text("Matching built-in powers (\(matching.count) of \(powers.count))").font(.headline)
+            }
+            if showsBuiltInPowers || !query.isEmpty {
+                ForEach(matching) { power in
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(power.title).font(.callout.weight(.semibold))
+                        Text(power.summary).font(.callout).foregroundStyle(.secondary)
+                    }
+                    .padding(.vertical, 3)
+                }
+            }
+        }
     }
 
     // MARK: - Your skills (taught .skill.md skills)
@@ -479,11 +521,16 @@ struct PaceSkillsView: View {
 
     private var mcpSkillsSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("mcp servers")
-                .font(.system(size: 14, weight: .semibold))
-            Text("Configured at ~/.config/pace/mcp-servers.json. Each server adds external actions through the Model Context Protocol.")
-                .font(.system(size: 12))
-                .foregroundColor(.secondary)
+            HStack {
+                Text("Connected tools (\(configuredMCPServerNames.count))")
+                    .font(.system(size: 14, weight: .semibold))
+                Spacer()
+                if let onManageConnections {
+                    Button("Manage connections", action: onManageConnections)
+                        .buttonStyle(.bordered)
+                        .pointerCursor()
+                }
+            }
 
             VStack(spacing: 0) {
                 ForEach(filteredMCPServerNames(), id: \.self) { serverName in
@@ -491,7 +538,10 @@ struct PaceSkillsView: View {
                     Divider().opacity(0.25)
                 }
                 if filteredMCPServerNames().isEmpty {
-                    Text("No MCP servers match \"\(searchQuery)\".")
+                    Text(
+                        configuredMCPServerNames.isEmpty
+                            ? "No tools configured yet." : "No connected tools match \"\(searchQuery)\"."
+                    )
                         .font(.system(size: 12))
                         .foregroundColor(.secondary)
                         .padding(.vertical, 12)
@@ -505,10 +555,6 @@ struct PaceSkillsView: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text(serverName)
                     .font(.system(size: 13, weight: .medium, design: .monospaced))
-                Text("MCP server registered in ~/.config/pace/mcp-servers.json. Pace calls it via stdio JSON-RPC when the planner emits an mcp tool call targeting this server.")
-                    .font(.system(size: 12))
-                    .foregroundColor(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
             }
             Spacer()
             Text(PaceToolRiskLevel.externalIntegration.displayName.lowercased())
