@@ -23,6 +23,7 @@ nonisolated struct PaceAPIAuditEntry: Codable, Equatable {
     let operation: String
     let target: String
     let durationMilliseconds: Int
+    let durationWasMeasured: Bool?
     let outcome: String
     let inputCharacterCount: Int?
     let outputCharacterCount: Int?
@@ -59,6 +60,7 @@ nonisolated struct PaceAPIAuditEntry: Codable, Equatable {
         operation: String,
         target: String,
         durationMilliseconds: Int,
+        durationWasMeasured: Bool? = nil,
         outcome: String,
         inputCharacterCount: Int? = nil,
         outputCharacterCount: Int? = nil,
@@ -72,6 +74,7 @@ nonisolated struct PaceAPIAuditEntry: Codable, Equatable {
         self.operation = operation
         self.target = target
         self.durationMilliseconds = durationMilliseconds
+        self.durationWasMeasured = durationWasMeasured
         self.outcome = outcome
         self.inputCharacterCount = inputCharacterCount
         self.outputCharacterCount = outputCharacterCount
@@ -126,6 +129,7 @@ nonisolated final class PaceAPIAuditLog: @unchecked Sendable {
         operation: String,
         target: String,
         durationMilliseconds: Int,
+        durationWasMeasured: Bool? = nil,
         outcome: String,
         inputCharacterCount: Int? = nil,
         outputCharacterCount: Int? = nil,
@@ -141,6 +145,7 @@ nonisolated final class PaceAPIAuditLog: @unchecked Sendable {
             operation: operation,
             target: target,
             durationMilliseconds: durationMilliseconds,
+            durationWasMeasured: durationWasMeasured,
             outcome: outcome,
             inputCharacterCount: inputCharacterCount,
             outputCharacterCount: outputCharacterCount,

@@ -2314,6 +2314,7 @@ extension CompanionManager {
                 PaceAPIAuditLog.shared.record(
                     subsystem: "action", operation: "dictate", target: "focused field",
                     durationMilliseconds: Int((ProcessInfo.processInfo.systemUptime - startedAt) * 1000),
+                    durationWasMeasured: true,
                     outcome: result == nil ? "error" : "posted", outputCharacterCount: result?.count)
                 if let typedText = result {
                     self.recordConversationTurn(

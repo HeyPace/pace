@@ -276,7 +276,8 @@ nonisolated struct PaceUsageSnapshot {
                 let recordedDuration = entry["durationMilliseconds"] as? Int
                 // Several legacy producers used zero for lifecycle notifications without a timer.
                 let timedZero =
-                    (subsystem == "action" && Self.actionOwners[operation] != nil)
+                    entry["durationWasMeasured"] as? Bool == true
+                    || (subsystem == "action" && (operation == "mcp_call" || Self.actionOwners[operation] != nil))
                     || (subsystem == "mcp" && operation == "tools/call")
                 let duration = recordedDuration == 0 && !timedZero ? nil : recordedDuration
                 let failed = PaceAPIAuditEntry.isRecordedFailure(outcome)

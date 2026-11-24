@@ -140,6 +140,7 @@ extension CompanionManager {
                 subsystem: "reminders", operation: command.operation,
                 target: "EventKit",
                 durationMilliseconds: Int((ProcessInfo.processInfo.systemUptime - startedAt) * 1000),
+                durationWasMeasured: true,
                 outcome: outcome)
             recordConversationTurn(
                 userTranscript: transcript, assistantResponse: text, recordsAssistantDerivedMemory: false)

@@ -71,11 +71,12 @@ struct PaceAPIAuditLogTests {
             ("action", "mcp_call"), ("mcp", "tools/list"), ("mcp", "tools/call"),
             ("reminders", "permission_prompt"), ("future", "key_press"),
         ] {
-            data.append(try event(subsystem, operation, 20))
+            data.append(try event(subsystem, operation, operation == "mcp_call" ? 0 : 20))
             data.append(10)
         }
         let snapshot = PaceUsageSnapshot(logData: [data], now: now)
         #expect(snapshot.eventCount == 105)
+        #expect(snapshot.rows.first { $0.subsystem == "action" }?.timedCount == 101)
         #expect(snapshot.failureCount == 1)
         #expect(snapshot.powerRows.count == 2)
         let computer = try #require(snapshot.powerRows.first { $0.subsystem == "Computer use" })

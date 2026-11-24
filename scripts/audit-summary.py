@@ -62,8 +62,8 @@ def measured_duration(entry):
         return None
     if duration == 0:
         subsystem, operation = entry.get("subsystem"), entry.get("operation")
-        measured_zero = (subsystem == "mcp" and operation == "tools/call") or (
-            subsystem == "action" and operation in timed_action_operations()
+        measured_zero = entry.get("durationWasMeasured") is True or (subsystem == "mcp" and operation == "tools/call") or (
+            subsystem == "action" and (operation == "mcp_call" or operation in timed_action_operations())
         )
         if not measured_zero:
             return None
