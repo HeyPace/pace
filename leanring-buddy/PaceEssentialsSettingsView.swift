@@ -154,7 +154,6 @@ struct PaceEssentialsSettingsView: View {
             )
             toggleRow(
                 title: "Watch mode",
-                qualifier: "always on",
                 subtitle: watchModeSubtitle,
                 isOn: Binding(
                     get: { companionManager.isWatchModeEnabled },
@@ -311,22 +310,14 @@ struct PaceEssentialsSettingsView: View {
 
     private func settingsRow<Trailing: View>(
         title: String,
-        qualifier: String? = nil,
         subtitle: String,
         showsSeparator: Bool = true,
         @ViewBuilder trailing: () -> Trailing
     ) -> some View {
         HStack(spacing: 20) {
             VStack(alignment: .leading, spacing: 3) {
-                HStack(spacing: 4) {
-                    Text(title)
-                        .font(.system(size: 12, weight: .medium))
-                    if let qualifier {
-                        Text("· \(qualifier)")
-                            .font(.system(size: 10))
-                            .foregroundStyle(Appearance.tertiary)
-                    }
-                }
+                Text(title)
+                    .font(.system(size: 12, weight: .medium))
                 Text(subtitle)
                     .font(.system(size: 11))
                     .foregroundStyle(Appearance.secondary)
@@ -343,7 +334,6 @@ struct PaceEssentialsSettingsView: View {
 
     private func toggleRow(
         title: String,
-        qualifier: String? = nil,
         subtitle: String,
         isOn: Binding<Bool>,
         isEnabled: Bool = true,
@@ -351,7 +341,6 @@ struct PaceEssentialsSettingsView: View {
     ) -> some View {
         settingsRow(
             title: title,
-            qualifier: qualifier,
             subtitle: subtitle,
             showsSeparator: showsSeparator
         ) {
@@ -442,7 +431,7 @@ struct PaceEssentialsSettingsView: View {
 
     private func destinationGrid(_ destinations: [PaceCommandCenterDestination]) -> some View {
         LazyVGrid(
-            columns: [GridItem(.adaptive(minimum: 205), spacing: 18)],
+            columns: [GridItem(.flexible(), spacing: 18), GridItem(.flexible())],
             alignment: .leading,
             spacing: 0
         ) {
@@ -455,8 +444,8 @@ struct PaceEssentialsSettingsView: View {
                             .frame(width: 17)
                             .foregroundStyle(Appearance.secondary)
                         Text(destinationTitle(destination))
-                            .font(.system(size: 12))
-                            .foregroundStyle(Appearance.secondary)
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundStyle(Appearance.primary)
                         Spacer(minLength: 0)
                         Image(systemName: "chevron.right")
                             .font(.system(size: 9, weight: .medium))

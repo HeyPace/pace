@@ -89,6 +89,7 @@ struct PaceUsageAnalyticsView: View {
                     }
                     .width(min: 60, ideal: 70)
                 }
+                .alternatingRowBackgrounds(.disabled)
                 .padding(.horizontal, 16)
                 .padding(.top, 12)
             }
