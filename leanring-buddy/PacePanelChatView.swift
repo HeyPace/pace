@@ -25,7 +25,6 @@ import SwiftUI
 struct PacePanelChatView: View {
     private enum Layout {
         static let messageSpacing: CGFloat = 12
-        static let historyRowInset: CGFloat = 12
     }
 
     @ObservedObject private var appearanceStore = PaceChatAppearanceStore.shared
@@ -36,9 +35,6 @@ struct PacePanelChatView: View {
     @ObservedObject private var imageOverlayController: PaceImageOverlayController
     @ObservedObject private var diagramOverlayController: PaceDiagramOverlayController
 
-    @State private var showsHistory = false
-    @State private var historyQuery = ""
-    @State private var historyResultLimit = 32
     @State private var scrollTarget: String?
     @State private var mainMessageLimit = 32
     @FocusState private var isInputFocused: Bool
@@ -69,16 +65,10 @@ struct PacePanelChatView: View {
                 .padding(.horizontal, appearance.padding())
                 .padding(.vertical, 7)
             turnStage
-            if !showsHistory {
-                PaceThreadLocationBar(session: chatSession, onBack: reveal)
-                    .padding(.horizontal, appearance.padding())
-            }
-            if showsHistory {
-                history
-            } else {
-                transcript
-            }
-            if !showsHistory { inputRow }
+            PaceThreadLocationBar(session: chatSession, onBack: reveal)
+                .padding(.horizontal, appearance.padding())
+            transcript
+            inputRow
         }
         .frame(
             width: isEmbeddedInNotch ? PaceQuickPanelMetrics.width : contentSize?.width ?? appearance.anchoredWidth(),
@@ -102,23 +92,12 @@ struct PacePanelChatView: View {
         .onAppear {
             chatSession.loadHistoryWithoutBlockingInterface()
             isInputFocused = composerFocusRequestID != nil
-            if composerFocusRequestID != nil {
-                showsHistory = false
-            }
         }
         .onChange(of: composerFocusRequestID) { _, composerFocusRequestID in
             isInputFocused = composerFocusRequestID != nil
-            if composerFocusRequestID != nil {
-                showsHistory = false
-            }
         }
         .onChange(of: isInputFocused) { _, isInputFocused in
             if isInputFocused { companionManager.prewarmFastAnswerCredentialsIfNeeded() }
-        }
-        .onChange(of: companionManager.voiceState) { _, voiceState in
-            if voiceState == .listening {
-                showsHistory = false
-            }
         }
     }
 
@@ -139,7 +118,7 @@ struct PacePanelChatView: View {
                     .tracking(0.2)
                     .foregroundStyle(DS.Colors.textPrimary)
             }
-            Text(showsHistory ? "History" : chatSession.activeThreadRootID == nil ? "Main chat" : "Replies")
+            Text(chatSession.activeThreadRootID == nil ? "Main chat" : "Replies")
                 .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(DS.Colors.textSecondary)
             Spacer()
@@ -148,12 +127,6 @@ struct PacePanelChatView: View {
                     .font(.system(size: 10, weight: .medium))
                     .foregroundStyle(DS.Colors.offDeviceSignal)
                     .help(boundaryHelpText)
-            }
-            iconButton(
-                systemName: showsHistory ? "bubble.left" : "clock",
-                help: showsHistory ? "Return to conversation" : "Conversation history"
-            ) {
-                showsHistory.toggle()
             }
             iconButton(systemName: "gearshape", help: "Open Pace settings", title: isEmbeddedInNotch ? nil : "Settings")
             {
@@ -173,7 +146,7 @@ struct PacePanelChatView: View {
     }
 
     private var turnStage: some View {
-        PaceDialogueCurrentStatusView(companionManager: companionManager) { showsHistory = false }
+        PaceDialogueCurrentStatusView(companionManager: companionManager)
             .padding(.horizontal, appearance.padding())
     }
 
@@ -301,66 +274,6 @@ struct PacePanelChatView: View {
     }
 
     private static let streamingAnchorID = "panel-streaming-anchor"
-
-    private var history: some View {
-        let matches = chatSession.filteredMessages(matching: historyQuery).reversed()
-        return VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 6) {
-                Image(systemName: "magnifyingglass").accessibilityHidden(true)
-                TextField("Search messages and replies", text: $historyQuery)
-                    .textFieldStyle(.plain)
-                    .accessibilityLabel("Search messages and replies")
-                if !historyQuery.isEmpty {
-                    iconButton(systemName: "xmark.circle.fill", help: "Clear history search") { historyQuery = "" }
-                }
-            }
-            .padding(.horizontal, 9)
-            .frame(minHeight: 32)
-            .background(DS.Colors.controlFill, in: RoundedRectangle(cornerRadius: DS.Radius.control))
-            .padding(.horizontal, appearance.padding())
-            ScrollView {
-                VStack(alignment: .leading, spacing: 2) {
-                    if matches.isEmpty {
-                        Text(historyQuery.isEmpty ? "No messages yet." : "No messages match this search.")
-                            .foregroundStyle(DS.Colors.textSecondary)
-                            .padding(Layout.historyRowInset)
-                    }
-                    ForEach(matches.prefix(historyResultLimit)) { message in
-                        Button {
-                            chatSession.showLocation(of: message)
-                            reveal(message)
-                            showsHistory = false
-                        } label: {
-                            VStack(alignment: .leading, spacing: 3) {
-                                HStack(spacing: 5) {
-                                    Text(message.role == .user ? "You" : "Pace").fontWeight(.semibold)
-                                    Text(message.threadRootID == nil ? "· Main chat" : "· Thread reply")
-                                    Spacer()
-                                    Text(message.createdAt, style: .date)
-                                }
-                                .font(.caption).foregroundStyle(DS.Colors.textSecondary)
-                                Text(PaceChatTranscriptModel.displayedBodyText(forChatMessage: message))
-                                    .font(appearance.font(size: 13))
-                                    .lineLimit(2).multilineTextAlignment(.leading)
-                            }
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.horizontal, Layout.historyRowInset).padding(.vertical, 7)
-                            .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                        .paceControlHoverHighlight(cornerRadius: DS.Radius.control).pointerCursor()
-                    }
-                    if matches.count > historyResultLimit {
-                        Button("Show more messages") { historyResultLimit += 32 }
-                            .buttonStyle(.borderless).pointerCursor().padding(Layout.historyRowInset)
-                    }
-                }
-                .padding(.horizontal, appearance.padding() - Layout.historyRowInset)
-            }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .onChange(of: historyQuery) { historyResultLimit = 32 }
-    }
 
     private var visibleMessages: [PaceChatMessage] {
         chatSession.activeThreadRootID == nil
@@ -614,7 +527,6 @@ struct PacePanelChatView: View {
     private func submitDraft() {
         let trimmed = chatSession.draftMessageText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
-        showsHistory = false
         chatSession.draftMessageText = ""
         chatSession.submitUserMessage(trimmed)
         isInputFocused = true

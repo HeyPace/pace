@@ -546,7 +546,6 @@ extension CompanionManager {
             shortcutPressOwnsCapture = false
             let chatVisible =
                 NSApp.windows.contains { $0 is PaceConversationPanelWindow && $0.isVisible }
-                || PaceMainWindowManager.shared.isChatKey
             let usesChatLocation = currentDictationTrigger == .microphoneButton || chatVisible
             let voiceThreadRootID = usesChatLocation ? chatSession.activeThreadRootID : nil
             if !usesChatLocation { chatSession.returnToMainChat() }

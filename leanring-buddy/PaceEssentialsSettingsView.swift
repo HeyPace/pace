@@ -10,7 +10,7 @@ struct PaceEssentialsSettingsView: View {
     @State private var showsAdvancedControls = false
 
     private static let privacyDestinations: [PaceCommandCenterDestination] = [
-        .privacy, .permissions, .memory, .conversations,
+        .privacy, .permissions, .memory,
     ]
 
     private static let advancedDestinations = PaceCommandCenterDestination.allCases.filter {
@@ -443,7 +443,6 @@ struct PaceEssentialsSettingsView: View {
     private func destinationTitle(_ destination: PaceCommandCenterDestination) -> String {
         switch destination {
         case .general: return "Workflow settings"
-        case .conversations: return "Conversation history"
         case .planner: return "Reasoner settings"
         case .cloudBridge: return "Off-device model settings"
         default: return destination.title

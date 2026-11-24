@@ -54,10 +54,6 @@ final class PaceMainWindowManager {
     private var window: NSWindow?
     private var router: PaceCommandCenterRouter?
 
-    var isChatKey: Bool {
-        window?.isKeyWindow == true && router?.selectedDestination == .conversations
-    }
-
     private init() {}
 
     func show(
