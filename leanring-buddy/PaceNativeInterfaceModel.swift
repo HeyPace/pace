@@ -762,8 +762,8 @@ nonisolated enum PaceCommandCenterDestination: String, CaseIterable, Identifiabl
     var title: String {
         switch self {
         case .conversations: return "Conversations"
-        case .skills: return "Powers & automations"
-        case .flows: return "Multi-step automations"
+        case .skills: return "Powers"
+        case .flows: return "Recorded workflows"
         case .tasks: return "Scheduled tasks"
         case .usage: return "Local usage"
         case .activity: return "Activity history"
@@ -789,7 +789,7 @@ nonisolated enum PaceCommandCenterDestination: String, CaseIterable, Identifiabl
         switch self {
         case .conversations: return "Review what you and Pace have discussed."
         case .skills: return "Browse and teach reusable actions in plain language."
-        case .flows: return "Build repeatable sequences from several actions."
+        case .flows: return "Replay and manage sequences you recorded on this Mac."
         case .tasks: return "Review work Pace runs on a schedule."
         case .usage: return "See local model and feature usage on this Mac."
         case .activity: return "Inspect actions, outcomes, and approvals in order."

@@ -29,15 +29,15 @@ nonisolated enum PaceAutomationExecutionMode: String, Codable, Equatable, Hashab
     var displayName: String {
         switch self {
         case .deterministicLocal:
-            return "deterministic local"
+            return "Fixed actions"
         case .deterministicProgram:
-            return "deterministic program"
+            return "Programs"
         case .deterministicReplay:
-            return "deterministic replay"
+            return "Recorded workflows"
         case .plannerGrounded:
-            return "uses the local planner"
+            return "Planner-guided workflows"
         case .externalOpaque:
-            return "runs in Shortcuts"
+            return "Apple Shortcuts"
         }
     }
 }

@@ -50,6 +50,97 @@ struct PaceAPIAuditLogTests {
         #expect(browse.callCount == 2)
         #expect(browse.p50Milliseconds == 5)
         #expect(browse.p95Milliseconds == 9)
+        #expect(snapshot.rows.first { $0.subsystem == "tts" }?.timedCount == 0)
+    }
+
+    @Test func usageAttributesOnlyKnownPowerEventsAndMeasuresTailLatency() throws {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let stamp = now.ISO8601Format()
+        func event(_ subsystem: String, _ operation: String, _ duration: Int, outcome: String = "ok") throws -> Data {
+            try JSONSerialization.data(withJSONObject: [
+                "at": stamp, "subsystem": subsystem, "operation": operation, "target": "example",
+                "durationMilliseconds": duration, "outcome": outcome,
+            ])
+        }
+        var data = Data()
+        for duration in 1...100 {
+            data.append(try event("action", "key_press", duration, outcome: duration == 1 ? "failed" : "ok"))
+            data.append(10)
+        }
+        for (subsystem, operation) in [
+            ("action", "mcp_call"), ("mcp", "tools/list"), ("mcp", "tools/call"),
+            ("reminders", "permission_prompt"), ("future", "key_press"),
+        ] {
+            data.append(try event(subsystem, operation, 20))
+            data.append(10)
+        }
+        let snapshot = PaceUsageSnapshot(logData: [data], now: now)
+        #expect(snapshot.eventCount == 105)
+        #expect(snapshot.failureCount == 1)
+        #expect(snapshot.powerRows.count == 2)
+        let computer = try #require(snapshot.powerRows.first { $0.subsystem == "Computer use" })
+        #expect(computer.failureCount == 1)
+        #expect(computer.callCount == 100)
+        #expect(computer.p95Milliseconds == 95)
+        #expect(computer.p99Milliseconds == 99)
+        #expect(snapshot.powerRows.first { $0.subsystem == "Integrations" }?.callCount == 1)
+    }
+
+    @Test func workflowUsagePairsAcrossRotationAndSeparatesDispatchesFromMeasuredRuns() throws {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let url = makeTemporaryLogURL()
+        let journal = PaceSkillRunJournal(logFileURL: url)
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let run = journal.recordStarted(skillSlug: "daily", stepsPlanned: 1, at: now.addingTimeInterval(-0.25))
+        journal.waitForPendingWrites()
+        try FileManager.default.moveItem(at: url, to: url.appendingPathExtension("1"))
+        journal.recordCompleted(runId: run, skillSlug: "daily", stepsPlanned: 1, at: now)
+        journal.recordFailed(runId: "orphan", skillSlug: "daily", stepsPlanned: 1, failureReason: "fixture", at: now)
+        journal.recordStarted(skillSlug: "daily", stepsPlanned: 1, at: now)
+        let records = journal.readAllRecords()
+        #expect(records.count == 4)
+        let rows = PaceWorkflowUsage.aggregate(
+            records + records, dispatches: ["program:daily": 2],
+            cutoff: now.addingTimeInterval(-86400), now: now)
+        let workflow = try #require(rows.first { $0.id == "skill:daily" })
+        #expect(workflow.finished == 2)
+        #expect(workflow.failures == 1)
+        #expect(workflow.unfinished == 1)
+        #expect(workflow.durations == [250])
+        let program = try #require(rows.first { $0.id == "program:daily" })
+        #expect(program.dispatches == 2)
+        #expect(program.finished == 0)
+        #expect(program.durations.isEmpty)
+    }
+
+    @Test func workflowFailureAtTheStepLimitIsJournaledAsFailed() {
+        let url = makeTemporaryLogURL()
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let journal = PaceSkillRunJournal(logFileURL: url)
+        let run = journal.recordStarted(skillSlug: "browse", stepsPlanned: 2)
+        journal.recordFinished(runId: run, skillSlug: "browse", stepsPlanned: 2, failed: true)
+        #expect(journal.readAllRecords().map(\.phase) == ["started", "failed"])
+    }
+
+    @Test func historicalWorkflowTimesKeepUnmeasuredAndOutOfWindowRunsSeparate() {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let cutoff = now.addingTimeInterval(-86400)
+        func record(_ run: String, _ phase: String, _ date: Date) -> PaceSkillRunRecord {
+            PaceSkillRunRecord(
+                at: date, runId: run, skillSlug: "legacy", phase: phase, stepsPlanned: 1,
+                failureReason: nil)
+        }
+        let rows = PaceWorkflowUsage.aggregate(
+            [
+                record("crossing", "started", cutoff.addingTimeInterval(-1)), record("crossing", "completed", cutoff),
+                record("same", "started", now), record("same", "completed", now),
+                record("future", "completed", now.addingTimeInterval(1)),
+                record("old", "started", cutoff.addingTimeInterval(-1)), record("unknown", "cancelled", now),
+            ], dispatches: [:], cutoff: cutoff, now: now)
+        #expect(rows.count == 1)
+        #expect(rows.first?.finished == 2)
+        #expect(rows.first?.durations == [1000])
+        #expect(rows.first?.unfinished == 0)
     }
 
     @Test func auditOutcomeClassification() {

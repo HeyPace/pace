@@ -133,11 +133,14 @@ extension CompanionManager {
         _ command: PaceToDoPower.Command, transcript: String, turnLease: PaceTurnLease, allowsPermissionPrompt: Bool
     ) async {
         guard isActiveTurn(turnLease) else { return }
+        let startedAt = ProcessInfo.processInfo.systemUptime
         func respond(_ text: String, outcome: String, spokenSummary: String? = nil) {
             guard isActiveTurn(turnLease) else { return }
             PaceAPIAuditLog.shared.record(
                 subsystem: "reminders", operation: command.operation,
-                target: "EventKit", durationMilliseconds: 0, outcome: outcome)
+                target: "EventKit",
+                durationMilliseconds: Int((ProcessInfo.processInfo.systemUptime - startedAt) * 1000),
+                outcome: outcome)
             recordConversationTurn(
                 userTranscript: transcript, assistantResponse: text, recordsAssistantDerivedMemory: false)
             handleImmediateLocalModeResponse(

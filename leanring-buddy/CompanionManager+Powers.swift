@@ -249,16 +249,16 @@ extension CompanionManager {
                 }.joined(separator: ", ")
                 let installedNames = installed.prefix(8).map(\.name).joined(separator: ", ")
                 let countSummary =
-                    "\(builtIn.count) built-in powers, \(custom.count) custom \(custom.count == 1 ? "power" : "powers"), \(installed.count) installed \(installed.count == 1 ? "workflow" : "workflows")."
+                    "\(builtIn.count) built-in powers, \(custom.count) saved \(custom.count == 1 ? "power" : "powers"), \(installed.count) installed \(installed.count == 1 ? "workflow" : "workflows")."
                 spokenSummary = countSummary
                 feedback =
                     countSummary + "\nBuilt-in powers: \(builtInNames)."
                     + (custom.isEmpty
-                        ? " No saved custom powers yet."
-                        : " Custom powers: \(customNames)\(custom.count > 8 ? ", and \(custom.count - 8) more" : "").")
+                        ? " No saved powers yet."
+                        : " Saved powers: \(customNames)\(custom.count > 8 ? ", and \(custom.count - 8) more" : "").")
                     + (installed.isEmpty
                         ? ""
-                        : " Other installed workflows: \(installedNames)\(installed.count > 8 ? ", and \(installed.count - 8) more" : "").")
+                        : " Installed workflows: \(installedNames)\(installed.count > 8 ? ", and \(installed.count - 8) more" : "").")
                     + " Say show power followed by an exact name for its steps and controls."
             case .show(let target):
                 let power = try store.resolve(target, catalog: discovered.catalog)

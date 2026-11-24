@@ -26,10 +26,10 @@ struct PaceFlowsSettingsTab: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             VStack(alignment: .leading, spacing: 8) {
-                Text("saved flows")
+                Text("Recorded workflows")
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundColor(DS.Colors.textSecondary)
-                Text("Literal UI sequences you've recorded. Use \"do <name>\" to run one, or say \"list my automations\" for every reusable workflow.")
+                Text("Say \"do <name>\" to replay a workflow or \"list my automations\" to hear the catalog.")
                     .font(.system(size: 12))
                     .foregroundColor(DS.Colors.textTertiary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -43,7 +43,7 @@ struct PaceFlowsSettingsTab: View {
         let savedFlows = companionManager.flowStore.listAll()
         return Group {
             if savedFlows.isEmpty {
-                Text("Record your first flow by saying 'remember this flow as <name>'.")
+                Text("Record your first workflow by saying 'remember this flow as <name>'.")
                     .font(.system(size: 12))
                     .foregroundColor(DS.Colors.textTertiary)
             } else {

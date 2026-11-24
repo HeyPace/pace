@@ -2,7 +2,7 @@
 """Summarizes Pace's local API audit log into a per-subsystem latency table.
 
 Reads ~/Library/Application Support/Pace/api-audit.jsonl (plus its rotated
-.1 generation) and prints count, error rate, and p50/p95/max latency per
+.1 generation) and prints count, error rate, and p50/p95/p99/max latency per
 (subsystem, target). Use it to find which local call is eating the turn
 budget before tuning anything.
 
@@ -18,13 +18,15 @@ import os
 import sys
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
+from functools import lru_cache
+from pathlib import Path
 
 LOG_PATH = os.path.expanduser("~/Library/Application Support/Pace/api-audit.jsonl")
 
 
 def percentile(sorted_values, fraction):
     if not sorted_values:
-        return 0
+        return None
     if fraction == 0.5 and len(sorted_values) % 2 == 0:
         middle = len(sorted_values) // 2
         return (sorted_values[middle - 1] + sorted_values[middle]) // 2
@@ -45,8 +47,32 @@ def is_recorded_failure(outcome):
     )
 
 
+@lru_cache(maxsize=1)
+def timed_action_operations():
+    resource = Path(__file__).resolve().parents[1] / "leanring-buddy/Resources/usage-powers.json"
+    powers = json.loads(resource.read_text())
+    return {operation for power in powers.values() for operation in power["operations"]}
+
+
+def measured_duration(entry):
+    if entry.get("subsystem") == "workflow" and entry.get("operation") == "dispatch":
+        return None
+    duration = entry.get("durationMilliseconds")
+    if type(duration) is not int or duration < 0:
+        return None
+    if duration == 0:
+        subsystem, operation = entry.get("subsystem"), entry.get("operation")
+        measured_zero = (subsystem == "mcp" and operation == "tools/call") or (
+            subsystem == "action" and operation in timed_action_operations()
+        )
+        if not measured_zero:
+            return None
+    return duration
+
+
 def load_entries(cutoff):
     entries = []
+    now = datetime.now(timezone.utc)
     for path in (LOG_PATH + ".1", LOG_PATH):
         if not os.path.exists(path):
             continue
@@ -56,12 +82,14 @@ def load_entries(cutoff):
                     entry = json.loads(line)
                 except json.JSONDecodeError:
                     continue
+                if not isinstance(entry, dict):
+                    continue
                 if cutoff is not None:
                     try:
                         at = datetime.fromisoformat(entry["at"].replace("Z", "+00:00"))
-                    except (KeyError, ValueError):
+                    except (KeyError, ValueError, AttributeError, TypeError):
                         continue
-                    if at < cutoff:
+                    if at.tzinfo is None or at < cutoff or at > now:
                         continue
                 entries.append(entry)
     return entries
@@ -80,14 +108,15 @@ def render_turn_timeline(entries):
     for turn_id in sorted(by_turn, key=lambda t: by_turn[t][0].get("at", "")):
         turn_entries = sorted(by_turn[turn_id], key=lambda e: e.get("at", ""))
         first_at = turn_entries[0].get("at", "")
-        total_ms = sum(e.get("durationMilliseconds", 0) for e in turn_entries)
+        total_ms = sum(duration for entry in turn_entries if (duration := measured_duration(entry)) is not None)
         any_error = any(is_recorded_failure(e.get("outcome")) for e in turn_entries)
         marker = "✗" if any_error else "✓"
         print(f"{marker} turn {turn_id[:8]}  start={first_at}  total={total_ms}ms")
         for entry in turn_entries:
             outcome_marker = "!!" if is_recorded_failure(entry.get("outcome")) else "  "
             target = (entry.get("target") or "")[:36]
-            print(f"   {outcome_marker} {entry.get('subsystem'):<10} {entry.get('operation','')[:22]:<22} {target:<36} {entry.get('durationMilliseconds',0):>6}ms  {entry.get('outcome')}")
+            duration = measured_duration(entry)
+            print(f"   {outcome_marker} {entry.get('subsystem'):<10} {entry.get('operation','')[:22]:<22} {target:<36} {duration if duration is not None else '—':>6}ms  {entry.get('outcome')}")
 
 
 def main():
@@ -114,17 +143,20 @@ def main():
         key = (entry.get("subsystem", "?"), entry.get("target", "?"))
         groups[key].append(entry)
 
-    print(f"{len(entries)} call(s) audited\n")
-    header = f"{'subsystem':<12} {'target':<42} {'calls':>5} {'err%':>5} {'p50ms':>7} {'p95ms':>7} {'maxms':>7}"
+    print(f"{len(entries)} diagnostic event(s)\n")
+    header = f"{'subsystem':<12} {'target':<42} {'events':>6} {'err%':>5} {'p50ms':>7} {'p95ms':>7} {'p99ms':>7} {'maxms':>7}"
     print(header)
     print("-" * len(header))
     for (subsystem, target), group in sorted(groups.items()):
-        durations = sorted(e.get("durationMilliseconds", 0) for e in group)
+        durations = sorted(duration for entry in group if (duration := measured_duration(entry)) is not None)
+        latencies = [percentile(durations, fraction) for fraction in (0.50, 0.95, 0.99)]
+        latencies.append(durations[-1] if durations else None)
+        latency_columns = " ".join(f"{value if value is not None else '—':>7}" for value in latencies)
         errors = sum(1 for e in group if is_recorded_failure(e.get("outcome")))
         print(
-            f"{subsystem:<12} {target[:42]:<42} {len(group):>5} "
-            f"{100 * errors / len(group):>4.0f}% "
-            f"{percentile(durations, 0.50):>7} {percentile(durations, 0.95):>7} {durations[-1]:>7}"
+            f"{subsystem:<12} {target[:42]:<42} {len(group):>6} "
+            f"{100 * errors / len(group):>4.1f}% "
+            f"{latency_columns}"
         )
 
     failures = [e for e in entries if is_recorded_failure(e.get("outcome"))]

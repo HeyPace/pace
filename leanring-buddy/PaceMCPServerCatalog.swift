@@ -127,7 +127,7 @@ nonisolated enum PaceMCPServerCatalog {
             description:
                 "OAuth + 700 SaaS tools (Gmail, Slack, GitHub, Linear, Notion, Calendar, web search). Off-device — routes through Composio's cloud.",
             setupNote:
-                "Set your COMPOSIO_API_KEY in Settings → MCP → Composio Key. First call to each tool opens an OAuth flow in your browser.",
+                "Set your COMPOSIO_API_KEY in Settings → Connected apps & tools → Composio Key. First call to each tool opens an OAuth flow in your browser.",
             setupDocsURL: URL(string: "https://docs.composio.dev/mcp"),
             command: "npx",
             // The empty COMPOSIO_API_KEY sentinel is the marker

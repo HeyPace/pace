@@ -40,13 +40,13 @@ struct PaceMCPSettingsTab: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             VStack(alignment: .leading, spacing: 8) {
-                Text("Configured servers (\(configuredMCPServerNames.count))")
+                Text("Configured connections (\(configuredMCPServerNames.count))")
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundColor(DS.Colors.textSecondary)
 
                 if configuredMCPServerNames.isEmpty {
                     Text(
-                        "Choose a server below or open the configuration file to connect a custom tool."
+                        "Choose an MCP server below or open the configuration file to add a connection."
                     )
                     .font(.system(size: 12))
                     .foregroundColor(DS.Colors.textTertiary)

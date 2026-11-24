@@ -21,15 +21,15 @@ extension PaceAutomationSource {
     var displayName: String {
         switch self {
         case .bundled:
-            return "a built-in automation"
+            return "a bundled workflow"
         case .user:
-            return "a custom automation"
+            return "a saved power"
         case .program:
-            return "a programmed automation"
+            return "a saved program"
         case .recordedFlow:
-            return "a recorded flow"
+            return "a recorded workflow"
         case .skill:
-            return "a skill"
+            return "a step-by-step workflow"
         case .shortcuts:
             return "a Shortcut"
         }
@@ -153,7 +153,7 @@ nonisolated struct PaceAutomationCatalog: Equatable, Sendable {
 
     func spokenListResponse() -> String {
         guard !entries.isEmpty else {
-            return "you don't have any automations yet."
+            return "You have no saved powers or installed workflows yet."
         }
 
         let modeOrder: [PaceAutomationExecutionMode] = [
@@ -181,7 +181,7 @@ nonisolated struct PaceAutomationCatalog: Equatable, Sendable {
             return "\(executionMode.displayName): \(spokenNames)\(remainingSuffix)"
         }
 
-        return "your automations are " + groupedSummaries.joined(separator: "; ") + "."
+        return "Your powers and workflows include " + groupedSummaries.joined(separator: "; ") + "."
     }
 
     static func normalizedName(_ name: String) -> String {

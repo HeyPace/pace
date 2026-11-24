@@ -74,7 +74,7 @@ struct PaceSkillsView: View {
 
     private var sectionHeader: some View {
         VStack(alignment: .leading, spacing: 6) {
-            SMSectionHeader("", accent: "Powers & automations", size: 28)
+            SMSectionHeader("", accent: "Powers", size: 28)
             Text("Teach Pace a repeatable action in plain language, or browse what it can already run on this Mac.")
                 .font(DS.Typography.body)
                 .foregroundStyle(DS.Colors.textSecondary)
@@ -83,7 +83,7 @@ struct PaceSkillsView: View {
     }
 
     private var searchField: some View {
-        TextField("Search powers, automations, and tools…", text: $searchQuery)
+        TextField("Search powers, workflows, actions, and connections…", text: $searchQuery)
             .textFieldStyle(.roundedBorder)
     }
 
@@ -134,14 +134,14 @@ struct PaceSkillsView: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .firstTextBaseline) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("your automations")
+                    Text("Saved powers")
                         .font(.system(size: 14, weight: .semibold))
-                    Text("Repeatable actions you taught Pace. Say a saved trigger phrase to run one.")
+                    Text("Programs and step-by-step workflows you saved as powers.")
                         .font(.system(size: 12))
                         .foregroundColor(.secondary)
                 }
                 Spacer()
-                Button(isTeachFormExpanded ? "cancel" : "teach an automation") {
+                Button(isTeachFormExpanded ? "Cancel" : "Teach a power") {
                     withAnimation { isTeachFormExpanded.toggle() }
                     if !isTeachFormExpanded { clearTeachDraft() }
                 }
@@ -165,9 +165,11 @@ struct PaceSkillsView: View {
                 if filteredUserPrograms().isEmpty
                     && filteredUserSkills().isEmpty
                     && !isTeachFormExpanded {
-                    Text(searchQuery.isEmpty
-                         ? "No taught automations yet. Describe one here or ask Pace to create one."
-                         : "No taught automations match \u{201C}\(searchQuery)\u{201D}.")
+                    Text(
+                        searchQuery.isEmpty
+                            ? "Teach Pace a step-by-step workflow to save it here."
+                            : "No saved programs or step-by-step workflows match \u{201C}\(searchQuery)\u{201D}."
+                    )
                         .font(.system(size: 12))
                         .foregroundColor(.secondary)
                         .padding(.vertical, 12)
@@ -175,7 +177,7 @@ struct PaceSkillsView: View {
             }
 
             if !filteredBundledSkills().isEmpty {
-                Text("built-in automations")
+                Text("Bundled workflows")
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundColor(.secondary)
                     .padding(.top, 6)
@@ -192,7 +194,7 @@ struct PaceSkillsView: View {
     private var teachSkillForm: some View {
         SMCard(padding: 12) {
             VStack(alignment: .leading, spacing: 8) {
-                TextField("Automation name (e.g. Start My Day)", text: $teachDraftName)
+                TextField("Power name (e.g. Start My Day)", text: $teachDraftName)
                     .textFieldStyle(.roundedBorder)
                 TextField("Trigger phrase — optional (e.g. start my day)", text: $teachDraftTrigger)
                     .textFieldStyle(.roundedBorder)
@@ -213,7 +215,7 @@ struct PaceSkillsView: View {
                             .foregroundColor(.secondary)
                     }
                     Spacer()
-                    Button("save automation") { saveTaughtSkillFromForm() }
+                    Button("Save power") { saveTaughtSkillFromForm() }
                         .buttonStyle(.borderedProminent)
                         .pointerCursor()
                         .disabled(
@@ -266,7 +268,7 @@ struct PaceSkillsView: View {
                 }
                 .buttonStyle(.plain)
                 .pointerCursor()
-                .help("Delete this automation")
+                .help("Delete this saved power")
             }
         }
         .padding(.vertical, 10)
@@ -280,7 +282,7 @@ struct PaceSkillsView: View {
                 HStack(spacing: 6) {
                     Text(program.name)
                         .font(.system(size: 13, weight: .medium))
-                    Text("deterministic program")
+                    Text("Program")
                         .font(.system(size: 10, weight: .medium))
                         .padding(.horizontal, 6)
                         .padding(.vertical, 2)
@@ -317,7 +319,7 @@ struct PaceSkillsView: View {
             }
             .buttonStyle(.plain)
             .pointerCursor()
-            .help("Delete this programmed automation")
+            .help("Delete this saved program")
         }
         .padding(.vertical, 10)
     }
@@ -412,9 +414,9 @@ struct PaceSkillsView: View {
 
     private var localSkillsSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("built-in actions")
+            Text("Built-in actions")
                 .font(.system(size: 14, weight: .semibold))
-            Text("On-device. No network. Always available.")
+            Text("Copy an example to try an action in Pace.")
                 .font(.system(size: 12))
                 .foregroundColor(.secondary)
 
@@ -522,7 +524,7 @@ struct PaceSkillsView: View {
     private var mcpSkillsSection: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Text("Connected tools (\(configuredMCPServerNames.count))")
+                Text("Configured connections (\(configuredMCPServerNames.count))")
                     .font(.system(size: 14, weight: .semibold))
                 Spacer()
                 if let onManageConnections {
@@ -540,7 +542,7 @@ struct PaceSkillsView: View {
                 if filteredMCPServerNames().isEmpty {
                     Text(
                         configuredMCPServerNames.isEmpty
-                            ? "No tools configured yet." : "No connected tools match \"\(searchQuery)\"."
+                            ? "No connections configured yet." : "No connections match \"\(searchQuery)\"."
                     )
                         .font(.system(size: 12))
                         .foregroundColor(.secondary)
