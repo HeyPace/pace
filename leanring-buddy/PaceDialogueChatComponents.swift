@@ -4,6 +4,8 @@ import SwiftUI
 struct PaceDialogueMessageView: View {
     let message: PaceChatTranscriptMessageRowModel
     let appearance: PaceChatAppearance
+    var threadActionTitle: String? = nil
+    var onThreadAction: () -> Void = {}
     var canReplay = false
     var onReplay: (PaceSpeechRequest) -> Void = { _ in }
     @State private var showsJapaneseOriginal = false
@@ -34,6 +36,16 @@ struct PaceDialogueMessageView: View {
                         .frame(maxWidth: 360, maxHeight: 260, alignment: .leading)
                         .clipShape(RoundedRectangle(cornerRadius: 10))
                         .accessibilityLabel("Generated image: " + message.bodyText)
+                }
+                if let threadActionTitle {
+                    Button(action: onThreadAction) {
+                        Label(threadActionTitle, systemImage: "arrowshape.turn.up.left")
+                            .font(.caption).foregroundStyle(DS.Colors.textSecondary)
+                            .padding(.horizontal, 3).padding(.vertical, 3)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .paceControlHoverHighlight(cornerRadius: DS.Radius.control).pointerCursor()
                 }
                 if let receipt = message.submissionReceipt {
                     Label(receipt, systemImage: receipt == "Sent" ? "checkmark" : "xmark")
@@ -214,7 +226,9 @@ struct PaceDialogueCurrentStatusView: View {
     private var tracksElapsedTime: Bool { [.listening, .understanding, .acting].contains(signalState) }
 
     var body: some View {
-        if PaceDialogueTranscriptModel.showsCurrentTurnStatus(state: signalState, hasFailure: hasFailure) {
+        if companionManager.isViewingLiveTurn,
+            PaceDialogueTranscriptModel.showsCurrentTurnStatus(state: signalState, hasFailure: hasFailure)
+        {
             if tracksElapsedTime {
                 TimelineView(.periodic(from: .now, by: 1)) { context in status(at: context.date) }
             } else {
@@ -373,5 +387,73 @@ struct PaceChatVoiceControl: View {
         .paceControlHoverHighlight(cornerRadius: DS.Radius.control)
         .pointerCursor()
         .help(help)
+    }
+}
+
+struct PaceThreadLocationBar: View {
+    @ObservedObject var session: PaceChatSession
+    let onBack: (PaceChatMessage) -> Void
+
+    var body: some View {
+        if session.activeThreadRootID != nil {
+            let root = session.activeThreadRoot
+            HStack(spacing: 8) {
+                Button {
+                    if let root { onBack(root) }
+                    session.returnToMainChat()
+                } label: {
+                    Label("Main chat", systemImage: "chevron.left")
+                        .padding(.horizontal, 6).frame(minHeight: 28).contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .paceControlHoverHighlight(cornerRadius: DS.Radius.control)
+                .pointerCursor().help("Return to the original message in main chat")
+                Divider().frame(height: 13)
+                Text("Replying to").fontWeight(.semibold)
+                if let root {
+                    Text(PaceChatTranscriptModel.displayedBodyText(forChatMessage: root))
+                        .lineLimit(1).foregroundStyle(DS.Colors.textSecondary)
+                }
+            }
+            .font(.callout)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.bottom, 5)
+        }
+    }
+}
+
+@MainActor
+extension CompanionManager {
+    var isViewingLiveTurn: Bool {
+        let root =
+            buddyDictationManager.isDictationInProgress || voiceState == .listening
+            ? captureThreadRootID : activeConversationUserEvent?.threadRootID
+        return root == chatSession.activeThreadRootID
+    }
+
+    func activitiesInCurrentChat() -> [PaceChatToolActivityRowModel] {
+        PaceDialogueTranscriptModel.activityRows(fromNewestFirst: recentActionResults).filter { row in
+            guard let turn = row.turnIdentifier else { return chatSession.activeThreadRootID == nil }
+            return chatSession.threadRootID(forTurnID: turn) == chatSession.activeThreadRootID
+        }
+    }
+}
+
+extension PaceChatSession {
+    func threadActionTitle(for message: PaceChatMessage) -> String? {
+        guard activeThreadRootID == nil else { return nil }
+        let count = replyCount(for: message)
+        if count == 0 { return "Reply in thread" }
+        return count == 1 ? "1 reply" : "\(count) replies"
+    }
+}
+
+extension PaceChatMessage {
+    var dialogueScrollID: String {
+        let row = PaceChatTranscriptModel.messageRowModel(fromChatMessage: self)
+        if row.author == .assistant && row.origin == .progress {
+            return "dialogue-activity-" + (row.turnIdentifier ?? "unlinked-message-" + row.id)
+        }
+        return PaceDialogueTranscriptItem.message(row).id
     }
 }

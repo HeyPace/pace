@@ -397,6 +397,7 @@ extension CompanionManager {
         }
 
         self.pendingIntentClarification = nil
+        let clarificationThreadRootID = activeConversationUserEvent?.threadRootID
         cancelActiveTurnTasks()
         ttsClient.stopPlayback()
         ossCommandSpeechClient?.stopPlayback()
@@ -404,7 +405,8 @@ extension CompanionManager {
         clearLastSpokenReplyState()
         responseOverlayManager.finishStreaming()
         currentTurnHUDState = .understanding("using \(option.lowercased())")
-        pendingTypedConversationEventIdentifier = acceptConversationRequest(option, origin: .typed).eventID
+        pendingTypedConversationEventIdentifier =
+            acceptConversationRequest(option, origin: .typed, threadRootID: clarificationThreadRootID).eventID
         sendTranscriptToPlannerWithScreenshot(transcript: clarifiedTranscript)
     }
 
@@ -731,7 +733,8 @@ extension CompanionManager {
                     return
                 }
 
-                let threadSummaryInjectionForTurn = threadMemory.injectionPrefix()
+                let threadSummaryInjectionForTurn =
+                    activeConversationUserEvent?.threadRootID == nil ? threadMemory.injectionPrefix() : nil
                 let ambientContextInjectionForTurn = PaceAmbientContextStore.shared.ambientPromptFragment
                 let selectedSystemPromptForTurn = activeConversationLanguageMode.applying(
                     to: CompanionSystemPrompt.buildTextOnly(
@@ -1464,7 +1467,7 @@ extension CompanionManager {
     func sendTranscriptToPlannerWithScreenshot(
         transcript: String, continuingAcceptedRequest: Bool = false, skillRun: ActiveSkillRun? = nil,
         screenSuggestionContext: PaceScreenSuggestionRequestContext? = nil,
-        allowsPermissionPrompt: Bool = false
+        allowsPermissionPrompt: Bool = false, voiceThreadRootID: String? = nil
     ) {
         let capturedScreenSuggestionContext = continuingAcceptedRequest ? nil : screenSuggestionContext
         cancelActiveTurnTasks(preservingConversationRequest: continuingAcceptedRequest)
@@ -1473,7 +1476,9 @@ extension CompanionManager {
             activeConversationScreenSuggestionContext = nil
             activeConversationPlannerTranscript = transcript
         } else {
-            beginConversationRequest(transcript, screenSuggestionContext: capturedScreenSuggestionContext)
+            beginConversationRequest(
+                transcript, screenSuggestionContext: capturedScreenSuggestionContext,
+                voiceThreadRootID: voiceThreadRootID)
         }
         let screenSuggestionContextForRequest = activeConversationScreenSuggestionContext
         let turnLease = turnLeaseRegistry.beginTurn()
@@ -2489,7 +2494,7 @@ extension CompanionManager {
                         .stringValue(forKey: "EnableActions")?
                         .lowercased() == "true"
                     let threadSummaryInjectionForTurn =
-                        initialInspectionPlan == nil
+                        initialInspectionPlan == nil && activeConversationUserEvent?.threadRootID == nil
                         ? threadMemory.injectionPrefix() : nil
                     // Research turns route through PaceLocalCLIPlannerClient
                     // (claude/codex CLI). The CLI has its own web tools
@@ -3388,6 +3393,7 @@ extension CompanionManager {
                 // on disk honestly reflects "dispatched but not finished".
                 if activeSkillRun?.runId == dispatchedSkillRunID { activeSkillRun = nil }
             } catch {
+                guard isActiveTurn(turnLease) else { return }
                 PaceAnalytics.trackResponseError(error: error.localizedDescription)
                 print("⚠️ Companion response error: \(error)")
                 isCloudBridgeCallActive = false

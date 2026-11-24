@@ -304,6 +304,7 @@ final class CompanionManager: ObservableObject {
     var replayPreservesOriginalConversationHistory = false
     var activeConversationPlannerTranscript: String?
     var activeConversationScreenSuggestionContext: PaceScreenSuggestionRequestContext?
+    var captureThreadRootID: String?
     var pendingTypedConversationEventIdentifier: String?
     var activeConversationVisibleAssistantText = ""
     var activeConversationAssistantEventIdentifier: String?
@@ -683,6 +684,10 @@ final class CompanionManager: ObservableObject {
     /// (smoke tests, debug logs) keep working; the source of truth is
     /// the verbatim window inside `threadMemory`.
     var conversationHistory: [(userTranscript: String, assistantResponse: String)] {
+        if let userEvent = activeConversationUserEvent, let rootID = userEvent.threadRootID {
+            // The current request enters history only after a step has produced output.
+            return chatSession.plannerHistory(forThreadRootID: rootID, excludingTurnID: nil)
+        }
         return threadMemory.verbatimWindow().map { turnPair in
             (userTranscript: turnPair.userText, assistantResponse: turnPair.assistantText)
         }

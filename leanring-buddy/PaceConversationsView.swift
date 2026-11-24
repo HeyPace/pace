@@ -28,6 +28,8 @@ struct PaceConversationsView: View {
     @ObservedObject private var chatSession: PaceChatSession
 
     @State private var searchQuery: String = ""
+    @State private var scrollTarget: String?
+    private var searching: Bool { !searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
     @FocusState private var isInputFocused: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -45,8 +47,12 @@ struct PaceConversationsView: View {
             PaceDialogueCurrentStatusView(companionManager: companionManager)
                 .padding(.horizontal, appearance.padding())
             searchField
+            if !searching {
+                PaceThreadLocationBar(session: chatSession) { scrollTarget = $0.dialogueScrollID }
+                    .padding(.horizontal, appearance.padding(existing: 24))
+            }
             transcriptScrollView
-            chatInputRow
+            if !searching { chatInputRow }
         }
         .background(DS.Colors.surface)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -61,7 +67,7 @@ struct PaceConversationsView: View {
     private var chatHeader: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .firstTextBaseline, spacing: 10) {
-                Text("Conversation history")
+                Text("Main chat")
                     .font(DS.Typography.sectionTitle)
                     .foregroundStyle(DS.Colors.textPrimary)
                     .accessibilityAddTraits(.isHeader)
@@ -153,6 +159,7 @@ struct PaceConversationsView: View {
 
     private var transcriptScrollView: some View {
         ScrollViewReader { scrollViewProxy in
+            let sources = Dictionary(uniqueKeysWithValues: filteredMessages.map { ("message-" + $0.id, $0) })
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 10) {
                     if filteredThreadRows.isEmpty {
@@ -162,7 +169,29 @@ struct PaceConversationsView: View {
                         ForEach(filteredThreadRows) { threadRow in
                             switch threadRow {
                             case .message(let messageRowModel):
-                                messageRow(messageRowModel)
+                                if searching, let source = sources[messageRowModel.id] {
+                                    Button {
+                                        chatSession.showLocation(of: source)
+                                        scrollTarget = source.dialogueScrollID
+                                        searchQuery = ""
+                                    } label: {
+                                        VStack(alignment: .leading, spacing: 4) {
+                                            Text(
+                                                (source.role == .user ? "You" : "Pace")
+                                                    + (source.threadRootID == nil ? " · Main chat" : " · Thread reply")
+                                            )
+                                            .font(.caption).foregroundStyle(DS.Colors.textSecondary)
+                                            Text(messageRowModel.bodyText)
+                                                .lineLimit(3).multilineTextAlignment(.leading)
+                                        }
+                                        .padding(6).frame(maxWidth: .infinity, alignment: .leading).contentShape(
+                                            Rectangle())
+                                    }
+                                    .buttonStyle(.plain).paceControlHoverHighlight(cornerRadius: DS.Radius.control)
+                                    .pointerCursor()
+                                } else {
+                                    messageRow(messageRowModel, source: sources[messageRowModel.id]).id(threadRow.id)
+                                }
                             case .activity(let activity):
                                 PaceDialogueActivityView(activity: activity) {
                                     PaceSettingsWindowManager.shared.show(
@@ -171,20 +200,28 @@ struct PaceConversationsView: View {
                             }
                         }
                     }
-                    streamingAssistantRowIfActive
-                        .id(PaceConversationsView.streamingRowAnchorId)
+                    if !searching, companionManager.isViewingLiveTurn { streamingAssistantRowIfActive }
+                    Color.clear.frame(height: 1).id(Self.streamingRowAnchorId)
                 }
                 .padding(.horizontal, appearance.padding(existing: 24))
                 .padding(.vertical, 16)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .onChange(of: chatSession.messages.count) {
-                scrollToBottom(scrollViewProxy: scrollViewProxy)
+            .task(id: scrollTarget) {
+                guard let scrollTarget else { return }
+                await Task.yield()
+                guard !Task.isCancelled else { return }
+                scrollViewProxy.scrollTo(scrollTarget, anchor: .center)
+                self.scrollTarget = nil
             }
-            .onChange(of: companionManager.recentActionResults.count) {
+            .onChange(of: chatSession.visibleMessages.last?.id) {
+                if scrollTarget == nil, !searching { scrollToBottom(scrollViewProxy: scrollViewProxy) }
+            }
+            .onChange(of: filteredThreadRows.last?.id) {
                 scrollToBottom(scrollViewProxy: scrollViewProxy)
             }
             .onChange(of: companionManager.streamingSentenceTTSPipeline.inFlightStreamedText) {
+                guard companionManager.isViewingLiveTurn else { return }
                 scrollToBottom(scrollViewProxy: scrollViewProxy)
             }
             .onAppear {
@@ -196,8 +233,11 @@ struct PaceConversationsView: View {
     private static let streamingRowAnchorId = "streaming-assistant-row-anchor"
 
     private func scrollToBottom(scrollViewProxy: ScrollViewProxy, animated: Bool = true) {
+        guard !searching, scrollTarget == nil else { return }
         let targetId: String = {
-            if companionManager.streamingSentenceTTSPipeline.inFlightStreamedText.isEmpty == false {
+            if companionManager.isViewingLiveTurn
+                && !companionManager.streamingSentenceTTSPipeline.inFlightStreamedText.isEmpty
+            {
                 return PaceConversationsView.streamingRowAnchorId
             }
             return filteredThreadRows.last?.id
@@ -231,21 +271,25 @@ struct PaceConversationsView: View {
     }
 
     private var filteredMessages: [PaceChatMessage] {
-        chatSession.filteredMessages(matching: searchQuery)
+        searching ? chatSession.filteredMessages(matching: searchQuery) : chatSession.visibleMessages
     }
 
     private var filteredThreadRows: [PaceDialogueTranscriptItem] {
-        let normalizedSearchQuery =
-            searchQuery
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-        let actionRowModels = PaceDialogueTranscriptModel.activityRows(
-            fromNewestFirst: companionManager.recentActionResults
-        ).filter { actionRowModel in
-            normalizedSearchQuery.isEmpty
-                || actionRowModel.toolDisplayName.lowercased().contains(normalizedSearchQuery)
-                || actionRowModel.resultSummaryLine.lowercased().contains(normalizedSearchQuery)
+        if searching {
+            let query = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+            let matchingTools = PaceDialogueTranscriptModel.activityRows(
+                fromNewestFirst: companionManager.recentActionResults
+            ).filter {
+                $0.toolDisplayName.localizedCaseInsensitiveContains(query)
+                    || $0.resultSummaryLine.localizedCaseInsensitiveContains(query)
+            }
+            let messageMatches = filteredMessages.map {
+                PaceDialogueTranscriptItem.message(PaceChatTranscriptModel.messageRowModel(fromChatMessage: $0))
+            }
+            let activityMatches = PaceDialogueTranscriptModel.items(messages: [], activities: matchingTools)
+            return (messageMatches + activityMatches).sorted { $0.occurredAt < $1.occurredAt }
         }
+        let actionRowModels = companionManager.activitiesInCurrentChat()
         return PaceDialogueTranscriptModel.items(
             messages: PaceChatTranscriptModel.messageRowModels(
                 fromChatMessages: filteredMessages
@@ -254,9 +298,14 @@ struct PaceConversationsView: View {
         )
     }
 
-    private func messageRow(_ message: PaceChatTranscriptMessageRowModel) -> some View {
+    private func messageRow(_ message: PaceChatTranscriptMessageRowModel, source: PaceChatMessage?) -> some View {
         PaceDialogueMessageView(
             message: message, appearance: appearance,
+            threadActionTitle: source.flatMap { chatSession.threadActionTitle(for: $0) },
+            onThreadAction: {
+                guard let source else { return }
+                chatSession.openThread(for: source)
+            },
             canReplay: companionManager.canReplayChatSpeech,
             onReplay: companionManager.replayChatSpeech)
     }
@@ -279,7 +328,7 @@ struct PaceConversationsView: View {
     private var chatInputRow: some View {
         HStack(alignment: .bottom, spacing: 10) {
             TextField(
-                "Message Pace…",
+                chatSession.activeThreadRootID == nil ? "Message Pace…" : "Reply in thread…",
                 text: $chatSession.draftMessageText,
                 axis: .vertical
             )

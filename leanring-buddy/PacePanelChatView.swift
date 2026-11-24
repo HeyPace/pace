@@ -37,7 +37,10 @@ struct PacePanelChatView: View {
     @ObservedObject private var diagramOverlayController: PaceDiagramOverlayController
 
     @State private var showsHistory = false
-    @State private var selectedQuestionIdentifier: String?
+    @State private var historyQuery = ""
+    @State private var historyResultLimit = 32
+    @State private var scrollTarget: String?
+    @State private var mainMessageLimit = 32
     @FocusState private var isInputFocused: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private let contentSize: CGSize?
@@ -66,12 +69,16 @@ struct PacePanelChatView: View {
                 .padding(.horizontal, appearance.padding())
                 .padding(.vertical, 7)
             turnStage
+            if !showsHistory {
+                PaceThreadLocationBar(session: chatSession, onBack: reveal)
+                    .padding(.horizontal, appearance.padding())
+            }
             if showsHistory {
                 history
             } else {
                 transcript
             }
-            inputRow
+            if !showsHistory { inputRow }
         }
         .frame(
             width: isEmbeddedInNotch ? PaceQuickPanelMetrics.width : contentSize?.width ?? appearance.anchoredWidth(),
@@ -97,14 +104,12 @@ struct PacePanelChatView: View {
             isInputFocused = composerFocusRequestID != nil
             if composerFocusRequestID != nil {
                 showsHistory = false
-                selectedQuestionIdentifier = nil
             }
         }
         .onChange(of: composerFocusRequestID) { _, composerFocusRequestID in
             isInputFocused = composerFocusRequestID != nil
             if composerFocusRequestID != nil {
                 showsHistory = false
-                selectedQuestionIdentifier = nil
             }
         }
         .onChange(of: isInputFocused) { _, isInputFocused in
@@ -112,7 +117,6 @@ struct PacePanelChatView: View {
         }
         .onChange(of: companionManager.voiceState) { _, voiceState in
             if voiceState == .listening {
-                selectedQuestionIdentifier = nil
                 showsHistory = false
             }
         }
@@ -135,15 +139,10 @@ struct PacePanelChatView: View {
                     .tracking(0.2)
                     .foregroundStyle(DS.Colors.textPrimary)
             }
-            Text(showsHistory ? "History" : isEmbeddedInNotch ? "Conversation" : "Quick chat")
+            Text(showsHistory ? "History" : chatSession.activeThreadRootID == nil ? "Main chat" : "Replies")
                 .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(DS.Colors.textSecondary)
             Spacer()
-            if selectedQuestionIdentifier != nil && !showsHistory {
-                iconButton(systemName: "arrow.uturn.backward", help: "Return to latest conversation") {
-                    selectedQuestionIdentifier = nil
-                }
-            }
             if companionManager.isOffDeviceTurnInFlight {
                 Text("\(plannerLabel) ↗")
                     .font(.system(size: 10, weight: .medium))
@@ -206,6 +205,7 @@ struct PacePanelChatView: View {
 
     private var transcript: some View {
         ScrollViewReader { scrollProxy in
+            let sources = Dictionary(uniqueKeysWithValues: visibleMessages.map { ("message-" + $0.id, $0) })
             ScrollView {
                 // The panel transcript is deliberately bounded by PaceChatSession.
                 // A regular stack keeps the accessibility tree stable while a
@@ -214,19 +214,10 @@ struct PacePanelChatView: View {
                 // changing ForEach from a non-main update group and trap.
                 VStack(alignment: .leading, spacing: 0) {
                     VStack(alignment: .leading, spacing: Layout.messageSpacing) {
-                        if selectedQuestionIdentifier == nil,
-                            chatSession.userFacingMessages.filter({ $0.role == .user }).count > 1
-                        {
-                            Button {
-                                showsHistory = true
-                            } label: {
-                                Label("Earlier in this conversation", systemImage: "chevron.right")
-                                    .font(.system(size: 10))
-                                    .foregroundStyle(DS.Colors.textTertiary)
-                            }
-                            .buttonStyle(.plain)
-                            .paceControlHoverHighlight(cornerRadius: 4)
-                            .pointerCursor()
+                        if chatSession.activeThreadRootID == nil, chatSession.visibleMessages.count > mainMessageLimit {
+                            Button("Show earlier messages") { mainMessageLimit += 32 }
+                                .buttonStyle(.plain).font(.callout)
+                                .paceControlHoverHighlight(cornerRadius: DS.Radius.control).pointerCursor()
                         }
                         if visibleMessages.isEmpty && liveSpeechDraft.isEmpty && inFlightStreamedText.isEmpty {
                             emptyState.padding(.top, 24)
@@ -234,7 +225,7 @@ struct PacePanelChatView: View {
                             ForEach(threadItems) { item in
                                 switch item {
                                 case .message(let message):
-                                    messageRow(message).id(item.id)
+                                    messageRow(message, source: sources[message.id]).id(item.id)
                                 case .activity(let activity):
                                     PaceDialogueActivityView(activity: activity) {
                                         PaceSettingsWindowManager.shared.show(
@@ -244,12 +235,12 @@ struct PacePanelChatView: View {
                                 }
                             }
                         }
-                        if selectedQuestionIdentifier == nil, let imageStatus = imageOverlayController.statusText {
+                        if companionManager.isViewingLiveTurn, let imageStatus = imageOverlayController.statusText {
                             artifactLink(title: imageStatus, systemName: "photo", actionLabel: "Open image") {
                                 imageOverlayController.show()
                             }
                         }
-                        if selectedQuestionIdentifier == nil, let document = diagramOverlayController.document {
+                        if companionManager.isViewingLiveTurn, let document = diagramOverlayController.document {
                             artifactLink(
                                 title: document.title,
                                 systemName: document.figure == nil ? "point.3.connected.trianglepath.dotted" : "cube",
@@ -258,7 +249,7 @@ struct PacePanelChatView: View {
                                 NotificationCenter.default.post(name: .paceDismissPanel, object: nil)
                             }
                         }
-                        if selectedQuestionIdentifier == nil {
+                        if companionManager.isViewingLiveTurn {
                             liveUserBubbleRow
                             streamingReplyRow
                         }
@@ -280,75 +271,114 @@ struct PacePanelChatView: View {
                 .allowsHitTesting(false)
                 .accessibilityHidden(true)
             }
-            .onChange(of: chatSession.messages.count) {
-                scrollToBottom(scrollProxy)
+            .task(id: scrollTarget) {
+                guard let scrollTarget else { return }
+                await Task.yield()
+                guard !Task.isCancelled else { return }
+                scrollProxy.scrollTo(scrollTarget, anchor: .center)
+                self.scrollTarget = nil
+            }
+            .onChange(of: visibleMessages.last?.id) {
+                if scrollTarget == nil { scrollToBottom(scrollProxy) }
             }
             .onChange(of: composerFocusRequestID) { _, composerFocusRequestID in
                 guard composerFocusRequestID != nil else { return }
                 scrollToBottom(scrollProxy, animated: false)
             }
             .onChange(of: inFlightStreamedText) {
+                guard companionManager.isViewingLiveTurn else { return }
                 scrollToBottom(scrollProxy, animated: false)
             }
             .onChange(of: liveSpeechDraft) {
+                guard companionManager.isViewingLiveTurn else { return }
                 scrollToBottom(scrollProxy, animated: false)
             }
-            .onChange(of: companionManager.recentActionResults.count) {
+            .onChange(of: threadItems.last?.id) {
                 scrollToBottom(scrollProxy, animated: false)
             }
-            .onAppear { scrollToBottom(scrollProxy, animated: false) }
+            .onAppear { if scrollTarget == nil { scrollToBottom(scrollProxy, animated: false) } }
         }
     }
 
     private static let streamingAnchorID = "panel-streaming-anchor"
 
     private var history: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 0) {
-                if chatSession.userFacingMessages.filter({ $0.role == .user }).isEmpty {
-                    Text("Your conversations will appear here.")
-                        .font(appearance.font(size: 14))
-                        .foregroundStyle(DS.Colors.textSecondary)
-                        .padding(.vertical, 24)
-                }
-                ForEach(chatSession.userFacingMessages.filter { $0.role == .user }.reversed()) { message in
-                    Button {
-                        selectedQuestionIdentifier = message.id
-                        showsHistory = false
-                    } label: {
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text(message.body)
-                                .font(appearance.font(size: 14, weight: .medium))
-                                .foregroundStyle(DS.Colors.textPrimary)
-                                .lineLimit(2)
-                                .multilineTextAlignment(.leading)
-                            Text(message.createdAt, style: .date)
-                                .font(.system(size: 10))
-                                .foregroundStyle(DS.Colors.textTertiary)
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(Layout.historyRowInset)
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .paceControlHoverHighlight(cornerRadius: 7)
-                    .pointerCursor()
-                    Divider().overlay(DS.Colors.borderSubtle).padding(.horizontal, Layout.historyRowInset)
+        let matches = chatSession.filteredMessages(matching: historyQuery).reversed()
+        return VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
+                Image(systemName: "magnifyingglass").accessibilityHidden(true)
+                TextField("Search messages and replies", text: $historyQuery)
+                    .textFieldStyle(.plain)
+                    .accessibilityLabel("Search messages and replies")
+                if !historyQuery.isEmpty {
+                    iconButton(systemName: "xmark.circle.fill", help: "Clear history search") { historyQuery = "" }
                 }
             }
-            .padding(.horizontal, appearance.padding() - Layout.historyRowInset)
-            .padding(.vertical, Layout.historyRowInset)
+            .padding(.horizontal, 9)
+            .frame(minHeight: 32)
+            .background(DS.Colors.controlFill, in: RoundedRectangle(cornerRadius: DS.Radius.control))
+            .padding(.horizontal, appearance.padding())
+            ScrollView {
+                VStack(alignment: .leading, spacing: 2) {
+                    if matches.isEmpty {
+                        Text(historyQuery.isEmpty ? "No messages yet." : "No messages match this search.")
+                            .foregroundStyle(DS.Colors.textSecondary)
+                            .padding(Layout.historyRowInset)
+                    }
+                    ForEach(matches.prefix(historyResultLimit)) { message in
+                        Button {
+                            chatSession.showLocation(of: message)
+                            reveal(message)
+                            showsHistory = false
+                        } label: {
+                            VStack(alignment: .leading, spacing: 3) {
+                                HStack(spacing: 5) {
+                                    Text(message.role == .user ? "You" : "Pace").fontWeight(.semibold)
+                                    Text(message.threadRootID == nil ? "· Main chat" : "· Thread reply")
+                                    Spacer()
+                                    Text(message.createdAt, style: .date)
+                                }
+                                .font(.caption).foregroundStyle(DS.Colors.textSecondary)
+                                Text(PaceChatTranscriptModel.displayedBodyText(forChatMessage: message))
+                                    .font(appearance.font(size: 13))
+                                    .lineLimit(2).multilineTextAlignment(.leading)
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal, Layout.historyRowInset).padding(.vertical, 7)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .paceControlHoverHighlight(cornerRadius: DS.Radius.control).pointerCursor()
+                    }
+                    if matches.count > historyResultLimit {
+                        Button("Show more messages") { historyResultLimit += 32 }
+                            .buttonStyle(.borderless).pointerCursor().padding(Layout.historyRowInset)
+                    }
+                }
+                .padding(.horizontal, appearance.padding() - Layout.historyRowInset)
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .onChange(of: historyQuery) { historyResultLimit = 32 }
     }
 
     private var visibleMessages: [PaceChatMessage] {
-        PaceChatTranscriptModel.quickPanelMessages(
-            chatSession.userFacingMessages, selectedQuestionIdentifier: selectedQuestionIdentifier,
-            recentQuestionCount: 1)
+        chatSession.activeThreadRootID == nil
+            ? Array(chatSession.visibleMessages.suffix(mainMessageLimit)) : chatSession.visibleMessages
+    }
+
+    private func reveal(_ message: PaceChatMessage) {
+        if message.threadRootID == nil {
+            let main = chatSession.userFacingMessages.filter { $0.threadRootID == nil }
+            if let index = main.firstIndex(where: { $0.id == message.id }) {
+                mainMessageLimit = max(mainMessageLimit, main.count - index)
+            }
+        }
+        scrollTarget = message.dialogueScrollID
     }
 
     private func scrollToBottom(_ scrollProxy: ScrollViewProxy, animated: Bool = true) {
+        guard scrollTarget == nil else { return }
         // The streaming anchor row is always present at the very bottom
         // (Color.clear when idle), so it's a stable scroll target across
         // messages, tool chips, the live bubble, and the streamed reply.
@@ -432,27 +462,21 @@ struct PacePanelChatView: View {
 
     private var threadItems: [PaceDialogueTranscriptItem] {
         let messages = PaceChatTranscriptModel.messageRowModels(fromChatMessages: visibleMessages)
-        let activityRows = PaceDialogueTranscriptModel.activityRows(
-            fromNewestFirst: companionManager.recentActionResults)
-        let windowEnd: Date?
-        if let selectedQuestionIdentifier,
-            let selectedIndex = chatSession.userFacingMessages.firstIndex(where: { $0.id == selectedQuestionIdentifier }
-            )
-        {
-            windowEnd =
-                chatSession.userFacingMessages.dropFirst(selectedIndex + 1).first { $0.role == .user }?.createdAt
-        } else {
-            windowEnd = nil
-        }
+        let activities = companionManager.activitiesInCurrentChat()
         return PaceDialogueTranscriptModel.items(
             messages: messages,
             activities:
-                PaceDialogueTranscriptModel.visibleActivities(activityRows, messages: messages, windowEnd: windowEnd))
+                PaceDialogueTranscriptModel.visibleActivities(activities, messages: messages))
     }
 
-    private func messageRow(_ message: PaceChatTranscriptMessageRowModel) -> some View {
+    private func messageRow(_ message: PaceChatTranscriptMessageRowModel, source: PaceChatMessage?) -> some View {
         PaceDialogueMessageView(
             message: message, appearance: appearance,
+            threadActionTitle: source.flatMap { chatSession.threadActionTitle(for: $0) },
+            onThreadAction: {
+                guard let source else { return }
+                chatSession.openThread(for: source)
+            },
             canReplay: companionManager.canReplayChatSpeech,
             onReplay: companionManager.replayChatSpeech)
     }
@@ -494,14 +518,17 @@ struct PacePanelChatView: View {
     private var inputRow: some View {
         VStack(spacing: 10) {
             HStack(alignment: .bottom, spacing: 8) {
-                TextField("Message Pace…", text: $chatSession.draftMessageText, axis: .vertical)
+                TextField(
+                    chatSession.activeThreadRootID == nil ? "Message Pace…" : "Reply in thread…",
+                    text: $chatSession.draftMessageText, axis: .vertical
+                )
                     .textFieldStyle(.plain)
                     .font(appearance.font(size: 14))
                     .foregroundStyle(DS.Colors.textPrimary)
                     .lineLimit(1...4)
                     .focused($isInputFocused)
                     .onSubmit(submitDraft)
-                    .accessibilityLabel("Message Pace")
+                .accessibilityLabel(chatSession.activeThreadRootID == nil ? "Message Pace" : "Reply in thread")
                     .padding(.vertical, 5)
                 if companionManager.voiceState != .idle {
                     Button {
@@ -585,7 +612,6 @@ struct PacePanelChatView: View {
     private func submitDraft() {
         let trimmed = chatSession.draftMessageText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
-        selectedQuestionIdentifier = nil
         showsHistory = false
         chatSession.draftMessageText = ""
         chatSession.submitUserMessage(trimmed)

@@ -57,6 +57,7 @@ final class PaceMemoryRetriever {
     func assembleContextBlock(
         forQuery query: String,
         excludingEntryIds: Set<String>,
+        includesConversationHistory: Bool = true,
         maxEntries: Int,
         now: Date
     ) async -> String? {
@@ -92,6 +93,7 @@ final class PaceMemoryRetriever {
 
         return filteredContextBlock(
             fromRankedEntries: rankedEntries.compactMap { entry in
+                if !includesConversationHistory && entry.source == .paceHistory { return nil }
                 guard entry.source == .screenWatchHistory else { return entry }
                 guard screenHistoryAccessGenerationAtStart == screenWatchHistoryAccessGeneration(),
                     let currentEntry = memoryIndex.entry(id: entry.id), currentEntry.isActive,

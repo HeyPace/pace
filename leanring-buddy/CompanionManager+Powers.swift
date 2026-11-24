@@ -118,7 +118,8 @@ extension CompanionManager {
                             turnIdentifier: self.activeConversationUserEvent?.eventID, plannerContext: userContext,
                             speechRequest: request)
                         self.hasRecordedCurrentTurnSpeechUserContext = true
-                        if self.recordsDerivedConversationMemory {
+                        if self.recordsDerivedConversationMemory, self.activeConversationUserEvent?.threadRootID == nil
+                        {
                             self.recordUnifiedMemoryTurn(
                                 userTranscript: userContext, assistantResponse: displayedText,
                                 turnId: eventIdentifier, recordedAt: Date())

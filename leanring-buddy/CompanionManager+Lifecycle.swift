@@ -115,15 +115,17 @@ extension CompanionManager {
         revealRequestFeedback()
         let acceptedEvent = acceptConversationRequest(
             transcript, origin: .typed,
-            eventIdentifier: optimisticMessageIdentifier ?? UUID().uuidString)
+            eventIdentifier: optimisticMessageIdentifier ?? UUID().uuidString,
+            threadRootID: optimisticMessageIdentifier.flatMap { chatSession.threadRootID(forTurnID: $0) })
         let queuedTurn = PaceQueuedChatTurn(
             transcript: transcript,
             shouldMuteTTS: shouldMuteTTS,
             allowsPermissionPrompt: allowsPermissionPrompt,
             optimisticMessageIdentifier: acceptedEvent.eventID,
             screenSuggestionContext: screenSuggestionContext
-                ?? screenSuggestionCoordinator.followUpSuggestion(for: transcript).map(
-                    PaceScreenSuggestionRequestContext.followUp)
+                ?? (acceptedEvent.threadRootID == nil
+                    ? screenSuggestionCoordinator.followUpSuggestion(for: transcript).map(
+                        PaceScreenSuggestionRequestContext.followUp) : nil)
         )
 
         // A permission prompt can suspend meeting startup. Its stop command
@@ -259,6 +261,7 @@ extension CompanionManager {
     func bindVisualExplanationCallbacks() {
         var diagramPresentationTurnLease: PaceTurnLease?
         var diagramRequestIdentifiers: Set<String> = []
+        var imageGenerationTurnID: String?
         var imageGenerationTurnLease: PaceTurnLease?
         annotationOverlayController.onActiveAnnotationsPresenceChanged = { [weak self] annotationsArePresent in
             guard let self else { return }
@@ -297,6 +300,7 @@ extension CompanionManager {
             return self.canGenerateImagesWithCodex
         }
         imageOverlayController.onWillGenerate = { [weak self] in
+            imageGenerationTurnID = self?.activeConversationUserEvent?.eventID
             imageGenerationTurnLease = self?.turnLeaseRegistry.currentLease
             self?.diagramOverlayController.hideForImageReplacement()
         }
@@ -307,7 +311,7 @@ extension CompanionManager {
                 try PaceGeneratedImageStore.saveChatPreview(previewData, identifier: artifact.id)
                 self.recordAssistantNarration(
                     artifact.request.title, eventIdentifier: "image-" + artifact.id.uuidString,
-                    turnIdentifier: self.activeConversationUserEvent?.eventID, recordsDerivedMemory: false,
+                    turnIdentifier: imageGenerationTurnID, recordsDerivedMemory: false,
                     generatedImagePreviewID: artifact.id)
             } catch {
                 PaceAPIAuditLog.shared.record(
@@ -318,7 +322,7 @@ extension CompanionManager {
         imageOverlayController.onGenerationProgress = { [weak self] message in
             self?.currentTurnHUDState = .acting(message)
             self?.recordAssistantNarration(
-                message, origin: .progress, turnIdentifier: self?.activeConversationUserEvent?.eventID)
+                message, origin: .progress, turnIdentifier: imageGenerationTurnID)
             self?.responseOverlayManager.updateStreamingText(message)
         }
         diagramOverlayController.onWrittenLessonStep = { [weak self] step in
@@ -330,6 +334,10 @@ extension CompanionManager {
         diagramOverlayController.onAskAboutPart = { [weak self] transcript in
             guard let self else { return }
             let eventIdentifier = UUID().uuidString
+            let lessonTurnID = self.diagramOverlayController.lessonConversationTurnIdentifier
+            let rootID = lessonTurnID.flatMap { self.conversationRecorder.event(withIdentifier: $0)?.threadRootID }
+            self.acceptConversationRequest(
+                transcript, origin: .typed, eventIdentifier: eventIdentifier, threadRootID: rootID)
             diagramRequestIdentifiers.insert(eventIdentifier)
             self.submitChatTranscript(
                 transcript, optimisticMessageIdentifier: eventIdentifier,

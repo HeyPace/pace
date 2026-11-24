@@ -9,6 +9,12 @@ Implementation lives in `PaceThreadMemory` / `PaceThreadSummarizer` /
 `PaceThreadMemoryStore` (see [key-files.md](../development/key-files.md)). This
 page is the short mental model.
 
+## Main chat and reply threads
+
+Voice and typed messages share Main chat. Choose Reply on a message to continue that subject in a thread. Open the reply count beside the original message to return to it. Inside a thread, both the composer and the microphone send there. Returning to Main chat leaves any answer already in progress attached to its original request.
+
+The following two tiers describe Main chat. Reply threads draw their working context from the original message and the thread’s recent exchanges.
+
 ## The two tiers
 
 Every planner turn is built from:

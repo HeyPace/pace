@@ -94,11 +94,13 @@ extension CompanionManager {
         let resolution = pending.resolve(option, now: now)
         guard resolution != .unrelated, resolution != .needsSelection else { return }
         pendingSpokenPowerClarification = nil
+        let clarificationThreadRootID = activeConversationUserEvent?.threadRootID
         cancelActiveTurnTasks()
         ttsClient.stopPlayback()
         streamingSentenceTTSPipeline.resetForNewTurn()
         clearLastSpokenReplyState()
-        pendingTypedConversationEventIdentifier = acceptConversationRequest(option, origin: .typed).eventID
+        pendingTypedConversationEventIdentifier =
+            acceptConversationRequest(option, origin: .typed, threadRootID: clarificationThreadRootID).eventID
         beginConversationRequest(option)
         let turnLease = turnLeaseRegistry.beginTurn()
         actionExecutor.beginUserTurn()

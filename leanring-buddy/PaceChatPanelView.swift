@@ -59,6 +59,8 @@ struct PaceChatPanelView: View {
         )
     }
 
+    @State private var scrollTarget: String?
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             headerStrip
@@ -67,6 +69,8 @@ struct PaceChatPanelView: View {
                 .padding(.vertical, 7)
             PaceDialogueCurrentStatusView(companionManager: companionManager)
                 .padding(.horizontal, appearance.padding())
+            PaceThreadLocationBar(session: chatSession) { scrollTarget = $0.dialogueScrollID }
+                .padding(.horizontal, appearance.padding(existing: 14))
             transcriptColumn
             dockedInputRow
             PaceChatVoiceControl(companionManager: companionManager)
@@ -184,6 +188,7 @@ struct PaceChatPanelView: View {
 
     private var transcriptColumn: some View {
         ScrollViewReader { scrollProxy in
+            let sources = Dictionary(uniqueKeysWithValues: chatSession.visibleMessages.map { ("message-" + $0.id, $0) })
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 8) {
                     if shouldShowEmptyTranscriptState {
@@ -193,7 +198,7 @@ struct PaceChatPanelView: View {
                         ForEach(threadRows) { threadRow in
                             switch threadRow {
                             case .message(let messageRowModel):
-                                messageBubbleRow(messageRowModel)
+                                messageBubbleRow(messageRowModel, source: sources[messageRowModel.id]).id(threadRow.id)
                             case .activity(let activity):
                                 PaceDialogueActivityView(activity: activity) {
                                     PaceSettingsWindowManager.shared.show(
@@ -202,11 +207,15 @@ struct PaceChatPanelView: View {
                             }
                         }
                     }
-                    companionObservationInlineCard
-                    morningBriefInlineCard
-                    meetingInlineCard
-                    liveSpeechDraftBubbleRow
-                    streamingReplyBubbleRow
+                    if chatSession.activeThreadRootID == nil {
+                        companionObservationInlineCard
+                        morningBriefInlineCard
+                        meetingInlineCard
+                    }
+                    if companionManager.isViewingLiveTurn {
+                        liveSpeechDraftBubbleRow
+                        streamingReplyBubbleRow
+                    }
                     Color.clear
                         .frame(height: 1)
                         .id(Self.transcriptBottomAnchorId)
@@ -214,20 +223,29 @@ struct PaceChatPanelView: View {
                 .padding(appearance.padding(existing: 14))
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .onChange(of: chatSession.messages.count) {
-                scrollTranscriptToBottom(scrollProxy)
+            .task(id: scrollTarget) {
+                guard let scrollTarget else { return }
+                await Task.yield()
+                guard !Task.isCancelled else { return }
+                scrollProxy.scrollTo(scrollTarget, anchor: .center)
+                self.scrollTarget = nil
+            }
+            .onChange(of: chatSession.visibleMessages.last?.id) {
+                if scrollTarget == nil { scrollTranscriptToBottom(scrollProxy) }
             }
             .onChange(of: composerFocusRequestID) { _, composerFocusRequestID in
                 guard composerFocusRequestID != nil else { return }
                 scrollTranscriptToBottom(scrollProxy, isAnimated: false)
             }
             .onChange(of: streamingSentenceTTSPipeline.inFlightStreamedText) {
+                guard companionManager.isViewingLiveTurn else { return }
                 scrollTranscriptToBottom(scrollProxy)
             }
             .onChange(of: companionManager.liveSpeechDraft) {
+                guard companionManager.isViewingLiveTurn else { return }
                 scrollTranscriptToBottom(scrollProxy)
             }
-            .onChange(of: companionManager.recentActionResults.count) {
+            .onChange(of: threadRows.last?.id) {
                 scrollTranscriptToBottom(scrollProxy)
             }
             .onAppear {
@@ -241,11 +259,9 @@ struct PaceChatPanelView: View {
     private var threadRows: [PaceDialogueTranscriptItem] {
         PaceDialogueTranscriptModel.items(
             messages: PaceChatTranscriptModel.messageRowModels(
-                fromChatMessages: chatSession.messages
+                fromChatMessages: chatSession.visibleMessages
             ),
-            activities: PaceDialogueTranscriptModel.activityRows(
-                fromNewestFirst: companionManager.recentActionResults
-            )
+            activities: companionManager.activitiesInCurrentChat()
         )
     }
 
@@ -270,6 +286,7 @@ struct PaceChatPanelView: View {
         _ scrollProxy: ScrollViewProxy,
         isAnimated: Bool = true
     ) {
+        guard scrollTarget == nil else { return }
         if isAnimated && !accessibilityReduceMotionIsEnabled {
             withAnimation(.easeOut(duration: 0.18)) {
                 scrollProxy.scrollTo(Self.transcriptBottomAnchorId, anchor: .bottom)
@@ -288,9 +305,14 @@ struct PaceChatPanelView: View {
 
     // MARK: - Message bubbles
 
-    private func messageBubbleRow(_ message: PaceChatTranscriptMessageRowModel) -> some View {
+    private func messageBubbleRow(_ message: PaceChatTranscriptMessageRowModel, source: PaceChatMessage?) -> some View {
         PaceDialogueMessageView(
             message: message, appearance: appearance,
+            threadActionTitle: source.flatMap { chatSession.threadActionTitle(for: $0) },
+            onThreadAction: {
+                guard let source else { return }
+                chatSession.openThread(for: source)
+            },
             canReplay: companionManager.canReplayChatSpeech,
             onReplay: companionManager.replayChatSpeech)
     }
@@ -559,14 +581,17 @@ struct PaceChatPanelView: View {
 
     private var dockedInputRow: some View {
         HStack(spacing: 8) {
-            TextField("Message Pace…", text: $chatSession.draftMessageText, axis: .vertical)
+            TextField(
+                chatSession.activeThreadRootID == nil ? "Message Pace…" : "Reply in thread…",
+                text: $chatSession.draftMessageText, axis: .vertical
+            )
                 .textFieldStyle(.plain)
                 .font(appearance.font(size: 13))
                 .foregroundColor(DS.Colors.textPrimary)
                 .lineLimit(1...4)
                 .focused($isChatInputFocused)
                 .onSubmit(submitDraftMessageText)
-                .accessibilityLabel("Message Pace")
+            .accessibilityLabel(chatSession.activeThreadRootID == nil ? "Message Pace" : "Reply in thread")
                 .padding(.vertical, 5)
             Button(action: submitDraftMessageText) {
                 Image(systemName: "arrow.up")

@@ -51,6 +51,127 @@ struct PaceChatSessionTests {
         #expect(PaceChatTranscriptModel.messageRowModel(fromChatMessage: voice).submissionReceipt == nil)
     }
 
+    @Test func threadsKeepQueuedIdenticalRequestsAndTheirRepliesInTheRightPlace() throws {
+        let submitter = FakeTranscriptSubmitter()
+        let session = makeSession(historySource: FakeHistorySource(), submitter: submitter)
+        let root = ConversationEvent(eventID: "root", role: .pace, origin: .assistant, text: "First answer")
+        session.upsertConversationEvent(root)
+        let anchor = try #require(session.messages.first)
+        session.draftMessageText = "main draft"
+        session.openThread(for: anchor)
+        session.draftMessageText = "thread draft"
+        session.submitUserMessage("Repeat")
+        session.returnToMainChat()
+        #expect(session.draftMessageText == "main draft")
+        session.submitUserMessage("Repeat")
+        let first = submitter.optimisticMessageIdentifiers[0]
+        let second = submitter.optimisticMessageIdentifiers[1]
+        #expect(session.threadRootID(forTurnID: first) == anchor.id)
+        #expect(session.threadRootID(forTurnID: second) == nil)
+        session.upsertConversationEvent(
+            ConversationEvent(eventID: "out-2", turnID: second, role: .pace, origin: .assistant, text: "Main answer"))
+        session.upsertConversationEvent(
+            ConversationEvent(
+                eventID: "out-1", turnID: first, role: .pace, origin: .assistant, text: "Thread answer",
+                threadRootID: anchor.id))
+        #expect(session.visibleMessages.map(\.body) == ["First answer", "Repeat", "Main answer"])
+        session.showLocation(of: try #require(session.messages.last))
+        #expect(session.draftMessageText == "thread draft")
+        #expect(session.visibleMessages.map(\.body) == ["First answer", "Repeat", "Thread answer"])
+        #expect(session.replyCount(for: anchor) == 2)
+        #expect(
+            session.plannerHistory(forThreadRootID: anchor.id, excludingTurnID: nil).map(\.assistantResponse) == [
+                "First answer", "Thread answer",
+            ])
+        #expect(session.plannerHistory(forThreadRootID: anchor.id, excludingTurnID: first).count == 1)
+        session.clearHistory()
+        #expect(session.activeThreadRootID == nil && session.messages.isEmpty && session.draftMessageText.isEmpty)
+        session.openThread(for: anchor)
+        #expect(session.activeThreadRootID == nil)
+    }
+
+    @Test func legacyRootAndVoiceThreadSurviveDiskHydrationOutsideTheRecentWindow() throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: url) }
+        let rootID = "paired:pace"
+        var documents: [[String: Any]] = [
+            ["id": "paired", "source": "paceHistory", "modifiedAt": 0, "text": "User: Original\nPace: Root"]
+        ]
+        func add(_ event: ConversationEvent, at date: Double) throws {
+            let rawEvent = try JSONSerialization.jsonObject(with: JSONEncoder().encode(event))
+            documents.append([
+                "id": event.eventID, "source": "paceHistory", "modifiedAt": date,
+                "text": event.text, "conversationEvent": rawEvent,
+            ])
+        }
+        try add(
+            ConversationEvent(
+                eventID: "voice", turnID: "voice", role: .user, origin: .voice, text: "Spoken reply",
+                createdAt: Date(timeIntervalSinceReferenceDate: 1), threadRootID: rootID), at: 1)
+        try add(
+            ConversationEvent(eventID: "original", turnID: "original", role: .user, origin: .typed, text: "Which one?"),
+            at: 0)
+        try add(
+            ConversationEvent(
+                eventID: "choice", turnID: "original", role: .pace, origin: .assistant, text: "The second one."), at: 1)
+        try add(
+            ConversationEvent(
+                eventID: "follow-up", turnID: "follow-up", role: .user, origin: .typed, text: "Why?",
+                threadRootID: "choice"), at: 2)
+        for index in 2..<405 {
+            documents.append([
+                "id": "unrelated-\(index)", "source": "paceHistory", "modifiedAt": index, "text": "User: Other",
+            ])
+        }
+        try add(
+            ConversationEvent(
+                eventID: "spoken-answer", turnID: "voice", role: .pace, origin: .assistant, text: "Finished",
+                createdAt: Date(timeIntervalSinceReferenceDate: 206), threadRootID: rootID), at: 206)
+        try JSONSerialization.data(withJSONObject: ["documents": documents]).write(to: url)
+        let session = PaceChatSession(
+            historySource: PaceLocalChatHistoryReader(indexURL: url), transcriptSubmitter: FakeTranscriptSubmitter())
+        session.loadHistory()
+        let child = try #require(session.messages.first { $0.id == "spoken-answer" })
+        session.showLocation(of: child)
+        #expect(session.activeThreadRoot?.id == rootID)
+        #expect(session.visibleMessages.map(\.body) == ["Root", "Spoken reply", "Finished"])
+        let history = session.plannerHistory(forThreadRootID: rootID, excludingTurnID: nil)
+        #expect(history.first?.userTranscript == "Original")
+        #expect(history.last?.userTranscript == "Spoken reply")
+        session.returnToMainChat()
+        #expect(session.visibleMessages.count == 204)  // 200 recent documents plus both anchor exchanges.
+        let choiceHistory = session.plannerHistory(forThreadRootID: "choice", excludingTurnID: "follow-up")
+        #expect(choiceHistory.first?.userTranscript == "Which one?")
+        #expect(choiceHistory.first?.assistantResponse == "The second one.")
+
+    }
+
+    @Test func plannerKeepsAnchorAndOnlyRecentCompletedScopedTurns() {
+        let session = makeSession(historySource: FakeHistorySource(), submitter: FakeTranscriptSubmitter())
+        session.upsertConversationEvent(
+            ConversationEvent(eventID: "anchor", role: .pace, origin: .assistant, text: "Anchor"))
+        for index in 0..<12 {
+            let turnID = "request-\(index)"
+            session.upsertConversationEvent(
+                ConversationEvent(
+                    eventID: turnID, turnID: turnID, role: .user, origin: .typed, text: "Q\(index)",
+                    threadRootID: "anchor"))
+            session.upsertConversationEvent(
+                ConversationEvent(
+                    eventID: "step-\(index)", turnID: turnID, role: .pace, origin: .progress, text: "Observed",
+                    threadRootID: "anchor"))
+            session.upsertConversationEvent(
+                ConversationEvent(
+                    eventID: "answer-\(index)", turnID: turnID, role: .pace, origin: .assistant, text: "A\(index)",
+                    threadRootID: "anchor"))
+        }
+        let history = session.plannerHistory(forThreadRootID: "anchor", excludingTurnID: "request-11")
+        #expect(history.count == 9)
+        #expect(history.first?.assistantResponse == "Anchor")
+        #expect(history[1].userTranscript == "Q3")
+        #expect(history.last?.assistantResponse == "Observed\nA10")
+    }
+
     // MARK: - Test doubles
 
     final class FakeHistorySource: PaceChatHistorySource {

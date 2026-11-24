@@ -133,8 +133,9 @@ extension CompanionManager {
         guard
             let memoryContextBlock = await memoryRetriever.assembleContextBlock(
                 forQuery: shouldLoadFreshContext ? query : (memoryQuery ?? query),
-            excludingEntryIds: verbatimWindowTurnIds,
-            maxEntries: 8,
+                excludingEntryIds: verbatimWindowTurnIds,
+                includesConversationHistory: activeConversationUserEvent?.threadRootID == nil,
+                maxEntries: 8,
             now: Date()
             )
         else {
@@ -339,8 +340,15 @@ extension CompanionManager {
     }
 
     func clearLocalRetrievalSource(_ source: PaceRetrievalSource) {
+        if source == .paceHistory {
+            clearQueuedChatTurns()
+            if activeConversationUserEvent != nil || voiceState != .idle { cancelCurrentTurnFromPanel() }
+            captureThreadRootID = nil
+            conversationRecorder.clearHistory()
+            chatSession.clearHistory()
+            PaceGeneratedImageStore.clearChatPreviews()
+        }
         localRetriever.clearDocuments(forSource: source)
-        if source == .paceHistory { PaceGeneratedImageStore.clearChatPreviews() }
         if source == .screenWatchHistory {
             screenWatchNoteCoordinator.invalidate()
             syncConnectorsIntoUnifiedMemory()
