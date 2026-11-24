@@ -11,45 +11,29 @@ and documentation surface.
 
 ## Users
 
-Mac users who want to control applications, retrieve information, and automate
-recurring work through voice without giving a cloud service access to their
-screen, audio, or local context. A dedicated iPad can extend Pace into the room
-without moving its intelligence or durable memory off the Mac.
+Mac users who want to learn an unfamiliar interface or get work done across apps while keeping their hands free. They choose when Pace may read a screen, act on an app, or send context to a provider.
 
 ## Product Purpose
 
-Pace is a menu-bar voice agent for macOS with an optional iPad companion. It listens, can read the current
-screen through a local vision model, plans locally, speaks responses, and—with
-explicit action enablement—executes approved macOS actions. Success means the
-user can complete useful computer work conversationally while retaining local
-control of their data and model runtime.
+Pace gives the user one conversation for asking about the current screen, learning with visual explanations, and operating Mac apps. Local execution connects the selected planner to desktop controls and tools. A paired iPad can act as an input and output surface while the Mac owns execution and history.
 
-## Positioning
+## Product availability
 
-Pace combines screen-aware voice control with an on-device inference and
-execution stack. Local processing is the product's primary trust boundary, not
-an optional privacy mode.
+The public 0.3.20 preview supports typed screen questions, visible pointing, desktop and browser actions, research, reusable routines, meeting notes, and opening Codex in Warp. It targets Apple Silicon on macOS 26 or later.
+
+The 0.3.21 development build adds Right Option voice input, interactive labeled diagrams, named Powers, Apple Reminders task management, and retained coding sessions. The website and README identify development features separately from the public download.
 
 ## Operating Context
 
-The brain lives in the macOS menu bar and notch rather than a
-traditional application window. Users invoke it by hotkey or enabled
-background modes, interact through its capsule and floating panel or a paired
-full-screen iPad face, and can
-connect local models, macOS integrations, MCP servers, recipes, flows, and
-taught skills. The public website explains the product, its privacy model,
-capabilities, comparisons, pricing, and release path.
+A user can type into the notch or speak a request. A Power gives the assistant a capability, such as teaching on screen or working with Reminders. A workflow saves a sequence of actions. In the development build, “Add a Power” can turn a description into a reusable behavior backed by the supported runtime. Developers can also connect applications through MCP.
 
 ## Capabilities and Constraints
 
-- Local ASR, TTS, vision, planning, memory, and execution are the default.
-- Non-local planner paths are explicit exceptions with consent, visible amber
-  state, audit logging, and fail-loud behavior.
-- Risky or non-undoable actions can require approval; reversible mutations
-  expose undo.
-- The brain is macOS-native. PacePad is a native iPad input/output edge with no
-  separate planner, tools, or memory. The marketing and documentation surface is web.
-- Hardware-bound behavior and signed releases require manual validation.
+- Screen context and background observation require explicit enablement. Users can dismiss explanations and stop speech.
+- External planning is opt-in. Off-device turns display an amber indicator and write to the local audit log. Screen permission controls whether images can accompany those requests.
+- Local speech and storage are available. Meeting-note synthesis stays local when another planner is selected for general questions.
+- macOS permissions and action approvals apply to enabled tools. Reversible changes can expose undo.
+- Hardware checks, latency measurements, and release claims apply to the specific build exercised.
 
 ## Brand Commitments
 
@@ -72,14 +56,14 @@ into the same notch and panel surfaces the user operates afterward.
 - Product and release history in `PROJECT_STATUS.md`.
 - Architecture, privacy, capability, evaluation, and operations evidence under
   `docs/`.
-- Demonstration media in `pace-demo.gif` and `website/public/`.
+- [Pace Command Center screenshot](website/src/assets/command-center-960.webp).
 
 Real attributed customer quotations remain pending permission. Hardware smoke
 evidence is release-specific and must not be inferred from unit tests.
 
 ## Product Principles
 
-1. Keep the useful default on-device.
+1. Keep local operation available and make the selected provider clear.
 2. Make trust boundaries and risky actions visible.
 3. Prefer grounded execution and honest failure over confident guessing.
 4. Preserve user control through consent, auditability, and undo.
