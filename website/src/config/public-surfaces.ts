@@ -82,7 +82,7 @@ const staticSurfaces: PublicSurface[] = [
     kind: "static",
     title: "Pace FAQ",
     description:
-      "Answers about Pace privacy, hardware, local models, recordings, purchase terms, integrations, and action safety.",
+      "Which Pace build to download, how Powers work, and what happens to screen captures, requests and meeting notes.",
     priority: "0.7",
     markdown: faqMarkdown(),
   },
@@ -93,7 +93,7 @@ const staticSurfaces: PublicSurface[] = [
     kind: "static",
     title: "Pace changelog",
     description:
-      "A curated record of verified, user-visible Pace product outcomes.",
+      "Pace release notes and updates from the development build.",
     priority: "0.6",
     markdown: changelogMarkdown(),
   },

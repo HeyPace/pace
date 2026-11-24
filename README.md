@@ -1,109 +1,43 @@
 # Pace
 
-**Product:** [heypace.app](https://heypace.app)
+Pace is a menu-bar assistant for Mac. Ask about the screen in front of you, point to a control, or give an app a task. You can choose a local planner or let Codex plan with the screen context you permit.
 
+[Download for Mac](https://heypace.app/download) · [Product website](https://heypace.app/) · [Release notes](https://github.com/HeyPace/pace/releases/latest)
 
-<p align="center">
-  <img src="docs/product/brand/pace-mascot-hero.svg" alt="Pace — your Mac, listening. Fully on-device." width="820">
-</p>
+## Start with the public preview
 
-**Voice agent for Mac. Answers in under 500ms. Zero API cost. Fully on-device.**
+**0.3.20** is the public download for Apple Silicon Macs running macOS 26 or later. Drag Pace into Applications, open it from the menu bar, and type a question such as “What does this message mean?” Turn on **Read My Screen** to include the current view. Enable actions and grant Accessibility access when you want Pace to operate an app.
 
-![Pace demo](pace-demo.gif)
+The public preview can open apps and Chrome profiles, use Peekaboo for desktop actions and Playwright for browser actions, teach reusable routines, and open Codex in Warp in a chosen project folder. It also supports sourced research, screen recording, and local meeting notes. The signed release was checked with typed requests. Voice accuracy and the microphone hotkey were outside its release checks.
 
-<sub>Meet the mascot — the notch, alive. Brand assets in [`docs/product/brand/`](docs/product/brand/).</sub>
+![Pace Command Center showing a saved workflow and available actions](website/src/assets/command-center-960.webp)
 
-A menu-bar voice agent for macOS. Hold a hotkey, talk, and Pace answers — reading the screen you're looking at and (optionally) clicking on your behalf. Every byte stays on your Mac.
+## What’s in the 0.3.21 development build
 
-**[Download for Mac — free](https://github.com/HeyPace/pace/releases/latest)** · current preview requires macOS 26, Apple Silicon, no account, no email.
+| Try saying or typing | What happens |
+| --- | --- |
+| “Show me a rotatable airplane and explain its parts.” | A labeled figure appears over the desktop. Drag to rotate it, select a part, or play a narrated lesson. Closing the figure stops its narration. |
+| “Scroll down.” | Pace can scroll locally when the pointer is over the active window. A request naming a specific pane uses screen context. |
+| “What are my tasks?” | Pace requests Apple Reminders access and can list, create, reschedule, complete, or remove tasks. |
+| “Add a Power that plays a greeting and says thank you.” | Describe the behavior, save it, and run it by name. Custom Powers can present local media, drawings, or interactive cards. You can update, disable, or remove them later. |
+| “Resume my coding session.” | Continue a retained coding task in its workspace. Pace can report progress or cancel a session. |
 
-- **Every byte stays on your Mac.** No cloud LLM, no API keys, no Cloudflare Worker. Speech, vision, reasoning, and speech-out all run locally. The "airplane mode" badge is the moat — Wispr Flow, Claude Computer Use, and Superhuman literally cannot ship this.
-- **Time-to-first-spoken-word in milliseconds, not seconds.** Streaming sentence-by-sentence TTS, pre-warmed VLM + OCR during your speech window, prompt-cache reuse across turns, and per-screen hash caching collapse the perceived latency. The number is logged per turn (`⚡ TTFSW: …ms`) and aggregated by [`scripts/benchmark_ttfsw.sh`](./scripts/benchmark_ttfsw.sh) — own the metric, don't just claim the speed.
-- **Agent mode that acts.** With `EnableActions=true` Pace can click, type, scroll, and press keys — synthesised via AX-tree-first targeting that falls back to CGEvent. The app can ask for approval before executing tools. Plan-act-observe loop re-screenshots between actions; the planner emits `[DONE]` when finished. Capped at 8 steps by default.
-- **Quiet by default.** Action mode off; permissions gated; the local VLM only fires when the transcript references the screen.
+Hold **Right Option** to speak, or type in the notch. Typed requests get written replies. Spoken requests can receive a voice reply and appear in the same history. With Japanese practice configured, Pace can speak Japanese with an English subtitle. Opt-in Watch mode can take notes and offer suggestions you can ask it to explain.
 
-## Install (users)
+These features are available in the [development source](https://github.com/HeyPace/pace/tree/fix/pace-pane-scroll). See its [capability guide](https://github.com/HeyPace/pace/blob/fix/pace-pane-scroll/docs/product/capabilities.md) for supported commands, voice setup, and Power limits.
 
-Grab the latest build from [Releases](https://github.com/HeyPace/pace/releases/latest) and launch it. Apple Intelligence Macs can talk to Pace immediately via the Apple Foundation Models tier — zero external installs. Bigger local models (in-process MLX planner/VLM/ASR/TTS) download from **Settings → Models** inside the app and enable with one toggle there; no external tools required.
+## Privacy and providers
 
-## Build from source (developers)
+Speech recognition, local voices, conversation storage, and meeting-note synthesis can run on the Mac. With an external planner enabled, requests can include your prompt and permitted screen captures. An amber indicator marks off-device planning, and the local audit log records the request. External planners and integrations use their own accounts, limits, and pricing.
 
-```bash
-# Open the project and Cmd+R. Models come from Settings → Models in-app.
+## Build and test
+
+Open the Xcode project on macOS, select the `leanring-buddy` scheme, and run it from Xcode. The repository provides isolated tests and a latency report for your own sessions.
+
+```sh
 open leanring-buddy.xcodeproj
-
-# OPTIONAL power-user path: LM Studio as the planner/VLM backend
-# (larger models than the bundled defaults). Idempotent provisioner:
-./scripts/setup-local.sh
+bash scripts/test-pace.sh
+bash scripts/benchmark_ttfsw.sh --last 10m
 ```
 
-Full setup details, switches, and tuning guidance: see [`SETUP_LOCAL.md`](./SETUP_LOCAL.md).
-
-Architecture and per-file responsibilities: see [`AGENTS.md`](./AGENTS.md).
-
-## What it runs on
-
-- **Speech-to-text**: Apple `SFSpeechRecognizer` (on-device, instant); WhisperKit auto-preferred when its model is installed.
-- **Screen understanding**: a small vision-language model — bundled MLX VLM by default, or LM Studio (UI-Venus-1.5-2B, the GUI-specialist 2B model) on the power-user path — merged with native Apple Vision OCR for text fidelity.
-- **Reasoning / planning**: Apple Foundation Models out of the box; one toggle enables the in-process MLX planner (Qwen3-4B); or any OpenAI-compatible local reasoner via LM Studio (Qwen3-30B-A3B MoE scored 15/15 on Pace's eval at ~925ms mean). `cache_prompt: true` sent on every request. Optional tiers: Apple Foundation Models, BYO-key Direct API, CLI bridge — all opt-in, all visibly indicated.
-- **Text-to-speech**: Kokoro-82M via a loopback sidecar (~150 ms/sentence warm) with `AVSpeechSynthesizer` fallback, sentence-streamed so audio starts within ~500ms of the planner's first token.
-- **Click / keystroke synthesis**: `AXUIElement` (semantic press) then `CGEvent` fallback.
-- **Meeting notes**: mic + system audio captured as two 16 kHz tracks, segmented, transcribed, and summarized entirely on-device.
-- **Cursor**: Codex-style arrow with linear gradient + highlight stroke.
-
-## Requirements
-
-- macOS 26 for the current 0.3.19 preview
-- Xcode 16+ to build from source (SwiftPM synchronized folder groups)
-- Apple Silicon recommended (MLX acceleration)
-- ~12–25 GB free RAM with models loaded (bundled defaults; the optional LM Studio 30B planner wants ~20–28 GB)
-- Homebrew only for the optional LM Studio path
-
-## Benchmark your own latency
-
-```bash
-# Use Pace normally for a few minutes, then:
-./scripts/benchmark_ttfsw.sh --last 10m
-```
-
-Outputs a markdown table with n, min, p50, p95, max, mean for TTFSW (time-to-first-spoken-word) and TTFT (planner time-to-first-token). The number you publish is the number you measure on your own machine — paste straight into PRs, blog posts, or the landing page.
-
-## Test coverage
-
-Pace targets an **EXEMPLARY** testing tier: **> 80%** line coverage on core logic (parser, executor, memory, planner clients) and **> 70%** on UI. The suite is ~1435 test cases across 156 test files (see `PROJECT_STATUS.md` for the current count), and coverage is collected on every CI run.
-
-<!-- coverage badge placeholder — swap in a live badge once coverage gating is wired to a reporting backend -->
-![coverage](https://img.shields.io/badge/coverage-EXEMPLARY%20tier-blue)
-
-Run coverage locally:
-
-```bash
-./scripts/test-pace.sh --coverage
-```
-
-Per-component targets, local extraction details, and how CI enforces coverage: see [`docs/development/test-coverage.md`](./docs/development/test-coverage.md).
-
-## License
-
-MIT — see [`LICENSE`](./LICENSE).
-
----
-
-*Wispr Flow needs a server. Claude Computer Use needs the cloud. Pace needs neither — and it answers in under 500ms.*
-
-<!-- portfolio-retained-work:2026-09-07 -->
-## Retained work from the portfolio review
-
-These are unresolved requirements retained at the owner’s request. They are not completed features. Work should follow a concrete need and fresh evidence.
-
-### Expose Pace's local Mac capabilities to Codex through MCP
-
-Expose bounded local Mac capabilities through MCP with explicit permission and locality boundaries.
-
-Original requirements and discussion: [#172](https://github.com/HeyPace/pace/issues/172).
-
-### Build Spatial Teach Mode and evidence-rich compiled flows
-
-Prove one spatial teaching workflow with useful recorded evidence before broadening automation.
-
-Original requirements and discussion: [#157](https://github.com/HeyPace/pace/issues/157).
+[Local setup](SETUP_LOCAL.md) · [Architecture](docs/architecture/overview.md) · [Test coverage](docs/development/test-coverage.md) · [Website development](website/README.md) · [MIT license](LICENSE)
