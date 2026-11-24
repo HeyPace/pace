@@ -1,10 +1,14 @@
 # pace — PROJECT STATUS
 
-Last updated: 2026-10-10
+## Build availability
+
+The public download is [0.3.20](https://github.com/HeyPace/pace/releases/tag/v0.3.20). The [0.3.21 development build](https://github.com/HeyPace/pace/tree/fix/pace-pane-scroll) adds interactive diagrams, custom Powers, Apple Reminders task management, and retained coding sessions. See the [product README](README.md) for examples and setup.
+
+The engineering snapshot below dates from October 10, 2026.
 
 ## Why/What
 
-**Thesis:** macOS menu-bar voice agent that answers in under ~500 ms time-to-first-spoken-word (TTFSW), local audio, transcription, speech, and storage, with opt-in Codex/cloud planning. Hold hotkey → speak → Pace reads the screen (optional), reasons with the selected backend, streams TTS, and executes approved macOS actions.
+**Thesis:** macOS menu-bar voice agent with a target of ~500 ms time-to-first-spoken-word (TTFSW), local audio, transcription, speech, and storage, with opt-in Codex/cloud planning. Hold hotkey → speak → Pace reads the screen (optional), reasons with the selected backend, streams TTS, and executes approved macOS actions.
 
 **In scope:** Menu-bar/notch UI, push-to-talk, on-device ASR/TTS/VLM/planner, action executor (AX-first clicks), trust surfaces, episodic + thread memory, watch mode, journals, proactive nudges (opt-in), MCP substrate, typed automation catalog, `pace://` deeplinks, App Intents (Siri/Shortcuts), bundled MLX model supply, marketing site (`website/`), eval gates, pace-tuned model export scaffold.
 

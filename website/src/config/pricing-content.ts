@@ -5,7 +5,7 @@ export const tiers = [
     price: "Free",
     cadence: "",
     blurb:
-      "Runs against Apple's Foundation Models tier on any Mac with Apple Intelligence. The full app — voice, screen reading, actions, meeting notes — at no cost. You'll know within a week if the bundled stack is worth $29.",
+      "Use Apple Foundation Models on a compatible Mac. Start by typing a screen question, trying a desktop action, or recording local meeting notes.",
     cta: { label: "Download Pace", href: "/download" },
     features: [
       "Apple Foundation Models planner (in-process, zero install)",
@@ -27,7 +27,7 @@ export const tiers = [
     price: "$29",
     cadence: "one-time",
     blurb:
-      "The current bundled local model stack — Qwen3-4B planner, Qwen3-VL-4B vision, Qwen3 TTS, and Kokoro-82M sidecar — all in-process, with no LM Studio requirement.",
+      "The current bundled local model stack — Qwen3-4B planner, Qwen3-VL-4B vision, Qwen3 TTS, and Kokoro-82M sidecar — running on your Mac without LM Studio.",
     cta: { label: paceCheckoutIsMailto ? "Email to buy Pace — $29" : "Buy Pace — $29", href: paceCheckoutURL },
     features: [
       "Everything in Try, plus:",
@@ -39,7 +39,7 @@ export const tiers = [
       "Purchase terms confirmed before payment",
     ],
     limits: [
-      "Current 0.3.19 preview requires macOS 26, Apple Silicon, and 16 GB RAM minimum (32 GB for bf16)",
+      "Apple Silicon and macOS 26 or later. The local model bundle requires at least 16 GB RAM (32 GB for bf16).",
       "~8 GB one-time model download into HuggingFace cache",
     ],
   },
