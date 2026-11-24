@@ -63,8 +63,9 @@ scene titles, body/callout for working content, and caption for metadata.
 ## Shape And Components
 
 - Window and panel geometry follows native macOS conventions.
-- Working surfaces use 10–14pt continuous corners; pills are reserved for
-  status, filters, and short values.
+- Use 6pt corners for controls and 10pt corners for grouped content. Keep
+  the hardware notch silhouette. Use a neutral fill for hover, a visible
+  ring for keyboard focus, and a single hairline between dense list rows.
 - The shared signal mark is a waveform or single routed line, never sparkles.
 - PacePad's idle expression uses two happy signal arcs and one scanlined smile
   on the physical display. It stays abstract and screen-native rather than

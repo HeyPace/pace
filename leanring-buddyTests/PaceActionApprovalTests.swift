@@ -227,10 +227,10 @@ struct PaceActionApprovalTests {
                 requiresActionApproval: true
             ))
 
-        #expect(request.messageText == "Approve Pace actions?")
-        #expect(request.informativeText.contains("Pace wants to control your Mac:"))
+        #expect(request.messageText == "Allow Pace to control your Mac?")
+        #expect(request.informativeText.contains("Pace is asking to perform the following:"))
         #expect(request.informativeText.contains("[input injection] Type text"))
-        #expect(request.informativeText.contains("Only approve this if it matches what you asked for."))
+        #expect(request.informativeText.contains("Choose Allow Once only if these actions match your request."))
     }
 
     @Test func cancellationBlocksExecution() async throws {

@@ -100,10 +100,6 @@ struct PaceDoctorSettingsTab: View {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
                 .fill(Color.white.opacity(0.035))
         )
-        .overlay(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .stroke(borderColor(for: check.status), lineWidth: 0.7)
-        )
     }
 
     // MARK: - Visual Helpers
@@ -127,17 +123,6 @@ struct PaceDoctorSettingsTab: View {
             Image(systemName: "xmark.circle.fill")
                 .font(.system(size: 15, weight: .medium))
                 .foregroundColor(.red)
-        }
-    }
-
-    private func borderColor(for status: PaceDoctorStatus) -> Color {
-        switch status {
-        case .ok, .info:
-            return DS.Colors.borderSubtle
-        case .warn:
-            return DS.Colors.warning.opacity(0.35)
-        case .fail:
-            return Color.red.opacity(0.35)
         }
     }
 

@@ -55,24 +55,23 @@ private struct PaceImageOverlayView: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 12) {
-                Image(systemName: "photo").foregroundStyle(.white.opacity(0.6))
-                Text(title).font(.system(size: 14, weight: .semibold)).lineLimit(1)
+                Image(systemName: "photo").foregroundStyle(DS.Colors.textSecondary).accessibilityHidden(true)
+                Text(title).font(DS.Typography.headline).lineLimit(1)
                 Spacer()
                 button("Zoom out", symbol: "minus.magnifyingglass") { zoom = max(1, zoom - 0.25) }.disabled(
-                    controller.lastSuccessfulArtifact == nil)
-                Text("\(Int(zoom * 100))%").font(.system(size: 11, design: .monospaced)).foregroundStyle(
-                    .white.opacity(0.55)
+                    controller.lastSuccessfulArtifact == nil || zoom <= 1)
+                Text("\(Int(zoom * 100))%").font(DS.Typography.metadata).foregroundStyle(
+                    DS.Colors.textTertiary
                 ).frame(width: 40)
                 button("Zoom in", symbol: "plus.magnifyingglass") { zoom = min(4, zoom + 0.25) }.disabled(
-                    controller.lastSuccessfulArtifact == nil)
+                    controller.lastSuccessfulArtifact == nil || zoom >= 4)
                 button("Save image", symbol: "square.and.arrow.down") { save() }.disabled(
                     controller.lastSuccessfulArtifact == nil)
                 button("Close image", symbol: "xmark") { controller.dismiss(intent: .userInitiated) }.keyboardShortcut(
                     .cancelAction)
             }
             .padding(.horizontal, 18).padding(.vertical, 14)
-            .background(chrome, in: UnevenRoundedRectangle(topLeadingRadius: 14, topTrailingRadius: 14))
-            Divider().overlay(.white.opacity(0.08))
+            Rectangle().fill(DS.Colors.borderSubtle).frame(height: 1)
             GeometryReader { geometry in
                 if let artifact = controller.lastSuccessfulArtifact, let image = NSImage(contentsOf: artifact.fileURL) {
                     ScrollView([.horizontal, .vertical]) {
@@ -85,35 +84,31 @@ private struct PaceImageOverlayView: View {
                         if case .generating = controller.state { ProgressView().controlSize(.large).tint(.white) }
                         Image(systemName: "photo").font(.system(size: 42, weight: .ultraLight)).foregroundStyle(
                             .white.opacity(0.25))
-                        Text(controller.statusText ?? "").font(.system(size: 14)).multilineTextAlignment(.center)
-                            .foregroundStyle(.white.opacity(0.7)).padding(.horizontal, 40)
+                        Text(controller.statusText ?? "").font(DS.Typography.body).multilineTextAlignment(.center)
+                            .foregroundStyle(DS.Colors.textSecondary).padding(.horizontal, 40)
                     }
                     .padding(.vertical, 32)
                     .frame(maxWidth: 420)
-                    .background(chrome, in: RoundedRectangle(cornerRadius: 14))
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             }
-            .background(chrome)
-            Divider().overlay(.white.opacity(0.08))
+            Rectangle().fill(DS.Colors.borderSubtle).frame(height: 1)
             HStack(spacing: 10) {
                 if case .generating = controller.state { ProgressView().controlSize(.small) }
-                Circle().fill(Color.orange.opacity(0.85)).frame(width: 5, height: 5)
-                Text(saveError ?? controller.statusText ?? "").font(.system(size: 12)).lineLimit(2)
+                Circle().fill(DS.Colors.offDeviceSignal).frame(width: 5, height: 5)
+                Text(saveError ?? controller.statusText ?? "").font(DS.Typography.callout).lineLimit(2)
                 Spacer(minLength: 0)
-                Text("Codex · Image").font(.system(size: 11)).foregroundStyle(.white.opacity(0.4))
-            }.foregroundStyle(.white.opacity(0.65)).padding(.horizontal, 18).padding(.vertical, 13)
-                .background(chrome, in: UnevenRoundedRectangle(bottomLeadingRadius: 14, bottomTrailingRadius: 14))
+                Text("Codex · Image").font(DS.Typography.caption).foregroundStyle(DS.Colors.textTertiary)
+            }.foregroundStyle(DS.Colors.textSecondary).padding(.horizontal, 18).padding(.vertical, 13)
         }
-        .foregroundStyle(.white.opacity(0.9))
-        .background(Color.clear)
+        .foregroundStyle(DS.Colors.textPrimary)
+        .background(DS.Colors.background)
+        .clipShape(RoundedRectangle(cornerRadius: DS.Radius.surface, style: .continuous))
         .onChange(of: controller.lastSuccessfulArtifact?.id) { _, _ in
             zoom = 1
             saveError = nil
         }
     }
-
-    private var chrome: Color { DS.Colors.background }
 
     private var title: String {
         if case .generating(let request) = controller.state { return request.title }
@@ -164,12 +159,10 @@ private struct PaceImageButtonStyle: ButtonStyle {
                 .foregroundStyle(.white.opacity(enabled ? 0.8 : 0.25))
                 .background(
                     .white.opacity(configuration.isPressed ? 0.16 : hovered && enabled ? 0.09 : 0),
-                    in: RoundedRectangle(cornerRadius: 6)
+                    in: RoundedRectangle(cornerRadius: DS.Radius.control, style: .continuous)
                 )
-                .onHover { hovering in
-                    hovered = hovering
-                    if hovering && enabled { NSCursor.pointingHand.push() } else if !hovering { NSCursor.pop() }
-                }
+                .pointerCursor(isEnabled: enabled)
+                .onHover { hovered = $0 }
         }
     }
 }

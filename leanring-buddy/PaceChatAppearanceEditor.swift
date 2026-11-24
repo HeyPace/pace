@@ -25,9 +25,6 @@ struct PaceChatAppearanceEditor: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
                     preview
-                    Text("Preview text and spacing here. Done applies your settings.")
-                        .font(.system(size: 11))
-                        .foregroundStyle(DS.Colors.textSecondary)
                     Picker("Font", selection: $draft.fontFamily) {
                         ForEach(PaceChatAppearance.FontFamily.allCases, id: \.self) { family in
                             Text(family.title).tag(family)
@@ -82,10 +79,10 @@ struct PaceChatAppearanceEditor: View {
 
     private var preview: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("How can Pace help?")
+            Text("What’s on your mind?")
                 .font(draft.font(size: 15, weight: .medium))
                 .lineSpacing(draft.lineSpacing(existing: 4))
-            Text("Speak or type a request. Your conversation stays together as Pace works.")
+            Text("You can type here or hold the voice shortcut to speak.")
                 .font(draft.font(size: 14))
                 .lineSpacing(draft.lineSpacing(existing: 5))
                 .foregroundStyle(DS.Colors.textPrimary.opacity(0.9))
@@ -96,23 +93,18 @@ struct PaceChatAppearanceEditor: View {
                 Spacer()
                 Image(systemName: "arrow.up")
                     .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(draft.controlAccent == .blue ? DS.Colors.textPrimary : draft.controlForeground)
+                    .foregroundStyle(draft.controlForeground)
                     .frame(width: 28, height: 28)
                     .background(
-                        draft.controlColor(existing: DS.Colors.surfaceRaised), in: RoundedRectangle(cornerRadius: 6))
+                        draft.controlColor, in: RoundedRectangle(cornerRadius: DS.Radius.control))
             }
-            .padding(12)
-            .overlay {
-                RoundedRectangle(cornerRadius: 8).stroke(
-                    draft.controlColor(existing: DS.Colors.textSecondary).opacity(0.45), lineWidth: 0.7)
-            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(DS.Colors.controlFill, in: RoundedRectangle(cornerRadius: DS.Radius.surface))
         }
         .padding(draft.contentPadding)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.black, in: RoundedRectangle(cornerRadius: 12))
-        .overlay {
-            RoundedRectangle(cornerRadius: 12).stroke(DS.Colors.borderSubtle, lineWidth: 1)
-        }
+        .background(.black, in: RoundedRectangle(cornerRadius: DS.Radius.surface))
         .accessibilityLabel("Chat appearance preview")
     }
 

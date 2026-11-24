@@ -144,7 +144,7 @@ struct PaceOnboardingView: View {
                 .tracking(1.4)
                 .foregroundStyle(DS.Colors.textPrimary)
 
-            Text(onboardingUsesOffDeviceBoundary ? "off-device" : "on this mac")
+            Text(onboardingUsesOffDeviceBoundary ? "Off-device" : "On this Mac")
                 .font(DS.Typography.captionStrong)
                 .foregroundStyle(signalPresentation.colorRole.color)
 
@@ -201,14 +201,14 @@ struct PaceOnboardingView: View {
     private var ignitionScene: some View {
         HStack(spacing: 70) {
             VStack(alignment: .leading, spacing: 0) {
-                Text("meet the signal\nthat stays with you.")
+                Text("Talk to Pace")
                     .font(DS.Typography.display)
                     .tracking(-1.4)
                     .foregroundStyle(DS.Colors.textPrimary)
                     .fixedSize(horizontal: false, vertical: true)
 
                 Text(
-                    "Hold \(BuddyPushToTalkShortcut.currentShortcutOption.notchDisplayLabel) and speak naturally. Pace understands your request and carries it out while your voice, screen, and context stay on this Mac by default."
+                    "Hold \(BuddyPushToTalkShortcut.currentShortcutOption.notchDisplayLabel) to speak. Pace transcribes on this Mac. You choose whether its planner can work off-device."
                 )
                 .font(DS.Typography.body)
                     .foregroundStyle(DS.Colors.textSecondary)
@@ -217,12 +217,12 @@ struct PaceOnboardingView: View {
                     .padding(.top, 22)
 
                 HStack(spacing: 18) {
-                    primaryButton("continue", systemImage: "arrow.right") {
+                    primaryButton("Continue", systemImage: "arrow.right") {
                         advanceFromIgnition()
                     }
                     .keyboardShortcut(.return, modifiers: [])
 
-                    Text("three short steps")
+                    Text("Three steps")
                         .font(DS.Typography.captionStrong)
                         .foregroundStyle(DS.Colors.textTertiary)
                 }
@@ -237,11 +237,11 @@ struct PaceOnboardingView: View {
                 )
                 .frame(width: 260, height: 70)
 
-                Text("ready on this mac")
+                Text("Ready on this Mac")
                     .font(DS.Typography.captionStrong)
                     .foregroundStyle(DS.Colors.localSignal)
 
-                Text("The same signal follows every request—from the first word to the finished action.")
+                Text("Watch the notch to see when Pace is listening, working, or waiting for you.")
                     .font(DS.Typography.callout)
                     .foregroundStyle(DS.Colors.textTertiary)
                     .multilineTextAlignment(.center)
@@ -255,12 +255,12 @@ struct PaceOnboardingView: View {
 
     private var permissionsScene: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text("allow what Pace needs.")
+            Text("Choose your permissions")
                 .font(DS.Typography.sceneTitle)
                 .tracking(-0.9)
                 .foregroundStyle(DS.Colors.textPrimary)
 
-            Text("Each permission unlocks one visible capability. Continue now or change any choice later in Pace settings.")
+            Text("Choose what Pace can access. You can change these permissions later in Settings.")
                 .font(DS.Typography.body)
                 .foregroundStyle(DS.Colors.textSecondary)
                 .padding(.top, 12)
@@ -339,7 +339,7 @@ struct PaceOnboardingView: View {
                 .accessibilityHidden(true)
 
             VStack(alignment: .leading, spacing: 5) {
-                Text(title.lowercased())
+                Text(title)
                     .font(DS.Typography.bodyStrong)
                     .foregroundStyle(DS.Colors.textPrimary)
                 Text(detail)
@@ -350,11 +350,11 @@ struct PaceOnboardingView: View {
             Spacer(minLength: 24)
 
             if isGranted {
-                Label("granted", systemImage: "checkmark.circle.fill")
+                Label("Granted", systemImage: "checkmark.circle.fill")
                     .font(DS.Typography.captionStrong)
                     .foregroundStyle(DS.Colors.success)
             } else {
-                Text("not yet")
+                Text("Not granted")
                     .font(DS.Typography.captionStrong)
                     .foregroundStyle(DS.Colors.textTertiary)
             }
@@ -400,7 +400,7 @@ struct PaceOnboardingView: View {
                 .accessibilityHidden(true)
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(title.lowercased())
+                Text(title)
                     .font(DS.Typography.captionStrong)
                     .foregroundStyle(DS.Colors.textPrimary)
                 Text(detail)
@@ -414,12 +414,12 @@ struct PaceOnboardingView: View {
     private var firstCommandScene: some View {
         HStack(spacing: 54) {
             VStack(alignment: .leading, spacing: 0) {
-                Text("give Pace one real job.")
+                Text("Try your first request")
                     .font(DS.Typography.sceneTitle)
                     .tracking(-0.9)
                     .foregroundStyle(DS.Colors.textPrimary)
 
-                Text("Edit the suggestion or write your own request. Pace will use the same real path it uses after setup and ask before any sensitive action.")
+                Text("Edit the suggestion or write your own. Pace will ask before it takes a sensitive action.")
                     .font(DS.Typography.body)
                     .foregroundStyle(DS.Colors.textSecondary)
                     .lineSpacing(4)
@@ -429,7 +429,7 @@ struct PaceOnboardingView: View {
                     .padding(.top, 22)
 
                 VStack(alignment: .leading, spacing: 14) {
-                    Text("your first request")
+                    Text("Request")
                         .font(DS.Typography.captionStrong)
                         .foregroundStyle(DS.Colors.textTertiary)
 
@@ -447,13 +447,13 @@ struct PaceOnboardingView: View {
                         .frame(height: 1)
 
                     HStack {
-                        Text(firstCommandOutcome.allowsHandoff ? "return to continue" : "return to run")
+                        Text(firstCommandOutcome.allowsHandoff ? "Return to continue" : "Return to run")
                             .font(DS.Typography.caption)
                             .foregroundStyle(DS.Colors.textTertiary)
                         Spacer()
                         if !firstCommandOutcome.allowsHandoff {
                             primaryButton(
-                                submittedCommandText == nil ? "try it" : "run again",
+                                submittedCommandText == nil ? "Run request" : "Run again",
                                 systemImage: "arrow.up",
                                 isEnabled: !trimmedCommandText.isEmpty
                                     && companionManager.voiceState == .idle
@@ -488,7 +488,7 @@ struct PaceOnboardingView: View {
                             .pointerCursor()
                         }
 
-                        Button("edit request") {
+                        Button("Edit request") {
                             resetFirstCommandForRetry()
                         }
                         .buttonStyle(.plain)
@@ -522,7 +522,7 @@ struct PaceOnboardingView: View {
             .frame(width: 230, height: 64)
 
             VStack(spacing: 8) {
-                Text(signalPresentation.label.lowercased())
+                Text(signalPresentation.label)
                     .font(DS.Typography.headline)
                     .foregroundStyle(DS.Colors.textPrimary)
 
@@ -550,12 +550,12 @@ struct PaceOnboardingView: View {
 
             if firstCommandOutcome.allowsHandoff {
                 VStack(spacing: 10) {
-                    primaryButton("continue to Pace", systemImage: "arrow.right") {
+                    primaryButton("Continue to Pace", systemImage: "arrow.right") {
                         continueFromFirstValue()
                     }
                     .keyboardShortcut(.return, modifiers: [])
 
-                    Button("run another request") {
+                    Button("Run another request") {
                         resetFirstCommandForRetry()
                     }
                     .buttonStyle(.plain)
@@ -589,12 +589,12 @@ struct PaceOnboardingView: View {
                 .opacity(reduceMotion ? (handoffIsContracted ? 0 : 1) : 1)
 
                 if !handoffIsContracted || reduceMotion {
-                    Text(handoffTitle.hasPrefix("Pace") ? handoffTitle : handoffTitle.lowercased())
+                    Text(handoffTitle)
                         .font(DS.Typography.windowTitle)
                         .foregroundStyle(DS.Colors.textPrimary)
                         .transition(.opacity)
 
-                    Text("From here, the same signal lives in the menu bar.")
+                    Text("Open Pace from the menu bar anytime.")
                         .font(DS.Typography.body)
                         .foregroundStyle(DS.Colors.textSecondary)
                         .transition(.opacity)
@@ -700,10 +700,10 @@ struct PaceOnboardingView: View {
         for permissionKind: PacePermissionKind
     ) -> String {
         switch permissionKind {
-        case .accessibility: return "open accessibility"
-        case .screenRecording: return "open screen recording"
-        case .microphone: return "allow microphone"
-        case .camera, .calendar, .reminders, .contacts: return "open settings"
+        case .accessibility: return "Open Accessibility"
+        case .screenRecording: return "Open Screen Recording"
+        case .microphone: return "Allow microphone"
+        case .camera, .calendar, .reminders, .contacts: return "Open Settings"
         }
     }
 
@@ -784,12 +784,12 @@ struct PaceOnboardingView: View {
 
     private var firstCommandRecoveryTitle: String {
         switch firstCommandRecoveryDestination {
-        case .permissions: return "open permissions"
-        case .voice: return "open voice settings"
-        case .mcp: return "open connected tools"
-        case .cloudBridge: return "open off-device model settings"
-        case .doctor: return "open help & diagnostics"
-        default: return "open Pace settings"
+        case .permissions: return "Open permissions"
+        case .voice: return "Open voice settings"
+        case .mcp: return "Open connected apps & tools"
+        case .cloudBridge: return "Open off-device model settings"
+        case .doctor: return "Open Help & Diagnostics"
+        default: return "Open Pace Settings"
         }
     }
 
@@ -807,7 +807,6 @@ struct PaceOnboardingView: View {
         .transaction { transaction in
             if reduceMotion { transaction.disablesAnimations = true }
         }
-        .paceControlHoverHighlight(cornerRadius: 23, isEnabled: isEnabled)
         .pointerCursor(isEnabled: isEnabled)
         .disabled(!isEnabled)
         .opacity(isEnabled ? 1 : 0.45)
@@ -822,7 +821,6 @@ struct PaceOnboardingView: View {
             .transaction { transaction in
                 if reduceMotion { transaction.disablesAnimations = true }
             }
-            .paceControlHoverHighlight(cornerRadius: 23)
             .pointerCursor()
     }
 

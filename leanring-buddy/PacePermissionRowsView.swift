@@ -90,7 +90,7 @@ struct PaceCorePermissionsView: View {
                         WindowPositionManager.revealAppInFinder()
                         WindowPositionManager.openAccessibilitySettings()
                     }) {
-                        pacePanelOutlineButtonLabel("Find App")
+                        pacePanelSecondaryButtonLabel("Find App")
                     }
                     .buttonStyle(.plain)
                     .pointerCursor()
@@ -300,7 +300,7 @@ struct PaceToolPermissionsView: View {
             Button(action: {
                 WindowPositionManager.openAutomationSettings()
             }) {
-                pacePanelOutlineButtonLabel("Open")
+                pacePanelSecondaryButtonLabel("Open")
             }
             .buttonStyle(.plain)
             .pointerCursor()
@@ -350,7 +350,7 @@ struct PaceToolPermissionsView: View {
                     .frame(width: 16)
 
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(title.lowercased())
+                    Text(title)
                         .font(.system(size: 13, weight: .medium))
                         .foregroundColor(DS.Colors.textSecondary)
 
@@ -369,7 +369,7 @@ struct PaceToolPermissionsView: View {
                     if shouldRequestPermission {
                         pacePanelGrantButtonLabel
                     } else {
-                        pacePanelOutlineButtonLabel("Open")
+                        pacePanelSecondaryButtonLabel("Open")
                     }
                 }
                 .buttonStyle(.plain)
@@ -393,34 +393,34 @@ struct PaceToolPermissionsView: View {
 @MainActor
 @ViewBuilder
 fileprivate var pacePanelGrantedBadge: some View {
-    SMStatusPill("granted", tone: .success)
+    SMStatusPill("Granted", tone: .success)
         .fixedSize()
 }
 
 @MainActor
 @ViewBuilder
 fileprivate var pacePanelGrantButtonLabel: some View {
-    Text("grant")
+    Text("Grant")
         .font(.system(size: 11, weight: .semibold))
         .foregroundColor(DS.Colors.textOnAccent)
         .padding(.horizontal, 10)
         .padding(.vertical, 4)
         .background(
-            Capsule()
+            RoundedRectangle(cornerRadius: DS.Radius.control)
                 .fill(DS.Colors.accent)
         )
 }
 
 @MainActor
 @ViewBuilder
-fileprivate func pacePanelOutlineButtonLabel(_ title: String) -> some View {
-    Text(title.lowercased())
+private func pacePanelSecondaryButtonLabel(_ title: String) -> some View {
+    Text(title)
         .font(.system(size: 11, weight: .semibold))
         .foregroundColor(DS.Colors.textSecondary)
         .padding(.horizontal, 10)
         .padding(.vertical, 4)
         .background(
-            Capsule()
-                .stroke(DS.Colors.borderSubtle, lineWidth: 0.8)
+            RoundedRectangle(cornerRadius: DS.Radius.control)
+                .fill(DS.Colors.controlFill)
         )
 }

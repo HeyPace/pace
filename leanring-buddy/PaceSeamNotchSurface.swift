@@ -38,7 +38,8 @@ struct PaceSeamNotchSurface: View {
                         .truncationMode(.tail)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .contentTransition(.opacity)
-                        .animation(.easeOut(duration: DS.Motion.micro), value: displayedActivityLabel)
+                        .animation(
+                            reduceMotion ? nil : .easeOut(duration: DS.Motion.micro), value: displayedActivityLabel)
                     if isOffDeviceTurn {
                         plannerBadge
                     } else if signalState == .understanding || signalState == .acting {
@@ -73,15 +74,6 @@ struct PaceSeamNotchSurface: View {
         .tint(DS.palette.brand)
         .preferredColorScheme(.dark)
         .background(Color.black)
-        .overlay {
-            UnevenRoundedRectangle(bottomLeadingRadius: 16, bottomTrailingRadius: 16, style: .continuous)
-                .stroke(
-                    Color.white.opacity(displayMode == .hover ? 0.18 : displayMode == .active ? 0.07 : 0),
-                    lineWidth: 0.5
-                )
-                .animation(.easeOut(duration: DS.Motion.micro), value: displayMode)
-                .allowsHitTesting(false)
-        }
         .clipShape(UnevenRoundedRectangle(bottomLeadingRadius: 16, bottomTrailingRadius: 16, style: .continuous))
     }
 
@@ -112,6 +104,8 @@ struct PaceSeamNotchSurface: View {
                 .fixedSize()
         }
         .foregroundStyle(DS.Colors.offDeviceSignal)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Off-device planner, " + plannerLabel)
         .frame(maxWidth: 96)
         .fixedSize(horizontal: true, vertical: false)
     }
@@ -160,6 +154,7 @@ struct PaceSeamNotchHeader: View {
                     shortcutHint: isExpanded
                         ? "Close conversation · Esc"
                         : "Open chat · \(PaceNotchChatShortcut.currentShortcutOption.notchDisplayLabel)",
+                    statusDescription: conversationStatusDescription,
                     action: onChatTap
                 ) {
                     Group {
@@ -230,15 +225,16 @@ struct PaceSeamNotchHeader: View {
     private func wingButton<Content: View>(
         label: String,
         shortcutHint: String,
+        statusDescription: String = "",
         action: (() -> Void)?,
         @ViewBuilder content: () -> Content
     ) -> some View {
         let cap = content()
             .background(
                 hoveredWingLabel == label ? Color.white.opacity(0.08) : Color.clear,
-                in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                in: RoundedRectangle(cornerRadius: DS.Radius.control, style: .continuous))
         if let action {
-            Button(action: action) { cap.contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous)) }
+            Button(action: action) { cap.contentShape(Rectangle()) }
                 .buttonStyle(PaceNotchButtonStyle(isHovered: hoveredWingLabel == label))
                 .onHover { isHovered in
                     if isHovered {
@@ -249,10 +245,8 @@ struct PaceSeamNotchHeader: View {
                 }
                 .pointerCursor()
                 .accessibilityLabel(label)
-                .accessibilityValue(label != "Open Pace" ? conversationStatusDescription : "")
-                .help(
-                    label != "Open Pace" && !conversationStatusDescription.isEmpty
-                        ? conversationStatusDescription + " · " + shortcutHint : shortcutHint)
+                .accessibilityValue(statusDescription)
+                .help(statusDescription.isEmpty ? shortcutHint : statusDescription + " · " + shortcutHint)
         } else {
             cap
         }
@@ -260,6 +254,10 @@ struct PaceSeamNotchHeader: View {
 
     private var conversationStatusDescription: String {
         var descriptions: [String] = []
+        if isOffDeviceTurn { descriptions.append("Off-device request active") }
+        if isCameraActive { descriptions.append("Camera active") }
+        if isScreenActive { descriptions.append("Screen active") }
+        if let persistentStatus, companionStatusColor != nil { descriptions.append(persistentStatus) }
         if screenReadActivity.isReading { descriptions.append("Reading your screen") }
         if hasUnreadScreenSuggestion { descriptions.append("Unread screen suggestion") }
         return descriptions.joined(separator: ". ")
@@ -274,7 +272,7 @@ private struct PaceNotchButtonStyle: ButtonStyle {
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .scaleEffect(reduceMotion || !isEnabled ? 1 : configuration.isPressed ? 0.96 : isHovered ? 1.04 : 1)
+            .scaleEffect(reduceMotion || !isEnabled ? 1 : configuration.isPressed ? 0.96 : 1)
             .opacity(configuration.isPressed && isEnabled ? 0.72 : 1)
             .animation(.timingCurve(0.23, 1, 0.32, 1, duration: DS.Motion.micro), value: configuration.isPressed)
             .animation(.timingCurve(0.23, 1, 0.32, 1, duration: DS.Motion.micro), value: isHovered)

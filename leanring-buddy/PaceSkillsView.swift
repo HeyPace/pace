@@ -74,8 +74,7 @@ struct PaceSkillsView: View {
 
     private var sectionHeader: some View {
         VStack(alignment: .leading, spacing: 6) {
-            SMSectionHeader("", accent: "Powers", size: 28)
-            Text("Teach Pace a repeatable action in plain language, or browse what it can already run on this Mac.")
+            Text("Find a power or teach Pace a workflow in your own words.")
                 .font(DS.Typography.body)
                 .foregroundStyle(DS.Colors.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -136,7 +135,7 @@ struct PaceSkillsView: View {
                         "Built-in powers (\(powers.count))",
                         systemImage: showsBuiltInPowers ? "chevron.down" : "chevron.right"
                     )
-                    .font(.headline)
+                    .font(DS.Typography.sectionTitle)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.vertical, 5)
                     .contentShape(Rectangle())
@@ -146,7 +145,7 @@ struct PaceSkillsView: View {
                 .pointerCursor()
                 .accessibilityValue(showsBuiltInPowers ? "Expanded" : "Collapsed")
             } else if !matching.isEmpty {
-                Text("Matching built-in powers (\(matching.count) of \(powers.count))").font(.headline)
+                Text("Matching built-in powers (\(matching.count) of \(powers.count))").font(DS.Typography.sectionTitle)
             }
             if showsBuiltInPowers || !query.isEmpty {
                 ForEach(matching) { power in
@@ -167,7 +166,8 @@ struct PaceSkillsView: View {
             HStack(alignment: .firstTextBaseline) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Saved powers")
-                        .font(.system(size: 14, weight: .semibold))
+                        .font(DS.Typography.sectionTitle)
+                        .accessibilityAddTraits(.isHeader)
                     Text("Programs and step-by-step workflows you saved as powers.")
                         .font(.system(size: 12))
                         .foregroundColor(.secondary)
@@ -447,7 +447,8 @@ struct PaceSkillsView: View {
     private var localSkillsSection: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Built-in actions")
-                .font(.system(size: 14, weight: .semibold))
+                .font(DS.Typography.sectionTitle)
+                .accessibilityAddTraits(.isHeader)
             Text("Copy an example to try an action in Pace.")
                 .font(.system(size: 12))
                 .foregroundColor(.secondary)
@@ -557,7 +558,8 @@ struct PaceSkillsView: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Text("Configured connections (\(configuredMCPServerNames.count))")
-                    .font(.system(size: 14, weight: .semibold))
+                    .font(DS.Typography.sectionTitle)
+                    .accessibilityAddTraits(.isHeader)
                 Spacer()
                 if let onManageConnections {
                     Button("Manage connections", action: onManageConnections)

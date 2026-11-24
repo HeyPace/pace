@@ -42,9 +42,10 @@ struct PacePlannerSettingsTab: View {
 
     private var plannerTierPickerSection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("backend tier")
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundColor(DS.Colors.textSecondary)
+            Text("Planning provider")
+                .font(DS.Typography.sectionTitle)
+                .foregroundColor(DS.Colors.textPrimary)
+                .accessibilityAddTraits(.isHeader)
 
             VStack(spacing: 0) {
                 ForEach(PacePlannerTier.allCases, id: \.rawValue) { plannerTier in
@@ -57,28 +58,33 @@ struct PacePlannerSettingsTab: View {
     private func plannerTierRow(_ plannerTier: PacePlannerTier) -> some View {
         let (tierTitle, tierSubtitle) = plannerTierLabels(for: plannerTier)
         let isSelected = companionManager.activePlannerTier == plannerTier
-        return HStack(spacing: 12) {
-            VStack(alignment: .leading, spacing: 3) {
-                Text(tierTitle)
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundColor(DS.Colors.textPrimary)
-                Text(tierSubtitle)
-                    .font(.system(size: 12))
-                    .foregroundColor(DS.Colors.textTertiary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            Spacer()
-            if isSelected {
-                Image(systemName: "checkmark.circle.fill")
-                    .foregroundColor(DS.Colors.accent)
-            }
-        }
-        .padding(.vertical, 12)
-        .contentShape(Rectangle())
-        .onTapGesture {
+        return Button {
             guard companionManager.activePlannerTier != plannerTier else { return }
             handlePlannerTierTap(plannerTier)
+        } label: {
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                    .foregroundStyle(isSelected ? DS.Colors.accent : DS.Colors.textTertiary)
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(tierTitle)
+                        .font(DS.Typography.bodyStrong)
+                        .foregroundStyle(DS.Colors.textPrimary)
+                    Text(tierSubtitle)
+                        .font(DS.Typography.callout)
+                        .foregroundStyle(DS.Colors.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 10)
+            .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
+        .paceControlHoverHighlight(cornerRadius: DS.Radius.control)
+        .pointerCursor()
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
         .overlay(alignment: .bottom) {
             Divider().background(DS.Colors.borderSubtle)
         }
@@ -89,27 +95,27 @@ struct PacePlannerSettingsTab: View {
         case .local:
             return (
                 "Local — LM Studio",
-                "On-device reasoner (gemma-3-12b by default). Free. Nothing leaves your Mac."
+                "Run a model on this Mac with LM Studio."
             )
         case .cliBridge:
             return (
                 "CLI bridge",
-                "Routes turns through your already-authenticated Claude Code / Codex / Gemini CLI via localhost:3456. Free if you already pay for the CLI."
+                "Use Claude Code, Codex, or Gemini through the local bridge. The CLI sends requests to its provider."
             )
         case .cliDirect:
             return (
-                "CLI direct (Codex / Claude)",
-                "Direct-spawns your already-authenticated codex / claude CLI as the brain for every turn — no bridge server, just the CLI on PATH. Off-device: consent-gated, capsule tints amber, each call is logged."
+                "Direct CLI (Codex or Claude)",
+                "Send planning requests through your signed-in Codex or Claude CLI. Pace asks for consent and logs off-device calls."
             )
         case .directAPI:
             return (
-                "Direct API (BYO key)",
-                "Pace calls Anthropic / OpenAI / OpenRouter directly using a key you paste below. Stored in macOS Keychain only — never in Pace preferences."
+                "Direct API",
+                "Use your own provider API key, stored in macOS Keychain."
             )
         case .appleFoundationModels:
             return (
-                "Apple Foundation Models only",
-                "Apple's on-device 3B model as the sole planner. Requires Apple Intelligence enabled."
+                "Apple Foundation Models",
+                "Plan on this Mac using Apple Intelligence. Enable it in System Settings."
             )
         }
     }
@@ -140,8 +146,9 @@ struct PacePlannerSettingsTab: View {
     private var plannerLocalDetailPanel: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("LM Studio")
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundColor(DS.Colors.textSecondary)
+                .font(DS.Typography.sectionTitle)
+                .foregroundColor(DS.Colors.textPrimary)
+                .accessibilityAddTraits(.isHeader)
             HStack(spacing: 8) {
                 Circle()
                     .fill(companionManager.isLMStudioReachable ? DS.Colors.success : DS.Colors.warning)
@@ -159,10 +166,11 @@ struct PacePlannerSettingsTab: View {
 
     private var plannerCLIBridgeDetailPanel: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("cli bridge")
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundColor(DS.Colors.textSecondary)
-            Text("Configure the upstream CLI, model, and consent in the Cloud bridge tab. This tier reuses that configuration.")
+            Text("CLI bridge")
+                .font(DS.Typography.sectionTitle)
+                .foregroundColor(DS.Colors.textPrimary)
+                .accessibilityAddTraits(.isHeader)
+            Text("Choose the CLI and model in Off-device model settings, where you can also review consent.")
                 .font(.system(size: 12))
                 .foregroundColor(DS.Colors.textTertiary)
             Text("Active mode: \(companionManager.cloudBridgeMode.rawValue)  •  Upstream: \(companionManager.cloudBridgeUpstream.displayLabel)  •  Model: \(companionManager.cloudBridgeModel)")
@@ -173,9 +181,10 @@ struct PacePlannerSettingsTab: View {
 
     private var plannerCLIDirectDetailPanel: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("direct-spawn cli")
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundColor(DS.Colors.textSecondary)
+            Text("Direct CLI")
+                .font(DS.Typography.sectionTitle)
+                .foregroundColor(DS.Colors.textPrimary)
+                .accessibilityAddTraits(.isHeader)
 
             // Upstream sub-picker (Claude Code / Codex). Reuses the same
             // segmented-picker pattern as the Cloud bridge tab; only the
@@ -235,8 +244,9 @@ struct PacePlannerSettingsTab: View {
     private var plannerAppleFoundationModelsDetailPanel: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Apple Foundation Models")
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundColor(DS.Colors.textSecondary)
+                .font(DS.Typography.sectionTitle)
+                .foregroundColor(DS.Colors.textPrimary)
+                .accessibilityAddTraits(.isHeader)
             Text("Free, on-device. Requires Apple Intelligence to be enabled in System Settings. Best for short voice answers and routine tool calls. For harder action plans, upgrade to Local — LM Studio.")
                 .font(.system(size: 12))
                 .foregroundColor(DS.Colors.textTertiary)
@@ -267,9 +277,10 @@ struct PacePlannerSettingsTab: View {
         VStack(alignment: .leading, spacing: 12) {
             // Provider picker
             VStack(alignment: .leading, spacing: 8) {
-                Text("provider")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundColor(DS.Colors.textSecondary)
+                Text("Provider")
+                    .font(DS.Typography.sectionTitle)
+                    .foregroundColor(DS.Colors.textPrimary)
+                    .accessibilityAddTraits(.isHeader)
                 Picker("", selection: Binding(
                     get: { companionManager.directAPIProvider },
                     set: { newProvider in
@@ -289,9 +300,10 @@ struct PacePlannerSettingsTab: View {
 
             // API key field + Save/Delete buttons
             VStack(alignment: .leading, spacing: 6) {
-                Text("api key")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundColor(DS.Colors.textSecondary)
+                Text("API key")
+                    .font(DS.Typography.sectionTitle)
+                    .foregroundColor(DS.Colors.textPrimary)
+                    .accessibilityAddTraits(.isHeader)
                 SecureField("Paste your \(companionManager.directAPIProvider.displayLabel) API key", text: $directAPIKeyEntryFieldText)
                     .textFieldStyle(.roundedBorder)
                     .font(.system(size: 12, design: .monospaced))
@@ -328,9 +340,10 @@ struct PacePlannerSettingsTab: View {
 
             // Model identifier text field
             VStack(alignment: .leading, spacing: 6) {
-                Text("model")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundColor(DS.Colors.textSecondary)
+                Text("Model")
+                    .font(DS.Typography.sectionTitle)
+                    .foregroundColor(DS.Colors.textPrimary)
+                    .accessibilityAddTraits(.isHeader)
                 TextField(
                     companionManager.directAPIProvider.defaultModelIdentifier,
                     text: Binding(
@@ -345,9 +358,10 @@ struct PacePlannerSettingsTab: View {
             // Custom endpoint URL (only when provider == .custom)
             if companionManager.directAPIProvider == .custom {
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("endpoint url")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundColor(DS.Colors.textSecondary)
+                    Text("Endpoint URL")
+                        .font(DS.Typography.sectionTitle)
+                        .foregroundColor(DS.Colors.textPrimary)
+                        .accessibilityAddTraits(.isHeader)
                     TextField(
                         "https://example.com/v1/chat/completions",
                         text: Binding(

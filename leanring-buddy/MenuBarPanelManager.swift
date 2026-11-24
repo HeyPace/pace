@@ -135,7 +135,9 @@ private struct PaceConversationPanelSurface: View {
     private var headerAccessibilityValue: String {
         var descriptions: [String] = []
         if companionControlCenter.activeSources.contains(.camera) { descriptions.append("Camera active") }
-        if companionControlCenter.activeSources.contains(.screen) { descriptions.append("Screen active") }
+        if companionManager.isWatchModeEnabled || companionControlCenter.activeSources.contains(.screen) {
+            descriptions.append("Screen active")
+        }
         if companionControlCenter.preferences.isCompanionModeEnabled {
             descriptions.append("Companion mode \(companionControlCenter.runtimeStatusText)")
         }
@@ -151,7 +153,7 @@ private struct PaceConversationPanelChromeClip: Shape {
     func path(in rect: CGRect) -> Path {
         if isEmbeddedInNotch {
             return UnevenRoundedRectangle(
-                bottomLeadingRadius: 24, bottomTrailingRadius: 24, style: .continuous
+                bottomLeadingRadius: DS.Radius.window, bottomTrailingRadius: DS.Radius.window, style: .continuous
             ).path(in: rect)
         }
         // Anchored chat owns its rounding and shadow, so leave its surrounding drawing unmasked.

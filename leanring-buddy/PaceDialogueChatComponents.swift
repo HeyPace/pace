@@ -24,7 +24,7 @@ struct PaceDialogueMessageView: View {
                 Text(readableMessage(message.bodyText))
                     .font(appearance.font(size: isFromUser ? 13 : 14))
                     .lineSpacing(appearance.lineSpacing(existing: isFromUser ? 3 : 5))
-                    .foregroundStyle(isFromUser ? DS.Colors.textSecondary : DS.Colors.textPrimary.opacity(0.94))
+                    .foregroundStyle(DS.Colors.textPrimary.opacity(isFromUser ? 0.9 : 1))
                     .textSelection(.enabled)
                     .fixedSize(horizontal: false, vertical: true)
                 if let generatedImagePreview {
@@ -74,13 +74,10 @@ struct PaceDialogueMessageView: View {
             }
             .padding(.horizontal, isFromUser ? 12 : 0)
             .padding(.vertical, isFromUser ? 9 : 0)
-            .background(.black)
-            .clipShape(RoundedRectangle(cornerRadius: isFromUser ? 12 : 0))
-            .overlay {
-                if isFromUser {
-                    RoundedRectangle(cornerRadius: 12).stroke(DS.Colors.borderSubtle, lineWidth: 0.7)
-                }
-            }
+            .background(
+                isFromUser ? DS.Colors.controlFill : Color.clear,
+                in: RoundedRectangle(cornerRadius: DS.Radius.surface, style: .continuous)
+            )
             .contextMenu { ShareAndCopyContextMenuItems(messageBody: message.bodyText) }
             if !isFromUser { Spacer(minLength: 0) }
         }
@@ -256,16 +253,21 @@ struct PaceDialogueCurrentStatusView: View {
                     ScrollView(.horizontal) {
                         HStack(spacing: 6) {
                             ForEach(companionManager.currentTurnHUDState.options, id: \.self) { option in
-                                Button(option) {
+                                Button {
                                     companionManager.resolveClarification(
                                         option: option,
                                         powerClarificationIdentifier: powerClarificationIdentifier)
+                                } label: {
+                                    Text(option)
+                                        .font(.system(size: 12, weight: .medium))
+                                        .padding(.horizontal, 10).padding(.vertical, 7)
+                                        .background(
+                                            DS.Colors.controlFill, in: RoundedRectangle(cornerRadius: DS.Radius.control)
+                                        )
+                                        .contentShape(Rectangle())
                                 }
-                                .buttonStyle(.plain).font(.system(size: 12, weight: .medium))
-                                .padding(.horizontal, 10).padding(.vertical, 7)
-                                .background(.black, in: Capsule())
-                                .overlay(Capsule().stroke(Color.white.opacity(0.2), lineWidth: 0.7))
-                                .paceControlHoverHighlight(cornerRadius: 12).pointerCursor().fixedSize()
+                                .buttonStyle(.plain)
+                                .paceControlHoverHighlight(cornerRadius: DS.Radius.control).pointerCursor().fixedSize()
                             }
                         }
                     }.scrollIndicators(.hidden)
@@ -292,8 +294,7 @@ struct PaceDialogueCurrentStatusView: View {
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.white.opacity(0.045), in: RoundedRectangle(cornerRadius: 12))
-        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.white.opacity(0.1), lineWidth: 0.5))
+        .background(DS.Colors.controlFill.opacity(0.58), in: RoundedRectangle(cornerRadius: DS.Radius.surface))
         .padding(.vertical, 8)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Pace request status: " + displayedTitle)

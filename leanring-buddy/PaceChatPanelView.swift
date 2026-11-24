@@ -65,17 +65,15 @@ struct PaceChatPanelView: View {
             PaceJapanesePracticeControl(companionManager: companionManager)
                 .padding(.horizontal, appearance.padding(existing: 14))
                 .padding(.vertical, 7)
-            Divider().background(DS.Colors.borderSubtle)
             PaceDialogueCurrentStatusView(companionManager: companionManager)
                 .padding(.horizontal, appearance.padding())
             transcriptColumn
-            Divider().background(DS.Colors.borderSubtle)
             dockedInputRow
         }
         .frame(width: contentSize?.width ?? 320, height: contentSize?.height ?? 460)
         .background(panelBackground)
         .smTheme(DS.palette)
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: DS.Radius.window, style: .continuous))
         .onAppear {
             // Re-pull persisted history so turns recorded before this
             // panel first opened (or while it was closed) are present.
@@ -107,10 +105,14 @@ struct PaceChatPanelView: View {
                 .foregroundColor(voiceStateColor)
                 .frame(width: 16)
 
-            SMStatusPill(
-                voiceStateDisplayText.lowercased(),
-                tone: companionManager.isOffDeviceTurnInFlight ? .warning : .brand
-            )
+            Text(voiceStateDisplayText)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(DS.Colors.textPrimary)
+            if companionManager.isOffDeviceTurnInFlight {
+                Label("Off-device", systemImage: "arrow.up.right")
+                    .font(.caption)
+                    .foregroundStyle(DS.Colors.offDeviceSignal)
+            }
 
             Spacer()
             Button(action: {
@@ -160,7 +162,7 @@ struct PaceChatPanelView: View {
     private var voiceStateDisplayText: String {
         switch companionManager.voiceState {
         case .idle:
-            return "Ready — hold \(BuddyPushToTalkShortcut.currentShortcutOption.notchDisplayLabel) to talk"
+            return "Ready"
         case .listening:
             return "Listening"
         case .processing:
@@ -279,7 +281,7 @@ struct PaceChatPanelView: View {
             Text("Hold \(BuddyPushToTalkShortcut.currentShortcutOption.notchDisplayLabel) to talk")
                 .font(.system(size: 13, weight: .medium))
                 .foregroundColor(DS.Colors.textSecondary)
-            Text("…or type below.")
+            Text("Or type a message below.")
                 .font(.system(size: 12))
                 .foregroundColor(DS.Colors.textTertiary)
         }
@@ -343,7 +345,7 @@ struct PaceChatPanelView: View {
         if let pendingMorningBriefCard = morningTriageScheduler.pendingMorningBriefCard {
             VStack(alignment: .leading, spacing: 6) {
                 HStack(alignment: .center, spacing: 6) {
-                    Text("morning brief")
+                    Text("Morning brief")
                         .font(.system(size: 11, weight: .semibold))
                         .foregroundColor(DS.Colors.textSecondary)
 
@@ -355,11 +357,13 @@ struct PaceChatPanelView: View {
                         Image(systemName: "play.fill")
                             .font(.system(size: 10, weight: .semibold))
                             .foregroundColor(DS.Colors.textSecondary)
-                            .frame(width: 20, height: 20)
-                            .background(Circle().fill(Color.white.opacity(0.07)))
+                            .frame(width: 26, height: 26)
+                            .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
                     .pointerCursor()
+                    .paceControlHoverHighlight(cornerRadius: DS.Radius.control)
+                    .accessibilityLabel("Play morning brief")
                     .help("Speak the brief now")
 
                     Button(action: {
@@ -368,12 +372,14 @@ struct PaceChatPanelView: View {
                         Image(systemName: "xmark")
                             .font(.system(size: 10, weight: .semibold))
                             .foregroundColor(DS.Colors.textTertiary)
-                            .frame(width: 20, height: 20)
-                            .background(Circle().fill(Color.white.opacity(0.05)))
+                            .frame(width: 26, height: 26)
+                            .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
                     .pointerCursor()
-                    .help("Dismiss")
+                    .paceControlHoverHighlight(cornerRadius: DS.Radius.control)
+                    .accessibilityLabel("Dismiss morning brief")
+                    .help("Dismiss morning brief")
                 }
 
                 Text(pendingMorningBriefCard)
@@ -562,29 +568,34 @@ struct PaceChatPanelView: View {
                 .lineLimit(1...4)
                 .focused($isChatInputFocused)
                 .onSubmit(submitDraftMessageText)
-                .padding(.horizontal, 11)
-                .padding(.vertical, 8)
-                .background(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .fill(Color.black)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                .stroke(DS.Colors.borderSubtle, lineWidth: 0.7)
-                        )
-                )
-
+                .accessibilityLabel("Message Pace")
+                .padding(.vertical, 5)
             Button(action: submitDraftMessageText) {
-                Image(systemName: "arrow.up.circle.fill")
-                    .font(.system(size: 22))
-                    .foregroundColor(
-                        isDraftMessageTextEmpty ? DS.Colors.textTertiary : appearance.controlColor
-                    )
+                Image(systemName: "arrow.up")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(isDraftMessageTextEmpty ? DS.Colors.textTertiary : appearance.controlForeground)
+                    .frame(width: 28, height: 28)
+                    .background(
+                        isDraftMessageTextEmpty ? DS.Colors.surfaceRaised : appearance.controlColor,
+                        in: RoundedRectangle(cornerRadius: DS.Radius.control))
             }
             .buttonStyle(.plain)
-            .pointerCursor()
+            .paceControlHoverHighlight(cornerRadius: DS.Radius.control, isEnabled: !isDraftMessageTextEmpty)
+            .pointerCursor(isEnabled: !isDraftMessageTextEmpty)
             .keyboardShortcut(.return, modifiers: [.command])
             .disabled(isDraftMessageTextEmpty)
+            .accessibilityLabel("Send message")
             .help("Send to Pace")
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(DS.Colors.controlFill, in: RoundedRectangle(cornerRadius: DS.Radius.surface))
+        .overlay {
+            if isChatInputFocused {
+                RoundedRectangle(cornerRadius: DS.Radius.surface)
+                    .strokeBorder(appearance.controlColor(existing: DS.Colors.textSecondary).opacity(0.72))
+                    .allowsHitTesting(false)
+            }
         }
         .padding(.horizontal, appearance.padding(existing: 12))
         .padding(.vertical, 10)

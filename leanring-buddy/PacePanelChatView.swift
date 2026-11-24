@@ -90,10 +90,6 @@ struct PacePanelChatView: View {
                 style: .continuous
             )
         )
-        .overlay {
-            RoundedRectangle(cornerRadius: DS.Radius.window, style: .continuous)
-                .stroke(isEmbeddedInNotch ? .clear : DS.Colors.borderSubtle, lineWidth: 1)
-        }
         .shadow(
             color: Color.black.opacity(isEmbeddedInNotch ? 0 : 0.46),
             radius: 22,
@@ -144,8 +140,8 @@ struct PacePanelChatView: View {
                     .foregroundStyle(DS.Colors.textPrimary)
             }
             Text(showsHistory ? "History" : isEmbeddedInNotch ? "Conversation" : "Quick chat")
-                .font(.system(size: 11))
-                .foregroundStyle(DS.Colors.textTertiary)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(DS.Colors.textSecondary)
             Spacer()
             if selectedQuestionIdentifier != nil && !showsHistory {
                 iconButton(systemName: "arrow.uturn.backward", help: "Return to latest conversation") {
@@ -159,7 +155,7 @@ struct PacePanelChatView: View {
                     .help(boundaryHelpText)
             }
             iconButton(
-                systemName: showsHistory ? "bubble.left" : "clock.arrow.circlepath",
+                systemName: showsHistory ? "bubble.left" : "clock",
                 help: showsHistory ? "Return to conversation" : "Conversation history"
             ) {
                 showsHistory.toggle()
@@ -179,9 +175,6 @@ struct PacePanelChatView: View {
         }
         .padding(.horizontal, appearance.padding())
         .frame(height: isEmbeddedInNotch ? 36 : 52)
-        .overlay(alignment: .bottom) {
-            Rectangle().fill(DS.Colors.borderSubtle.opacity(0.6)).frame(height: 0.5)
-        }
     }
 
     private var turnStage: some View {
@@ -207,7 +200,7 @@ struct PacePanelChatView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .paceControlHoverHighlight(cornerRadius: 6)
+        .paceControlHoverHighlight(cornerRadius: DS.Radius.control)
         .pointerCursor()
         .help(help)
         .accessibilityLabel(help)
@@ -378,22 +371,15 @@ struct PacePanelChatView: View {
 
     private var emptyState: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("AT YOUR PACE")
-                .font(DS.Typography.metadata)
-                .tracking(1.5)
-                .foregroundStyle(DS.Colors.textTertiary)
             Text("What’s on your mind?")
                 .font(.system(size: 23, weight: .medium))
                 .foregroundStyle(DS.Colors.textPrimary)
-            Text("Ask a question, explore an idea, or make something.")
-                .font(DS.Typography.body)
-                .foregroundStyle(DS.Colors.textSecondary)
             HStack(spacing: 8) {
-                suggestionButton("Show me a diagram", systemImage: "point.3.connected.trianglepath.dotted") {
+                suggestionButton("Show me a diagram", systemImage: "square.connected.to.line.below") {
                     chatSession.submitUserMessage(
                         "Explain how transformer attention works with an interactive diagram.")
                 }
-                suggestionButton("What can Pace do?", systemImage: "arrow.up.right") {
+                suggestionButton("What can Pace do?", systemImage: "questionmark.bubble") {
                     chatSession.submitUserMessage("What can you help me do on this Mac?")
                 }
             }
@@ -409,11 +395,10 @@ struct PacePanelChatView: View {
                 .foregroundStyle(DS.Colors.textSecondary)
                 .padding(.horizontal, 11)
                 .padding(.vertical, 9)
-                .background(DS.Colors.surfaceRaised.opacity(0.5), in: RoundedRectangle(cornerRadius: 9))
-                .overlay(RoundedRectangle(cornerRadius: 9).stroke(DS.Colors.borderSubtle.opacity(0.65), lineWidth: 0.5))
+                .background(DS.Colors.controlFill, in: RoundedRectangle(cornerRadius: DS.Radius.control))
         }
         .buttonStyle(.plain)
-        .paceControlHoverHighlight(cornerRadius: 9)
+        .paceControlHoverHighlight(cornerRadius: DS.Radius.control)
         .pointerCursor()
     }
 
@@ -444,7 +429,7 @@ struct PacePanelChatView: View {
             }
         }
         .buttonStyle(.plain)
-        .paceControlHoverHighlight(cornerRadius: 6)
+        .paceControlHoverHighlight(cornerRadius: DS.Radius.control)
         .pointerCursor()
         .accessibilityLabel("\(actionLabel): \(title)")
     }
@@ -541,7 +526,7 @@ struct PacePanelChatView: View {
                             .frame(width: 28, height: 28)
                     }
                     .buttonStyle(.plain)
-                    .paceControlHoverHighlight(cornerRadius: 6)
+                    .paceControlHoverHighlight(cornerRadius: DS.Radius.control)
                     .pointerCursor()
                     .keyboardShortcut(.escape, modifiers: [.command])
                     .accessibilityLabel("Stop current request")
@@ -558,10 +543,10 @@ struct PacePanelChatView: View {
                         .frame(width: 28, height: 28)
                         .background(
                             isDraftEmpty ? DS.Colors.surfaceRaised : appearance.controlColor,
-                            in: RoundedRectangle(cornerRadius: 6))
+                            in: RoundedRectangle(cornerRadius: DS.Radius.control))
                 }
                 .buttonStyle(.plain)
-                .paceControlHoverHighlight(cornerRadius: 6, isEnabled: !isDraftEmpty)
+                .paceControlHoverHighlight(cornerRadius: DS.Radius.control, isEnabled: !isDraftEmpty)
                 .pointerCursor(isEnabled: !isDraftEmpty)
                 .keyboardShortcut(.return, modifiers: [.command])
                 .disabled(isDraftEmpty)
@@ -570,13 +555,13 @@ struct PacePanelChatView: View {
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
-            .background(DS.Colors.background.opacity(0.16), in: RoundedRectangle(cornerRadius: 8))
+            .background(DS.Colors.controlFill, in: RoundedRectangle(cornerRadius: DS.Radius.surface))
             .overlay {
-                RoundedRectangle(cornerRadius: 8)
-                    .stroke(
-                        isInputFocused
-                            ? appearance.controlColor(existing: DS.Colors.textSecondary).opacity(0.45)
-                            : DS.Colors.borderSubtle, lineWidth: 0.7)
+                if isInputFocused {
+                    RoundedRectangle(cornerRadius: DS.Radius.surface)
+                        .strokeBorder(appearance.controlColor(existing: DS.Colors.textSecondary).opacity(0.72))
+                        .allowsHitTesting(false)
+                }
             }
             HStack(spacing: 5) {
                 if companionManager.allPermissionsGranted {
@@ -587,7 +572,7 @@ struct PacePanelChatView: View {
                         .foregroundStyle(DS.Colors.textSecondary)
                         .paceControlHoverHighlight(cornerRadius: 3)
                         .pointerCursor()
-                    Text("· Typing is ready")
+                    Text("· Type anytime")
                 }
                 Spacer()
                 Text("↵ Send · ⇧↵ New line")

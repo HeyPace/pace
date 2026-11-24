@@ -392,18 +392,20 @@ private struct MediaControlsView: View {
     let dismiss: () -> Void
     var body: some View {
         HStack(spacing: 10) {
-            Text("Pace").font(.system(size: 12, weight: .medium))
+            Text("Pace").font(DS.Typography.calloutStrong)
             Spacer()
             Button(action: dismiss) {
                 Image(systemName: "xmark").font(.system(size: 11, weight: .semibold)).frame(width: 24, height: 24)
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Stop media and speech")
-            .onHover { hovered in if hovered { NSCursor.pointingHand.push() } else { NSCursor.pop() } }
+            .help("Stop media and speech")
+            .paceControlHoverHighlight(cornerRadius: DS.Radius.control)
+            .pointerCursor()
         }
-        .foregroundStyle(.white)
+        .foregroundStyle(DS.Colors.textPrimary)
         .padding(.horizontal, 10)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(.black, in: RoundedRectangle(cornerRadius: 10))
+        .background(DS.Colors.background, in: RoundedRectangle(cornerRadius: DS.Radius.control, style: .continuous))
     }
 }

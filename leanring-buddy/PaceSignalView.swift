@@ -217,11 +217,13 @@ struct PaceSignalNotchView: View {
 
     var body: some View {
         ZStack {
-            RoundedRectangle(cornerRadius: 17, style: .continuous)
-                .fill(DS.Colors.surfaceInset)
+            RoundedRectangle(cornerRadius: DS.Radius.surface, style: .continuous)
+                .fill(DS.Colors.controlFill)
                 .overlay {
-                    RoundedRectangle(cornerRadius: 17, style: .continuous)
-                        .stroke(presentation.colorRole.color.opacity(0.42), lineWidth: 1)
+                    if isOffDeviceTurn {
+                        RoundedRectangle(cornerRadius: DS.Radius.surface, style: .continuous)
+                            .fill(DS.Colors.offDeviceSignal.opacity(0.08))
+                    }
                 }
 
             PaceSignalView(
@@ -233,7 +235,6 @@ struct PaceSignalNotchView: View {
             .padding(.horizontal, 18)
             .padding(.vertical, 11)
         }
-        .shadow(color: presentation.colorRole.color.opacity(0.20), radius: 14, x: 0, y: 5)
         .animation(
             reduceMotion ? .easeOut(duration: 0.12) : .easeOut(duration: DS.Motion.stateChange),
             value: state

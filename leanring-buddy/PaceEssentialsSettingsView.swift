@@ -21,7 +21,6 @@ struct PaceEssentialsSettingsView: View {
     private enum Appearance {
         static let surface = DS.Colors.background
         static let raised = DS.Colors.surfaceRaised
-        static let border = Color(hex: "#37383C")
         static let primary = Color(hex: "#F1F1F2")
         static let secondary = Color(hex: "#AAABB1")
         static let tertiary = Color(hex: "#81838C")
@@ -91,11 +90,7 @@ struct PaceEssentialsSettingsView: View {
             Image(systemName: "terminal")
                 .font(.system(size: 14, weight: .medium))
                 .frame(width: 28, height: 28)
-                .background(Appearance.raised, in: RoundedRectangle(cornerRadius: 6))
-                .overlay {
-                    RoundedRectangle(cornerRadius: 6)
-                        .stroke(Appearance.secondary.opacity(0.4), lineWidth: 0.7)
-                }
+                .background(DS.Colors.controlFill, in: RoundedRectangle(cornerRadius: DS.Radius.control))
                 .accessibilityHidden(true)
 
             Text(selectedPlannerTitle)
@@ -203,11 +198,7 @@ struct PaceEssentialsSettingsView: View {
         }
         .padding(.horizontal, 13)
         .padding(.vertical, 10)
-        .background(Appearance.raised, in: RoundedRectangle(cornerRadius: 7))
-        .overlay {
-            RoundedRectangle(cornerRadius: 7)
-                .stroke(Appearance.border, lineWidth: 1)
-        }
+        .background(DS.Colors.controlFill, in: RoundedRectangle(cornerRadius: DS.Radius.control))
     }
 
     private var footer: some View {
@@ -297,9 +288,7 @@ struct PaceEssentialsSettingsView: View {
     }
 
     private var separator: some View {
-        Rectangle()
-            .fill(Appearance.border)
-            .frame(height: 0.7)
+        PaceSettingsSeparator()
     }
 
     private func settingsRow<Trailing: View>(

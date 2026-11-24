@@ -231,32 +231,21 @@ struct PacePrivacyDashboardView: View {
     // MARK: - Headline card
 
     private var headlineCardSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            SMSectionHeader("", accent: "privacy", size: 28)
-
-            SMCard(padding: 16) {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(headlineCardPrimaryText)
-                        .font(.system(size: 18, weight: .semibold))
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .fixedSize(horizontal: false, vertical: true)
-                    Text(headlineCardSecondaryText)
-                        .font(.system(size: 12))
-                        .foregroundColor(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                    HStack {
-                        Spacer()
-                        Button(action: refresh) {
-                            Label("refresh", systemImage: "arrow.clockwise")
-                                .font(DS.Typography.calloutStrong)
-                        }
-                        .buttonStyle(.bordered)
-                        .pointerCursor()
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
+        HStack(alignment: .top, spacing: 16) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(headlineCardPrimaryText)
+                    .font(DS.Typography.sectionTitle)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text(headlineCardSecondaryText)
+                    .font(DS.Typography.callout)
+                    .foregroundStyle(DS.Colors.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
+            Spacer(minLength: 4)
+            paceSettingsButton("Refresh", systemName: "arrow.clockwise", action: refresh)
         }
+        .padding(.bottom, 10)
+        .overlay(alignment: .bottom) { PaceSettingsSeparator() }
     }
 
     private var headlineCardPrimaryText: String {
@@ -282,8 +271,9 @@ struct PacePrivacyDashboardView: View {
 
     private var auditTableSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("off-device audit log")
-                .font(.system(size: 14, weight: .semibold))
+            Text("Off-device audit log")
+                .font(DS.Typography.sectionTitle)
+                .accessibilityAddTraits(.isHeader)
             Text(
                 "Every byte Pace sent off this Mac in the last \(lookbackInHours)h. Searchable. No message content — only sizes and outcomes."
             )
@@ -294,8 +284,8 @@ struct PacePrivacyDashboardView: View {
             HStack(spacing: 8) {
                 TextField("Search target / outcome…", text: $auditSearchQuery)
                     .textFieldStyle(.roundedBorder)
-                Picker("tier", selection: $auditTierFilter) {
-                    Text("all").tag(PaceOffDeviceTier?.none)
+                Picker("Tier", selection: $auditTierFilter) {
+                    Text("All").tag(PaceOffDeviceTier?.none)
                     ForEach(PaceOffDeviceTier.allCases) { tier in
                         Text(tier.rawValue).tag(PaceOffDeviceTier?.some(tier))
                     }
@@ -329,14 +319,14 @@ struct PacePrivacyDashboardView: View {
     private var auditTableHeader: some View {
         // 428pt of fixed columns and gaps leaves room for the tier at the 820pt window minimum.
         HStack(spacing: 4) {
-            Text("time").font(.system(size: 11, weight: .semibold)).frame(width: 84, alignment: .leading)
-            Text("tier").font(.system(size: 11, weight: .semibold))
+            Text("Time").font(.system(size: 11, weight: .semibold)).frame(width: 84, alignment: .leading)
+            Text("Tier").font(.system(size: 11, weight: .semibold))
                 .frame(minWidth: 40, maxWidth: .infinity, alignment: .leading)
-            Text("sent").font(.system(size: 11, weight: .semibold)).frame(width: 60, alignment: .trailing)
-            Text("recv").font(.system(size: 11, weight: .semibold)).frame(width: 60, alignment: .trailing)
-            Text("tokens").font(.system(size: 11, weight: .semibold)).frame(width: 80, alignment: .trailing)
-            Text("cost").font(.system(size: 11, weight: .semibold)).frame(width: 60, alignment: .trailing)
-            Text("outcome").font(.system(size: 11, weight: .semibold)).frame(width: 60, alignment: .leading)
+            Text("Sent").font(.system(size: 11, weight: .semibold)).frame(width: 60, alignment: .trailing)
+            Text("Received").font(.system(size: 11, weight: .semibold)).frame(width: 60, alignment: .trailing)
+            Text("Tokens").font(.system(size: 11, weight: .semibold)).frame(width: 80, alignment: .trailing)
+            Text("Cost").font(.system(size: 11, weight: .semibold)).frame(width: 60, alignment: .trailing)
+            Text("Outcome").font(.system(size: 11, weight: .semibold)).frame(width: 60, alignment: .leading)
         }
         .foregroundColor(.secondary)
         .padding(.vertical, 6)
@@ -420,8 +410,9 @@ struct PacePrivacyDashboardView: View {
     private var perTierBreakdownSection: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Where your turns ran (last \(lookbackInHours)h)")
-                .font(.system(size: 14, weight: .semibold))
-            Text("Counts are planner-completion entries grouped by where the model lived.")
+                .font(DS.Typography.sectionTitle)
+                .accessibilityAddTraits(.isHeader)
+            Text("Completed planner calls, grouped by where they ran.")
                 .font(.system(size: 11))
                 .foregroundColor(.secondary)
 
@@ -472,9 +463,10 @@ struct PacePrivacyDashboardView: View {
 
     private var permissionsAuditSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("permissions pace has and uses")
-                .font(.system(size: 14, weight: .semibold))
-            Text("Cross-references the macOS grants with the audit log so you can see which permissions Pace actually exercises.")
+            Text("Permission activity")
+                .font(DS.Typography.sectionTitle)
+                .accessibilityAddTraits(.isHeader)
+            Text("Compare your macOS permissions with their recorded use.")
                 .font(.system(size: 11))
                 .foregroundColor(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -554,11 +546,12 @@ struct PacePrivacyDashboardView: View {
 
     private var dataResidencyClaimSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("data residency")
-                .font(.system(size: 14, weight: .semibold))
+            Text("Where your data goes")
+                .font(DS.Typography.sectionTitle)
+                .accessibilityAddTraits(.isHeader)
             VStack(alignment: .leading, spacing: 6) {
                 Text("Pace runs every planner, VLM, OCR, TTS, and MCP call on this Mac by default. No transcripts, screenshots, or audio leave the device.")
-                Text("deliberate exceptions, all opt-in:")
+                Text("Optional network features")
                     .padding(.top, 4)
                 bulletText("download_file fetches a URL you name into ~/Downloads — no other bytes are sent.")
                 bulletText("Cloud bridge (off by default) routes a turn through your already-authenticated Claude Code / Codex / Gemini CLI on this Mac. The CLI itself contacts the upstream provider.")
