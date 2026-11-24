@@ -56,7 +56,7 @@ into the same notch and panel surfaces the user operates afterward.
 - Product and release history in `PROJECT_STATUS.md`.
 - Architecture, privacy, capability, evaluation, and operations evidence under
   `docs/`.
-- Demonstration media in `pace-demo.gif` and `website/public/`.
+- [Pace Command Center screenshot](website/src/assets/command-center-960.webp).
 
 Real attributed customer quotations remain pending permission. Hardware smoke
 evidence is release-specific and must not be inferred from unit tests.
