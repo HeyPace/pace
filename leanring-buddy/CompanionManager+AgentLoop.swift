@@ -24,6 +24,7 @@ extension CompanionManager {
         diagramOverlayController.cancelLessonPlayback()
         mediaOverlayController.dismiss(cancelOwnedRun: false)
         activeManagedPower = nil
+        activeSkillRun = nil
         hasRecordedCurrentTurnSpeechUserContext = false
         cancelWatchSuggestionSpeech()
         if !preservingConversationRequest { interruptConversationRequest() }
@@ -1461,12 +1462,13 @@ extension CompanionManager {
     /// planner re-anchors on the conversation history rather than a
     /// repeated user statement.
     func sendTranscriptToPlannerWithScreenshot(
-        transcript: String, continuingAcceptedRequest: Bool = false,
+        transcript: String, continuingAcceptedRequest: Bool = false, skillRun: ActiveSkillRun? = nil,
         screenSuggestionContext: PaceScreenSuggestionRequestContext? = nil,
         allowsPermissionPrompt: Bool = false
     ) {
         let capturedScreenSuggestionContext = continuingAcceptedRequest ? nil : screenSuggestionContext
         cancelActiveTurnTasks(preservingConversationRequest: continuingAcceptedRequest)
+        activeSkillRun = skillRun
         if continuingAcceptedRequest {
             activeConversationScreenSuggestionContext = nil
             activeConversationPlannerTranscript = transcript
@@ -4016,14 +4018,15 @@ extension CompanionManager {
                         skillSlug: skill.slug,
                         stepsPlanned: skill.steps.count
                     )
-                    activeSkillRun = ActiveSkillRun(
+                    let skillRun = ActiveSkillRun(
                         runId: runId,
                         skillSlug: skill.slug,
                         stepsPlanned: skill.steps.count
                     )
                     let prompt = PaceSkillLoader.toPlannerPrompt(skill)
                     // The planner owns the progress and final response for this run.
-                    sendTranscriptToPlannerWithScreenshot(transcript: prompt, continuingAcceptedRequest: true)
+                    sendTranscriptToPlannerWithScreenshot(
+                        transcript: prompt, continuingAcceptedRequest: true, skillRun: skillRun)
                     activeManagedPower = managedSkill
                 }
             } else {

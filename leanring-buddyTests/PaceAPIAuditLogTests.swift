@@ -9,6 +9,18 @@ import Testing
 @testable import Pace
 
 struct PaceAPIAuditLogTests {
+    @MainActor
+    @Test func supersedingATaughtWorkflowLeavesItsRunUnfinished() {
+        let manager = CompanionManager()
+        defer { manager.cancelActiveTurnTasks() }
+        let run = CompanionManager.ActiveSkillRun(runId: "interrupted", skillSlug: "test", stepsPlanned: 2)
+        manager.sendTranscriptToPlannerWithScreenshot(
+            transcript: "first", continuingAcceptedRequest: true, skillRun: run)
+        #expect(manager.activeSkillRun?.runId == run.runId)
+        manager.sendTranscriptToPlannerWithScreenshot(transcript: "next")
+        #expect(manager.activeSkillRun == nil)
+    }
+
     @Test func unitHostAuditNeverUsesTheInstalledAppsLog() {
         let testURL = PaceAPIAuditLog.defaultLogFileURL(environment: ["XCTestConfigurationFilePath": "/test/config"])
         let installedURL = PaceAPIAuditLog.defaultLogFileURL(environment: [:])
