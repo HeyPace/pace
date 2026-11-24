@@ -802,6 +802,7 @@ def main():
         report["limitations"] = policy_bundle["limitations"]
         report["frozen_bundle_sha256"] = parsed_arguments.policy_sha256
     report["format_contract_version"] = 2
+    report["scoring_contract_version"] = 2
     report["format_sha256"] = router_format_sha256(tool_catalog)
     fixture_contract = json.dumps(fixtures, sort_keys=True, default=lambda value: sorted(value))
     report["fixture_sha256"] = hashlib.sha256(fixture_contract.encode()).hexdigest()
