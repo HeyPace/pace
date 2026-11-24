@@ -788,11 +788,11 @@ nonisolated enum PaceCommandCenterDestination: String, CaseIterable, Identifiabl
     var subtitle: String {
         switch self {
         case .conversations: return "Review what you and Pace have discussed."
-        case .skills: return "Browse and teach reusable actions in plain language."
+        case .skills: return "Browse, teach, and manage powers."
         case .flows: return "Replay and manage sequences you recorded on this Mac."
         case .tasks: return "Review work Pace runs on a schedule."
-        case .usage: return "See local model and feature usage on this Mac."
-        case .activity: return "Inspect actions, outcomes, and approvals in order."
+        case .usage: return "Event counts, error rates, and latency."
+        case .activity: return "Recent actions, results, and approvals."
         case .memory: return "Choose what Pace may remember between conversations."
         case .privacy: return "See where processing happened and what data was used."
         case .permissions: return "Control the macOS access behind each capability."
@@ -802,7 +802,7 @@ nonisolated enum PaceCommandCenterDestination: String, CaseIterable, Identifiabl
         case .research: return "Control deeper, multi-source research behavior."
         case .proactive: return "Decide when Pace may offer help without being asked."
         case .companion: return "Configure optional background awareness."
-        case .mcp: return "Connect additional tools while keeping boundaries visible."
+        case .mcp: return "Manage MCP servers and their tools."
         case .voice: return "Choose listening, transcription, and spoken-response behavior."
         case .cloudBridge: return "Configure an explicitly off-device reasoning option."
         case .about: return "Version information and Pace’s local-first promise."

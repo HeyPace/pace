@@ -34,7 +34,7 @@ struct PaceEssentialsSettingsView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 header
-                destinationGrid(PaceCommandCenterDestination.everydayDestinations)
+                destinationGrid(PaceCommandCenterDestination.everydayDestinations, showsDescriptions: true)
                     .padding(.vertical, 10)
                 plannerConnection
                 essentialControls
@@ -100,7 +100,7 @@ struct PaceEssentialsSettingsView: View {
 
             Text(selectedPlannerTitle)
                 .font(.system(size: 13, weight: .semibold))
-            Text("Selected")
+            Text("planner")
                 .font(.system(size: 12))
                 .foregroundStyle(Appearance.secondary)
             Spacer(minLength: 12)
@@ -183,12 +183,6 @@ struct PaceEssentialsSettingsView: View {
             }
             .accessibilityElement(children: .combine)
 
-            Spacer(minLength: 5)
-            Text("One conversation for voice and text")
-                .font(.system(size: 10))
-                .foregroundStyle(Appearance.tertiary)
-                .lineLimit(1)
-                .minimumScaleFactor(0.9)
             Spacer(minLength: 5)
 
             Button {
@@ -429,7 +423,9 @@ struct PaceEssentialsSettingsView: View {
         .overlay(alignment: .bottom) { separator }
     }
 
-    private func destinationGrid(_ destinations: [PaceCommandCenterDestination]) -> some View {
+    private func destinationGrid(
+        _ destinations: [PaceCommandCenterDestination], showsDescriptions: Bool = false
+    ) -> some View {
         LazyVGrid(
             columns: [GridItem(.flexible(), spacing: 18), GridItem(.flexible())],
             alignment: .leading,
@@ -443,21 +439,30 @@ struct PaceEssentialsSettingsView: View {
                         Image(systemName: destination.symbolName)
                             .frame(width: 17)
                             .foregroundStyle(Appearance.secondary)
-                        Text(destinationTitle(destination))
-                            .font(.system(size: 13, weight: .medium))
-                            .foregroundStyle(Appearance.primary)
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(destinationTitle(destination))
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundStyle(Appearance.primary)
+                            if showsDescriptions {
+                                Text(destination.subtitle)
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(Appearance.secondary)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                        }
                         Spacer(minLength: 0)
                         Image(systemName: "chevron.right")
                             .font(.system(size: 9, weight: .medium))
                             .foregroundStyle(Appearance.tertiary)
                     }
                     .padding(.horizontal, 6)
-                    .frame(minHeight: 36)
+                    .frame(minHeight: showsDescriptions ? 52 : 36)
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .paceControlHoverHighlight(cornerRadius: 5)
                 .pointerCursor()
+                .accessibilityLabel(destinationTitle(destination))
                 .accessibilityHint(destination.subtitle)
             }
         }

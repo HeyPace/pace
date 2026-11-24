@@ -59,14 +59,21 @@ struct PaceUsageAnalyticsView: View {
             .padding(.horizontal, 24)
             .padding(.top, 22)
 
-            HStack(spacing: 30) {
+            HStack(alignment: .top, spacing: 20) {
                 metric("Tracked turns", value: snapshot.turnCount.formatted())
+                Divider()
                 metric("MCP tools used", value: snapshot.toolCount.formatted())
-                metric("Event error rate", value: rate(snapshot.failureCount, of: snapshot.eventCount))
-                    .help("\(snapshot.failureCount) failures across \(snapshot.eventCount) recorded events")
+                Divider()
+                metric(
+                    "Event error rate", value: rate(snapshot.failureCount, of: snapshot.eventCount),
+                    detail: "\(snapshot.failureCount.formatted()) of \(snapshot.eventCount.formatted()) events"
+                )
             }
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(14)
+            .background(DS.Colors.surfaceRaised, in: RoundedRectangle(cornerRadius: 8))
             .padding(.horizontal, 24)
-            .padding(.vertical, 16)
+            .padding(.vertical, 14)
 
             Picker("Group usage by", selection: $breakdown) {
                 ForEach(Breakdown.allCases) { Text($0.rawValue).tag($0) }
@@ -76,7 +83,7 @@ struct PaceUsageAnalyticsView: View {
             .padding(.horizontal, 24)
             Text(caption)
                 .font(.callout).foregroundStyle(.secondary)
-                .padding(.horizontal, 24).padding(.vertical, 8)
+                .padding(.horizontal, 24).padding(.vertical, 10)
             if !hasLoaded {
                 ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if breakdown == .workflows {
@@ -99,6 +106,7 @@ struct PaceUsageAnalyticsView: View {
                         TableColumn("P95") { Text(latency($0.durations, 0.95)) }.width(65)
                         TableColumn("P99") { Text(latency($0.durations, 0.99)) }.width(65)
                     }
+                    .alternatingRowBackgrounds(.disabled)
                 }
             } else {
                 let rows = breakdown == .powers ? snapshot.powerRows : snapshot.rows
@@ -126,6 +134,7 @@ struct PaceUsageAnalyticsView: View {
                         TableColumn("P95") { Text(duration($0.p95Milliseconds, measured: $0.timedCount)) }.width(65)
                         TableColumn("P99") { Text(duration($0.p99Milliseconds, measured: $0.timedCount)) }.width(65)
                     }
+                    .alternatingRowBackgrounds(.disabled)
                 }
             }
         }
@@ -183,11 +192,15 @@ struct PaceUsageAnalyticsView: View {
         return "\((Double(milliseconds) / 1000).formatted(.number.precision(.fractionLength(0...1)))) s"
     }
 
-    private func metric(_ title: String, value: String) -> some View {
+    private func metric(_ title: String, value: String, detail: String? = nil) -> some View {
         VStack(alignment: .leading, spacing: 3) {
-            Text(value).font(.title2.weight(.semibold)).monospacedDigit()
             Text(title).font(.callout).foregroundStyle(.secondary)
+            Text(hasLoaded ? value : "—").font(.title2.weight(.semibold)).monospacedDigit()
+            if hasLoaded, let detail {
+                Text(detail).font(.caption).foregroundStyle(.secondary)
+            }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .combine)
     }
 }

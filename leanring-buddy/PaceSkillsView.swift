@@ -82,9 +82,40 @@ struct PaceSkillsView: View {
         }
     }
 
+    @FocusState private var searchFieldIsFocused: Bool
+
     private var searchField: some View {
-        TextField("Search powers, workflows, actions, and connections…", text: $searchQuery)
-            .textFieldStyle(.roundedBorder)
+        HStack(spacing: 8) {
+            Image(systemName: "magnifyingglass")
+                .foregroundStyle(.secondary)
+                .accessibilityHidden(true)
+            TextField("Search powers, workflows, actions, and connections…", text: $searchQuery)
+                .textFieldStyle(.plain)
+                .focused($searchFieldIsFocused)
+                .accessibilityLabel("Search powers, workflows, actions, and connections")
+            if !searchQuery.isEmpty {
+                Button {
+                    searchQuery = ""
+                    searchFieldIsFocused = true
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .frame(width: 24, height: 24)
+                }
+                .buttonStyle(.plain)
+                .paceControlHoverHighlight(cornerRadius: 4)
+                .pointerCursor()
+                .accessibilityLabel("Clear search")
+                .help("Clear search")
+            }
+        }
+        .padding(.horizontal, 10)
+        .frame(minHeight: 34)
+        .background(DS.Colors.surfaceRaised, in: RoundedRectangle(cornerRadius: 7))
+        .overlay {
+            RoundedRectangle(cornerRadius: 7)
+                .strokeBorder(searchFieldIsFocused ? Color.accentColor : DS.Colors.textTertiary.opacity(0.35))
+                .allowsHitTesting(false)
+        }
     }
 
     private var builtInPowersSection: some View {
@@ -106,6 +137,7 @@ struct PaceSkillsView: View {
                         systemImage: showsBuiltInPowers ? "chevron.down" : "chevron.right"
                     )
                     .font(.headline)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.vertical, 5)
                     .contentShape(Rectangle())
                 }
