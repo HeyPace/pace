@@ -544,6 +544,12 @@ extension CompanionManager {
         switch transition {
         case .pressed:
             shortcutPressOwnsCapture = false
+            let chatVisible =
+                NSApp.windows.contains { $0.identifier == PaceExplanationAutoClose.windowIdentifier && $0.isVisible }
+                || PaceMainWindowManager.shared.isChatKey
+            let usesChatLocation = currentDictationTrigger == .microphoneButton || chatVisible
+            let voiceThreadRootID = usesChatLocation ? chatSession.activeThreadRootID : nil
+            if !usesChatLocation { chatSession.returnToMainChat() }
             revealRequestFeedback()
             guard !buddyDictationManager.isDictationInProgress else { return }
             currentRequestStartedAt = Date()
@@ -597,7 +603,6 @@ extension CompanionManager {
                 cancelActiveTurnTasks()
                 ttsClient.stopPlayback()
             }
-            let voiceThreadRootID = chatSession.activeThreadRootID
             captureThreadRootID = voiceThreadRootID
             resetCaptureTranscriptFeedback()
             // Clear the streaming-TTS dispatch state so the new turn

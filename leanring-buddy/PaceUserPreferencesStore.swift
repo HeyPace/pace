@@ -40,6 +40,7 @@ enum PaceUserPreferenceKey: String {
     case isThreadMemoryEnabled
     /// How many turn pairs the planner sees verbatim before older
     /// turns get folded into the rolling summary. Clamped 1...8.
+    case replyThreadContextResetDate
     case threadMemoryVerbatimWindowSize
     /// How long the thread can stay quiet before its summary +
     /// verbatim window are dropped. Clamped 5...60 minutes.

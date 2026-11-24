@@ -686,7 +686,13 @@ final class CompanionManager: ObservableObject {
     var conversationHistory: [(userTranscript: String, assistantResponse: String)] {
         if let userEvent = activeConversationUserEvent, let rootID = userEvent.threadRootID {
             // The current request enters history only after a step has produced output.
-            return chatSession.plannerHistory(forThreadRootID: rootID, excludingTurnID: nil)
+            let window = PaceUserPreferencesStore.clampedInt(.threadMemoryVerbatimWindowSize, default: 4, in: 1...8)
+            let idleMinutes = PaceUserPreferencesStore.clampedInt(.threadMemoryIdleMinutes, default: 20, in: 5...60)
+            let idleCutoff = userEvent.createdAt.addingTimeInterval(-TimeInterval(idleMinutes * 60))
+            let reset = PaceUserPreferencesStore.date(.replyThreadContextResetDate, defaults: watchModeDefaults)
+            return chatSession.plannerHistory(
+                forThreadRootID: rootID, excludingTurnID: nil, maximumPriorTurns: isThreadMemoryEnabled ? window : 0,
+                since: max(idleCutoff, reset ?? .distantPast))
         }
         return threadMemory.verbatimWindow().map { turnPair in
             (userTranscript: turnPair.userText, assistantResponse: turnPair.assistantText)

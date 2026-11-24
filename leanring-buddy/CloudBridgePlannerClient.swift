@@ -118,8 +118,12 @@ final class CloudBridgePlannerClient: BuddyPlannerClient {
         // Conversation history turns are flattened into role-tagged messages.
         var messages: [[String: String]] = []
         for (userPlaceholderText, assistantResponseText) in conversationHistory {
-            messages.append(["role": "user",      "content": userPlaceholderText])
-            messages.append(["role": "assistant", "content": assistantResponseText])
+            if !userPlaceholderText.isEmpty {
+                messages.append(["role": "user", "content": userPlaceholderText])
+            }
+            if !assistantResponseText.isEmpty {
+                messages.append(["role": "assistant", "content": assistantResponseText])
+            }
         }
         messages.append(["role": "user", "content": userPrompt])
 

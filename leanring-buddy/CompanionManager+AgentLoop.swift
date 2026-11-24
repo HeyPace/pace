@@ -29,6 +29,7 @@ extension CompanionManager {
         cancelWatchSuggestionSpeech()
         if !preservingConversationRequest { interruptConversationRequest() }
         foregroundOffDeviceTurnInFlight = false
+        isCloudBridgeCallActive = false
         turnLeaseRegistry.invalidateCurrentTurn()
         currentTurnDispatchTask?.cancel()
         currentTurnDispatchTask = nil

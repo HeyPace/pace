@@ -44,7 +44,7 @@ struct PaceConversationsView: View {
             PaceJapanesePracticeControl(companionManager: companionManager)
                 .padding(.horizontal, appearance.padding(existing: 24))
                 .padding(.bottom, 10)
-            PaceDialogueCurrentStatusView(companionManager: companionManager)
+            PaceDialogueCurrentStatusView(companionManager: companionManager) { searchQuery = "" }
                 .padding(.horizontal, appearance.padding())
             searchField
             if !searching {
@@ -67,7 +67,7 @@ struct PaceConversationsView: View {
     private var chatHeader: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .firstTextBaseline, spacing: 10) {
-                Text("Main chat")
+                Text(chatSession.activeThreadRootID == nil ? "Main chat" : "Replies")
                     .font(DS.Typography.sectionTitle)
                     .foregroundStyle(DS.Colors.textPrimary)
                     .accessibilityAddTraits(.isHeader)
@@ -294,7 +294,7 @@ struct PaceConversationsView: View {
             messages: PaceChatTranscriptModel.messageRowModels(
                 fromChatMessages: filteredMessages
             ),
-            activities: actionRowModels
+            activities: actionRowModels, threadRootID: chatSession.activeThreadRootID
         )
     }
 

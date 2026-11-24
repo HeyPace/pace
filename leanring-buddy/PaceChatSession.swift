@@ -83,9 +83,13 @@ protocol PaceChatTranscriptSubmitting: AnyObject {
 @MainActor
 final class PaceChatSession: ObservableObject {
     @Published private(set) var messages: [PaceChatMessage] = [] {
-        didSet { cachedReplyCounts = nil }
+        didSet {
+            cachedReplyCounts = nil
+            cachedTurnRoots = nil
+        }
     }
     @Published private(set) var activeThreadRootID: String?
+    private var cachedTurnRoots: [String: String]?
     private var cachedReplyCounts: [String: Int]?
     private var inactiveDrafts: [String?: String] = [:]
     @Published private(set) var hasLoadedHistory: Bool = false
@@ -255,7 +259,7 @@ final class PaceChatSession: ObservableObject {
         navigate(to: stored.threadRootID)
     }
 
-    private func navigate(to rootID: String?) {
+    func navigate(to rootID: String?) {
         guard activeThreadRootID != rootID else { return }
         inactiveDrafts[activeThreadRootID] = draftMessageText.isEmpty ? nil : draftMessageText
         draftMessageText = inactiveDrafts.removeValue(forKey: rootID) ?? ""
@@ -265,7 +269,7 @@ final class PaceChatSession: ObservableObject {
     func replyCount(for message: PaceChatMessage) -> Int {
         if cachedReplyCounts == nil {
             var counts: [String: Int] = [:]
-            for reply in userFacingMessages {
+            for reply in userFacingMessages where !(reply.role == .pace && reply.origin == .progress) {
                 if let root = reply.threadRootID { counts[root, default: 0] += 1 }
             }
             cachedReplyCounts = counts
@@ -274,28 +278,41 @@ final class PaceChatSession: ObservableObject {
     }
 
     func threadRootID(forTurnID turnID: String) -> String? {
-        messages.first { $0.role == .user && ($0.id == turnID || $0.turnIdentifier == turnID) }?.threadRootID
+        if cachedTurnRoots == nil {
+            var roots: [String: String] = [:]
+            for message in messages where message.role == .user {
+                guard let root = message.threadRootID else { continue }
+                roots[message.id] = root
+                if let id = message.turnIdentifier { roots[id] = root }
+            }
+            cachedTurnRoots = roots
+        }
+        return cachedTurnRoots?[turnID]
     }
 
-    func plannerHistory(forThreadRootID rootID: String, excludingTurnID: String?)
+    func plannerHistory(
+        forThreadRootID rootID: String, excludingTurnID: String?,
+        maximumPriorTurns: Int = 8, since cutoff: Date? = nil
+    )
         -> [(userTranscript: String, assistantResponse: String)]
     {
         let visible = userFacingMessages
         var history: [(userTranscript: String, assistantResponse: String)] = []
         if let root = visible.first(where: { $0.id == rootID }) {
             let anchor = String(root.body.prefix(4_000))
-            if root.role == .user {
-                history.append((anchor, ""))
-            } else {
-                let priorQuestion = (root.turnIdentifier ?? root.persistedTurnIdentifier).flatMap { turnID in
-                    visible.first {
-                        $0.role == .user && $0.threadRootID == nil
-                            && ($0.turnIdentifier ?? $0.persistedTurnIdentifier ?? $0.id) == turnID
-                    }
-                }
-                history.append((String((priorQuestion?.body ?? "").prefix(2_000)), anchor))
-            }
+            let rootTurnID = root.turnIdentifier ?? root.persistedTurnIdentifier ?? root.id
+            let counterpart =
+                maximumPriorTurns > 0
+                ? visible.last { candidate in
+                    candidate.role != root.role && candidate.threadRootID == nil && candidate.origin != .progress
+                        && candidate.deliveryState != .cancelled && candidate.deliveryState != .interrupted
+                        && (candidate.turnIdentifier ?? candidate.persistedTurnIdentifier ?? candidate.id) == rootTurnID
+                        && (cutoff.map { candidate.createdAt >= $0 } ?? true)
+                } : nil
+            let pairedText = String((counterpart?.body ?? "").prefix(2_000))
+            history.append(root.role == .user ? (anchor, pairedText) : (pairedText, anchor))
         }
+        guard maximumPriorTurns > 0 else { return history }
 
         // Read recent completed replies backward so idle queues and long-lived
         // threads cannot overwhelm the new request. Preserve the anchor separately.
@@ -303,16 +320,18 @@ final class PaceChatSession: ObservableObject {
         var selectedTurns = Set<String>()
         for message in visible.reversed() where message.threadRootID == rootID && message.role == .pace {
             guard let turnID = message.turnIdentifier ?? message.persistedTurnIdentifier,
-                turnID != excludingTurnID, message.deliveryState != .cancelled,
+                turnID != excludingTurnID, cutoff.map({ message.createdAt >= $0 }) ?? true,
+                message.deliveryState != .cancelled,
                 message.deliveryState != .interrupted, message.origin != .progress
             else { continue }
             if selectedTurns.insert(turnID).inserted { recentTurnIDs.append(turnID) }
-            if recentTurnIDs.count == 8 { break }
+            if recentTurnIDs.count >= maximumPriorTurns { break }
         }
         var pairsByTurn: [String: (userTranscript: String, assistantResponse: String)] = [:]
         for message in visible where message.threadRootID == rootID {
             guard let turnID = message.turnIdentifier ?? message.persistedTurnIdentifier,
-                selectedTurns.contains(turnID), message.deliveryState != .cancelled,
+                selectedTurns.contains(turnID), cutoff.map({ message.createdAt >= $0 }) ?? true,
+                message.deliveryState != .cancelled,
                 message.deliveryState != .interrupted
             else { continue }
             if message.role == .user {
@@ -610,16 +629,20 @@ final class PaceLocalChatHistoryReader: PaceChatHistorySource {
         let roots = Set(oldestFirstTurns.compactMap { $0.conversationEvent?.threadRootID })
         let anchorTurnIDs = Set(
             oldestFirstTurns.compactMap { turn -> String? in
-                guard let event = turn.conversationEvent, event.role == .pace, roots.contains(event.eventID) else {
+                guard let event = turn.conversationEvent, roots.contains(event.eventID) else {
                     return nil
                 }
-                return event.turnID
+                return event.turnID ?? event.eventID
             })
         var mainCount = 0
         let retained = oldestFirstTurns.reversed().filter { turn in
             if let event = turn.conversationEvent {
                 if event.threadRootID != nil || roots.contains(event.eventID) { return true }
-                if event.role == .user && anchorTurnIDs.contains(event.turnID ?? event.eventID) { return true }
+                if event.origin != .progress, event.deliveryState != .cancelled, event.deliveryState != .interrupted,
+                    anchorTurnIDs.contains(event.turnID ?? event.eventID)
+                {
+                    return true
+                }
             } else if roots.contains("\(turn.id):user") || roots.contains("\(turn.id):pace") {
                 return true
             }

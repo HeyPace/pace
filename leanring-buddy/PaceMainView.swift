@@ -171,7 +171,7 @@ struct PaceMainView: View {
         switch destination {
         case .general: return "Workflow settings"
         case .planner: return "Reasoner settings"
-        case .conversations: return "Main chat"
+        case .conversations: return "Chat history"
         case .cloudBridge: return "Off-device model settings"
         default: return destination.title
         }

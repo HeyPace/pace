@@ -17,6 +17,15 @@ struct PaceDialogueTranscriptModelTests {
         return row
     }
 
+    @Test func earlierReplyTimestampCannotMoveTheOriginalMessageBelowItsReplies() {
+        let original = PaceChatTranscriptMessageRowModel(
+            id: "message-root", author: .assistant, bodyText: "Original", createdAt: timestamp)
+        let reply = PaceChatTranscriptMessageRowModel(
+            id: "message-reply", author: .user, bodyText: "Follow-up", createdAt: timestamp.addingTimeInterval(-1))
+        let rows = PaceDialogueTranscriptModel.items(messages: [original, reply], activities: [], threadRootID: "root")
+        #expect(rows == [.message(original), .message(reply)])
+    }
+
     @Test func exactParentGroupsRoutineUpdatesAndPreservesEverySourceBody() {
         var progress = PaceChatTranscriptMessageRowModel(
             id: "progress", author: .assistant,

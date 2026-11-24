@@ -261,7 +261,7 @@ struct PaceChatPanelView: View {
             messages: PaceChatTranscriptModel.messageRowModels(
                 fromChatMessages: chatSession.visibleMessages
             ),
-            activities: companionManager.activitiesInCurrentChat()
+            activities: companionManager.activitiesInCurrentChat(), threadRootID: chatSession.activeThreadRootID
         )
     }
 

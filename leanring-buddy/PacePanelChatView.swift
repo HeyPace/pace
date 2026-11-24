@@ -173,7 +173,7 @@ struct PacePanelChatView: View {
     }
 
     private var turnStage: some View {
-        PaceDialogueCurrentStatusView(companionManager: companionManager)
+        PaceDialogueCurrentStatusView(companionManager: companionManager) { showsHistory = false }
             .padding(.horizontal, appearance.padding())
     }
 
@@ -466,7 +466,8 @@ struct PacePanelChatView: View {
         return PaceDialogueTranscriptModel.items(
             messages: messages,
             activities:
-                PaceDialogueTranscriptModel.visibleActivities(activities, messages: messages))
+                PaceDialogueTranscriptModel.visibleActivities(activities, messages: messages),
+            threadRootID: chatSession.activeThreadRootID)
     }
 
     private func messageRow(_ message: PaceChatTranscriptMessageRowModel, source: PaceChatMessage?) -> some View {
@@ -585,13 +586,14 @@ struct PacePanelChatView: View {
             .font(.system(size: 10))
             .foregroundStyle(DS.Colors.textTertiary)
 
-            if companionManager.queuedChatTurnCount > 0 {
+            let queuedIDs = companionManager.queuedRequestIDsInCurrentChat
+            if !queuedIDs.isEmpty {
                 HStack(spacing: 8) {
                     Text(
-                        companionManager.queuedChatTurnCount == 1
-                            ? "1 message queued" : "\(companionManager.queuedChatTurnCount) messages queued")
+                        queuedIDs.count == 1
+                            ? "1 message queued" : "\(queuedIDs.count) messages queued")
                     Spacer()
-                    Button("Clear") { companionManager.clearQueuedChatTurns() }
+                    Button("Clear") { companionManager.cancelQueuedChatTurns(eventIdentifiers: queuedIDs) }
                         .buttonStyle(.plain)
                         .paceControlHoverHighlight(cornerRadius: 4)
                         .pointerCursor()

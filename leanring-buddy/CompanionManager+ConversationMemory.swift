@@ -500,6 +500,7 @@ extension CompanionManager {
         diagramOverlayController.dismiss()
         imageOverlayController.dismiss()
         threadMemory.resetSession(cause: .userReset, now: now)
+        PaceUserPreferencesStore.setDate(now, for: .replyThreadContextResetDate, defaults: watchModeDefaults)
         // Reset only the persisted thread snapshot. Conversation history, saved
         // images and Codex-managed artifacts have separate retention boundaries.
         threadMemoryStore.clear()

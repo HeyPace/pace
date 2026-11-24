@@ -219,6 +219,14 @@ struct PaceDialogueActivityView: View {
 
 struct PaceDialogueCurrentStatusView: View {
     @ObservedObject var companionManager: CompanionManager
+    @ObservedObject private var session: PaceChatSession
+    let onRevealRequest: () -> Void
+
+    init(companionManager: CompanionManager, onRevealRequest: @escaping () -> Void = {}) {
+        self.companionManager = companionManager
+        _session = ObservedObject(wrappedValue: companionManager.chatSession)
+        self.onRevealRequest = onRevealRequest
+    }
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var signalState: PaceSignalState { companionManager.nativePanelPresentation.signalState }
@@ -226,15 +234,35 @@ struct PaceDialogueCurrentStatusView: View {
     private var tracksElapsedTime: Bool { [.listening, .understanding, .acting].contains(signalState) }
 
     var body: some View {
-        if companionManager.isViewingLiveTurn,
-            PaceDialogueTranscriptModel.showsCurrentTurnStatus(state: signalState, hasFailure: hasFailure)
-        {
+        let showsStatus = PaceDialogueTranscriptModel.showsCurrentTurnStatus(state: signalState, hasFailure: hasFailure)
+        let owner = companionManager.liveRequestLocation
+        let showsLocalStatus = showsStatus && owner.showsDetails(in: session.activeThreadRootID, hasFailure: hasFailure)
+        if showsLocalStatus {
             if tracksElapsedTime {
                 TimelineView(.periodic(from: .now, by: 1)) { context in status(at: context.date) }
             } else {
                 status(at: Date())
             }
         }
+        if showsStatus && !showsLocalStatus {
+            locationButton(for: owner, queued: false)
+        } else if let queued = companionManager.firstQueuedLocationOutsideCurrentChat {
+            locationButton(for: queued, queued: true)
+        }
+    }
+
+    private func locationButton(for location: PaceChatRequestLocation, queued: Bool) -> some View {
+        let title = queued ? "View queued request" : "View request"
+        return Button {
+            onRevealRequest()
+            session.navigate(to: location.rootID)
+        } label: {
+            Label(title + (location.rootID == nil ? " in Main chat" : " in thread"), systemImage: "arrow.turn.up.right")
+                .font(.callout).foregroundStyle(DS.Colors.textSecondary)
+                .padding(.horizontal, 8).padding(.vertical, 5).contentShape(Rectangle())
+        }
+        .buttonStyle(.plain).paceControlHoverHighlight(cornerRadius: DS.Radius.control).pointerCursor()
+        .padding(.vertical, 4)
     }
 
     private func status(at date: Date) -> some View {
@@ -288,8 +316,9 @@ struct PaceDialogueCurrentStatusView: View {
                 if companionManager.currentTurnHUDState.status != .needsClarification, let detail = feedback.detail {
                     Text(detail).font(.system(size: 12)).foregroundStyle(DS.Colors.textSecondary).lineLimit(2)
                 }
-                if companionManager.queuedChatTurnCount > 0 {
-                    Text("\(companionManager.queuedChatTurnCount) queued")
+                let queuedCount = companionManager.queuedRequestIDsInCurrentChat.count
+                if queuedCount > 0 {
+                    Text("\(queuedCount) queued here")
                         .font(.system(size: 11, weight: .medium)).foregroundStyle(DS.Colors.textSecondary)
                 }
             }
@@ -422,13 +451,49 @@ struct PaceThreadLocationBar: View {
     }
 }
 
+enum PaceChatRequestLocation: Equatable {
+    case unowned
+    case conversation(String?)
+
+    var rootID: String? {
+        if case .conversation(let rootID) = self { return rootID }
+        return nil
+    }
+
+    func showsDetails(in viewedRootID: String?, hasFailure: Bool) -> Bool {
+        rootID == viewedRootID || (hasFailure && self == .unowned)
+    }
+}
+
 @MainActor
 extension CompanionManager {
-    var isViewingLiveTurn: Bool {
-        let root =
-            buddyDictationManager.isDictationInProgress || voiceState == .listening
-            ? captureThreadRootID : activeConversationUserEvent?.threadRootID
-        return root == chatSession.activeThreadRootID
+    var liveRequestLocation: PaceChatRequestLocation {
+        if buddyDictationManager.isDictationInProgress || voiceState == .listening {
+            return .conversation(captureThreadRootID)
+        }
+        if let request = activeConversationUserEvent { return .conversation(request.threadRootID) }
+        return .unowned
+    }
+
+    var isViewingLiveTurn: Bool { liveRequestLocation.rootID == chatSession.activeThreadRootID }
+
+    var firstQueuedLocationOutsideCurrentChat: PaceChatRequestLocation? {
+        for queued in chatTurnQueue.pendingTurns {
+            guard let id = queued.optimisticMessageIdentifier else { continue }
+            let root = chatSession.threadRootID(forTurnID: id)
+            if root != chatSession.activeThreadRootID { return .conversation(root) }
+        }
+        return nil
+    }
+
+    var queuedRequestIDsInCurrentChat: Set<String> {
+        Set(
+            chatTurnQueue.pendingTurns.compactMap { queued in
+                guard let id = queued.optimisticMessageIdentifier,
+                    chatSession.threadRootID(forTurnID: id) == chatSession.activeThreadRootID
+                else { return nil }
+                return id
+            })
     }
 
     func activitiesInCurrentChat() -> [PaceChatToolActivityRowModel] {
