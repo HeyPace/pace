@@ -86,8 +86,6 @@ struct PaceCloudBridgeSettingsTab: View {
                         if mode != .off {
                             let consentAccepted = companionManager.requestCloudBridgeConsentIfNeeded()
                             guard consentAccepted else {
-                                // User rejected consent — revert mode to off.
-                                companionManager.setCloudBridgeMode(.off)
                                 return
                             }
                         }

@@ -84,9 +84,7 @@ extension CompanionManager {
                         return self.isActiveTurn(turnLease) && self.managedPowerExecutionIsAuthorized
                     }, onDismiss: dismissOwnedTurn)
             }
-            let observation = self.mediaOverlayController.present(request)
-            self.mediaOverlayController.onUserDismiss = dismissOwnedTurn
-            return observation
+            return self.mediaOverlayController.present(request, onDismiss: dismissOwnedTurn)
         }
         actionExecutor.speakLocalText = { [weak self] request in
             let text = request.text

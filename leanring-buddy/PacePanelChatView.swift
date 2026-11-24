@@ -65,11 +65,7 @@ struct PacePanelChatView: View {
             PaceJapanesePracticeControl(companionManager: companionManager)
                 .padding(.horizontal, appearance.padding())
                 .padding(.vertical, 7)
-            if PaceDialogueTranscriptModel.showsCurrentTurnStatus(
-                state: signalState, hasFailure: companionManager.currentTurnHUDState.status == .failed)
-            {
-                turnStage
-            }
+            turnStage
             if showsHistory {
                 history
             } else {
@@ -507,15 +503,6 @@ struct PacePanelChatView: View {
                     .onSubmit(submitDraft)
                     .accessibilityLabel("Message Pace")
                     .padding(.vertical, 5)
-                iconButton(
-                    systemName: companionManager.voiceState == .listening ? "mic.fill" : "mic",
-                    help: companionManager.buddyDictationManager.isFinalizingTranscript
-                        ? "Transcribing…"
-                        : (companionManager.buddyDictationManager.isDictationInProgress
-                            ? "Finish recording" : "Speak to Pace")
-                ) {
-                    companionManager.handleMicrophoneButtonTapped()
-                }
                 if companionManager.voiceState != .idle {
                     Button {
                         companionManager.cancelCurrentTurnFromPanel()
@@ -564,16 +551,7 @@ struct PacePanelChatView: View {
                 }
             }
             HStack(spacing: 5) {
-                if companionManager.allPermissionsGranted {
-                    Text("Hold \(BuddyPushToTalkShortcut.currentShortcutOption.notchDisplayLabel) to speak")
-                } else {
-                    Button("Set up voice") { openVoiceSetup() }
-                        .buttonStyle(.plain)
-                        .foregroundStyle(DS.Colors.textSecondary)
-                        .paceControlHoverHighlight(cornerRadius: 3)
-                        .pointerCursor()
-                    Text("· Type anytime")
-                }
+                PaceChatVoiceControl(companionManager: companionManager)
                 Spacer()
                 Text("↵ Send · ⇧↵ New line")
             }
@@ -600,10 +578,6 @@ struct PacePanelChatView: View {
         .padding(.bottom, 16)
     }
 
-    private func openVoiceSetup() {
-        PaceSettingsWindowManager.shared.show(companionManager: companionManager, destination: .permissions)
-    }
-
     private var isDraftEmpty: Bool {
         chatSession.draftMessageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
@@ -619,10 +593,6 @@ struct PacePanelChatView: View {
     }
 
     // MARK: - Status
-
-    private var signalState: PaceSignalState {
-        companionManager.nativeEffectiveSignalState
-    }
 
     private var plannerLabel: String {
         switch companionManager.activePlannerTier {

@@ -28,7 +28,9 @@ struct PacePowerCardView: View {
                 Text(card.title).font(.system(size: 13, weight: .semibold)).lineLimit(2)
                 Spacer(minLength: 8)
                 Button(action: dismiss) { Image(systemName: "xmark").frame(width: 28, height: 28) }
-                    .buttonStyle(CardButtonStyle()).accessibilityLabel("Close Power card")
+                    .buttonStyle(CardButtonStyle())
+                    .keyboardShortcut(.cancelAction)
+                    .accessibilityLabel("Close Power card")
             }.padding(18)
             Divider()
             if let illustrationView {
@@ -39,9 +41,6 @@ struct PacePowerCardView: View {
             ScrollViewReader { scrollProxy in
                 ScrollView {
                     VStack(alignment: .leading, spacing: 16) {
-                        Text("Step \(session.pageIndex + 1) of \(card.pages.count)")
-                            .font(.system(size: 10, weight: .semibold, design: .monospaced))
-                            .foregroundStyle(DS.Colors.textTertiary)
                         Text(session.page.title).font(.system(size: 23, weight: .semibold)).fixedSize(
                             horizontal: false, vertical: true)
                         Text(session.page.body).font(.system(size: 14)).lineSpacing(5)
@@ -94,29 +93,31 @@ struct PacePowerCardView: View {
                 }
                 .id(session.pageIndex)
             }
-            Divider()
-            HStack {
-                Button {
-                    session.move(by: -1, authorize: authorizeInteraction)
-                } label: {
-                    Label("Back", systemImage: "chevron.left").padding(.horizontal, 12).padding(.vertical, 9)
-                }.buttonStyle(CardButtonStyle()).disabled(session.pageIndex == 0).accessibilityLabel(
-                    "Previous card step")
-                Spacer()
-                Text("\(session.pageIndex + 1) / \(card.pages.count)")
-                    .font(.system(size: 12, design: .monospaced)).foregroundStyle(DS.Colors.textTertiary)
-                Spacer()
-                if session.pageIndex + 1 < card.pages.count {
+            if card.pages.count > 1 {
+                Divider()
+                HStack {
                     Button {
-                        session.move(by: 1, authorize: authorizeInteraction)
+                        session.move(by: -1, authorize: authorizeInteraction)
                     } label: {
-                        Label("Next", systemImage: "chevron.right").padding(.horizontal, 12).padding(.vertical, 9)
-                    }.buttonStyle(CardButtonStyle(selected: true)).accessibilityLabel("Next card step")
-                } else {
-                    Button(action: dismiss) { Text("Close").padding(.horizontal, 12).padding(.vertical, 9) }
-                        .buttonStyle(CardButtonStyle(selected: true)).accessibilityLabel("Close lesson")
-                }
-            }.padding(16)
+                        Label("Back", systemImage: "chevron.left").padding(.horizontal, 12).padding(.vertical, 9)
+                    }.buttonStyle(CardButtonStyle()).disabled(session.pageIndex == 0).accessibilityLabel(
+                        "Previous card step")
+                    Spacer()
+                    Text("\(session.pageIndex + 1) / \(card.pages.count)")
+                        .font(.system(size: 12, design: .monospaced)).foregroundStyle(DS.Colors.textTertiary)
+                    Spacer()
+                    if session.pageIndex + 1 < card.pages.count {
+                        Button {
+                            session.move(by: 1, authorize: authorizeInteraction)
+                        } label: {
+                            Label("Next", systemImage: "chevron.right").padding(.horizontal, 12).padding(.vertical, 9)
+                        }.buttonStyle(CardButtonStyle(selected: true)).accessibilityLabel("Next card step")
+                    } else {
+                        Button(action: dismiss) { Text("Close").padding(.horizontal, 12).padding(.vertical, 9) }
+                            .buttonStyle(CardButtonStyle(selected: true)).accessibilityLabel("Close lesson")
+                    }
+                }.padding(16)
+            }
         }
         .foregroundStyle(.white)
         .background(DS.Colors.background)

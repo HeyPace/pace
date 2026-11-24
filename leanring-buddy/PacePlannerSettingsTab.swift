@@ -16,6 +16,8 @@ import SwiftUI
 struct PacePlannerSettingsTab: View {
     @ObservedObject var companionManager: CompanionManager
 
+    @State private var showsProviderChoices = false
+
     // MARK: - Direct API tier state
 
     /// Buffered API-key text field input. Cleared after Save so the key
@@ -24,14 +26,20 @@ struct PacePlannerSettingsTab: View {
     /// Outcome of the last "Test" round trip. nil = not yet tested.
     @State private var lastDirectAPITestOutcomeText: String? = nil
     @State private var lastDirectAPITestWasSuccessful: Bool = false
-    @State private var isDirectAPITestInFlight: Bool = false
+    @State private var currentDirectAPITestID: UUID?
+    private var isDirectAPITestInFlight: Bool { currentDirectAPITestID != nil }
     /// Snapshot of which providers currently have a key stored in
     /// Keychain. Refreshed on view appear and after every save/delete.
     @State private var providersWithStoredDirectAPIKeys: Set<PaceDirectAPIProvider> = []
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
-            plannerTierPickerSection
+            defaultPlannerSummary
+            DisclosureGroup("Change planning provider", isExpanded: $showsProviderChoices) {
+                plannerTierPickerSection.padding(.top, 8)
+            }
+            .font(DS.Typography.bodyStrong)
+            .accessibilityIdentifier("pace.planner.choices")
             Divider().background(DS.Colors.borderSubtle)
             plannerActiveTierConfigurationSection
         }
@@ -40,17 +48,36 @@ struct PacePlannerSettingsTab: View {
         }
     }
 
-    private var plannerTierPickerSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Planning provider")
+    private var defaultPlannerSummary: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text("Default planner")
+                .font(DS.Typography.captionStrong)
+                .foregroundStyle(DS.Colors.textSecondary)
+            Text(companionManager.plannerClient.displayName)
                 .font(DS.Typography.sectionTitle)
-                .foregroundColor(DS.Colors.textPrimary)
                 .accessibilityAddTraits(.isHeader)
+            Text(companionManager.defaultPlannerBoundary.label)
+                .font(DS.Typography.calloutStrong)
+                .foregroundStyle(
+                    companionManager.defaultPlannerBoundary == .onDevice
+                        ? DS.Colors.textSecondary : DS.Colors.offDeviceSignal)
+            Text("Configured provider: \(plannerTierLabels(for: companionManager.activePlannerTier).title)")
+                .font(DS.Typography.callout)
+                .foregroundStyle(DS.Colors.textSecondary)
+            if companionManager.defaultPlannerBoundary == .loopbackEndpoint {
+                Text("Pace sends requests to a service on this Mac. That service controls onward routing.")
+                    .font(DS.Typography.callout)
+                    .foregroundStyle(DS.Colors.textSecondary)
+            }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("pace.planner.summary")
+    }
 
-            VStack(spacing: 0) {
-                ForEach(PacePlannerTier.allCases, id: \.rawValue) { plannerTier in
-                    plannerTierRow(plannerTier)
-                }
+    private var plannerTierPickerSection: some View {
+        VStack(spacing: 0) {
+            ForEach(PacePlannerTier.allCases, id: \.rawValue) { plannerTier in
+                plannerTierRow(plannerTier)
             }
         }
     }
@@ -60,7 +87,7 @@ struct PacePlannerSettingsTab: View {
         let isSelected = companionManager.activePlannerTier == plannerTier
         return Button {
             guard companionManager.activePlannerTier != plannerTier else { return }
-            handlePlannerTierTap(plannerTier)
+            if companionManager.selectPlannerTierWithConsent(plannerTier) { showsProviderChoices = false }
         } label: {
             HStack(alignment: .firstTextBaseline, spacing: 10) {
                 Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
@@ -94,8 +121,8 @@ struct PacePlannerSettingsTab: View {
         switch plannerTier {
         case .local:
             return (
-                "Local — LM Studio",
-                "Run a model on this Mac with LM Studio."
+                "Local model",
+                "Use the configured local model. An enabled CLI bridge can also handle requests."
             )
         case .cliBridge:
             return (
@@ -120,13 +147,6 @@ struct PacePlannerSettingsTab: View {
         }
     }
 
-    private func handlePlannerTierTap(_ newPlannerTier: PacePlannerTier) {
-        // Consent + revert-on-cancel policy lives in one place
-        // (`selectPlannerTierWithConsent`) so this tab and the RAM-aware
-        // budget picker in the Models tab stay in lockstep.
-        companionManager.selectPlannerTierWithConsent(newPlannerTier)
-    }
-
     @ViewBuilder
     private var plannerActiveTierConfigurationSection: some View {
         switch companionManager.activePlannerTier {
@@ -145,22 +165,21 @@ struct PacePlannerSettingsTab: View {
 
     private var plannerLocalDetailPanel: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("LM Studio")
+            Text("Local model settings")
                 .font(DS.Typography.sectionTitle)
-                .foregroundColor(DS.Colors.textPrimary)
                 .accessibilityAddTraits(.isHeader)
-            HStack(spacing: 8) {
-                Circle()
-                    .fill(companionManager.isLMStudioReachable ? DS.Colors.success : DS.Colors.warning)
-                    .frame(width: 8, height: 8)
-                Text(companionManager.isLMStudioReachable ? "Reachable" : "Not reachable — open LM Studio and load the configured model.")
-                    .font(.system(size: 12))
-                    .foregroundColor(DS.Colors.textTertiary)
-                Spacer()
+            if companionManager.plannerClient is LocalPlannerClient {
+                Label(
+                    companionManager.isLMStudioReachable
+                        ? "LM Studio is reachable" : "Open LM Studio and load your model.",
+                    systemImage: companionManager.isLMStudioReachable ? "checkmark.circle" : "exclamationmark.circle"
+                )
+                .font(DS.Typography.callout)
+                .foregroundStyle(companionManager.isLMStudioReachable ? DS.Colors.textSecondary : DS.Colors.warning)
             }
-            Text("Default model: google/gemma-3-12b. Configure model name via Info.plist key LocalPlannerModelIdentifier.")
-                .font(.system(size: 11))
-                .foregroundColor(DS.Colors.textTertiary)
+            Text("Manage downloaded models in Models on this Mac.")
+                .font(DS.Typography.callout)
+                .foregroundStyle(DS.Colors.textSecondary)
         }
     }
 
@@ -224,16 +243,18 @@ struct PacePlannerSettingsTab: View {
                 Spacer()
             }
 
-            paceSettingsToggleRow(
-                title: "Fast everyday answers",
-                subtitle:
-                    "While automatic Codex is selected, use OpenAI gpt-6-luna for simple questions and explicit screen summaries or photos. With Read My Screen on, screen answers include current images, screen context and conversation history. Uses your OpenAI API credits. Voice stays local. Save an OpenAI key under Direct API first.",
-                isOn: Binding(
-                    get: { companionManager.fastEverydayAnswersEnabled },
-                    set: { companionManager.setFastEverydayAnswersEnabled($0) }))
+            if chosenUpstream == .codex {
+                paceSettingsToggleRow(
+                    title: "Fast everyday answers",
+                    subtitle:
+                        "While automatic Codex is selected, use OpenAI gpt-6-luna for simple questions and explicit screen summaries or photos. With Read My Screen on, screen answers include current images, screen context and conversation history. Uses your OpenAI API credits. Voice stays local. Save an OpenAI key under Direct API first.",
+                    isOn: Binding(
+                        get: { companionManager.fastEverydayAnswersEnabled },
+                        set: { companionManager.setFastEverydayAnswersEnabled($0) }))
+            }
 
             Text(
-                "Off-device: each turn's transcript and screen context is sent off your Mac via \(chosenUpstream.displayLabel). Usable immediately after consent; the capsule tints amber and every call is logged to the Privacy dashboard. Failures surface verbatim — no silent fallback to local."
+                "When this CLI handles a request, it sends the transcript and any included screen context to \(chosenUpstream.displayLabel). Pace marks the turn in amber and logs the call locally."
             )
                 .font(.system(size: 11))
                 .foregroundColor(DS.Colors.textTertiary)
@@ -247,7 +268,9 @@ struct PacePlannerSettingsTab: View {
                 .font(DS.Typography.sectionTitle)
                 .foregroundColor(DS.Colors.textPrimary)
                 .accessibilityAddTraits(.isHeader)
-            Text("Free, on-device. Requires Apple Intelligence to be enabled in System Settings. Best for short voice answers and routine tool calls. For harder action plans, upgrade to Local — LM Studio.")
+            Text(
+                "Free, on-device. Requires Apple Intelligence to be enabled in System Settings. Best for short voice answers and routine tool calls. You can choose another provider at any time."
+            )
                 .font(.system(size: 12))
                 .foregroundColor(DS.Colors.textTertiary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -256,20 +279,7 @@ struct PacePlannerSettingsTab: View {
                     NSWorkspace.shared.open(appleIntelligenceURL)
                 }
             }
-            if companionManager.isLMStudioReachable {
-                // LM Studio is already running on the user's machine —
-                // surface the upgrade affordance prominently. This is the
-                // one-click hop from "first-run default" to "best quality"
-                // promised by docs/prds/first-run-experience.md.
-                Divider().background(DS.Colors.borderSubtle).padding(.vertical, 4)
-                Text("LM Studio is running locally — upgrade for better quality on hard action plans.")
-                    .font(.system(size: 11))
-                    .foregroundColor(DS.Colors.textTertiary)
-                    .fixedSize(horizontal: false, vertical: true)
-                paceSettingsButton("upgrade to local — LM Studio", systemName: "arrow.up.circle") {
-                    companionManager.setActivePlannerTier(.local)
-                }
-            }
+
         }
     }
 
@@ -284,9 +294,9 @@ struct PacePlannerSettingsTab: View {
                 Picker("", selection: Binding(
                     get: { companionManager.directAPIProvider },
                     set: { newProvider in
+                            directAPIKeyEntryFieldText = ""
                         companionManager.setDirectAPIProvider(newProvider)
-                        // Clear the test outcome — provider switch invalidates it.
-                        lastDirectAPITestOutcomeText = nil
+                            invalidateDirectAPITest()
                     }
                 )) {
                     ForEach(PaceDirectAPIProvider.allCases, id: \.rawValue) { directAPIProvider in
@@ -318,7 +328,7 @@ struct PacePlannerSettingsTab: View {
                         if didStore {
                             directAPIKeyEntryFieldText = ""
                             refreshProvidersWithStoredDirectAPIKeys()
-                            lastDirectAPITestOutcomeText = nil
+                            invalidateDirectAPITest()
                         }
                     }
                     .disabled(entryFieldTextTrimmed.isEmpty)
@@ -327,7 +337,7 @@ struct PacePlannerSettingsTab: View {
                     paceSettingsButton("delete key", systemName: "trash") {
                         _ = companionManager.deleteDirectAPIKey(for: companionManager.directAPIProvider)
                         refreshProvidersWithStoredDirectAPIKeys()
-                        lastDirectAPITestOutcomeText = nil
+                        invalidateDirectAPITest()
                     }
                     .disabled(!providersWithStoredDirectAPIKeys.contains(companionManager.directAPIProvider))
                     .opacity(providersWithStoredDirectAPIKeys.contains(companionManager.directAPIProvider) ? 1 : 0.45)
@@ -348,7 +358,10 @@ struct PacePlannerSettingsTab: View {
                     companionManager.directAPIProvider.defaultModelIdentifier,
                     text: Binding(
                         get: { companionManager.directAPIModelIdentifier },
-                        set: { companionManager.setDirectAPIModelIdentifier($0) }
+                        set: {
+                            invalidateDirectAPITest()
+                            companionManager.setDirectAPIModelIdentifier($0)
+                        }
                     )
                 )
                 .textFieldStyle(.roundedBorder)
@@ -366,7 +379,10 @@ struct PacePlannerSettingsTab: View {
                         "https://example.com/v1/chat/completions",
                         text: Binding(
                             get: { companionManager.directAPICustomEndpointURLString },
-                            set: { companionManager.setDirectAPICustomEndpointURLString($0) }
+                            set: {
+                                invalidateDirectAPITest()
+                                companionManager.setDirectAPICustomEndpointURLString($0)
+                            }
                         )
                     )
                     .textFieldStyle(.roundedBorder)
@@ -376,16 +392,6 @@ struct PacePlannerSettingsTab: View {
                         .foregroundColor(DS.Colors.textTertiary)
                 }
             }
-
-            // Fall-back-on-failure toggle (default OFF per PRD)
-            paceSettingsToggleRow(
-                title: "Fall back to local on cloud failure",
-                subtitle: "Off by default. When on, Pace silently retries failed Direct-API turns against LM Studio. When off, errors surface verbatim so you know what happened.",
-                isOn: Binding(
-                    get: { companionManager.directAPIFallsBackToLocalOnCloudFailure },
-                    set: { companionManager.setDirectAPIFallsBackToLocalOnCloudFailure($0) }
-                )
-            )
 
             // Test round-trip button + last outcome row
             VStack(alignment: .leading, spacing: 8) {
@@ -429,11 +435,19 @@ struct PacePlannerSettingsTab: View {
         providersWithStoredDirectAPIKeys = companionManager.providersWithStoredDirectAPIKeys()
     }
 
+    private func invalidateDirectAPITest() {
+        currentDirectAPITestID = nil
+        lastDirectAPITestOutcomeText = nil
+    }
+
     private func runDirectAPITest() {
-        isDirectAPITestInFlight = true
+        let testID = UUID()
+        currentDirectAPITestID = testID
         lastDirectAPITestOutcomeText = nil
         Task { @MainActor in
+            guard currentDirectAPITestID == testID else { return }
             let testOutcome = await companionManager.runDirectAPITestRoundTrip()
+            guard currentDirectAPITestID == testID else { return }
             switch testOutcome {
             case .success(let echoedModelResponse):
                 lastDirectAPITestWasSuccessful = true
@@ -444,7 +458,7 @@ struct PacePlannerSettingsTab: View {
                 lastDirectAPITestWasSuccessful = false
                 lastDirectAPITestOutcomeText = testError.localizedDescription
             }
-            isDirectAPITestInFlight = false
+            currentDirectAPITestID = nil
         }
     }
 }

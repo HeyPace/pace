@@ -93,20 +93,22 @@ struct PaceEssentialsSettingsView: View {
                 .background(DS.Colors.controlFill, in: RoundedRectangle(cornerRadius: DS.Radius.control))
                 .accessibilityHidden(true)
 
-            Text(selectedPlannerTitle)
+            Text(companionManager.plannerClient.displayName)
                 .font(.system(size: 13, weight: .semibold))
             Text("planner")
                 .font(.system(size: 12))
                 .foregroundStyle(Appearance.secondary)
             Spacer(minLength: 12)
-            Text(selectedPlannerUsesOffDeviceTier ? "Off-device reasoning" : "On-device reasoning")
+            Text(companionManager.defaultPlannerBoundary.label)
                 .font(.system(size: 10, weight: .medium))
-                .foregroundStyle(selectedPlannerUsesOffDeviceTier ? Appearance.amber : Appearance.secondary)
+                .foregroundStyle(
+                    companionManager.defaultPlannerBoundary == .onDevice ? Appearance.secondary : Appearance.amber
+                )
                 .padding(.horizontal, 6)
                 .padding(.vertical, 3)
                 .background(
-                    selectedPlannerUsesOffDeviceTier
-                        ? Appearance.amber.opacity(0.12) : Appearance.raised,
+                    companionManager.defaultPlannerBoundary == .onDevice
+                        ? Appearance.raised : Appearance.amber.opacity(0.12),
                     in: RoundedRectangle(cornerRadius: 4)
                 )
             destinationLink("Manage…", destination: .planner)
@@ -234,28 +236,9 @@ struct PaceEssentialsSettingsView: View {
         return "\(voiceLabel) · speech stays on this Mac."
     }
 
-    private var selectedPlannerTitle: String {
-        switch companionManager.activePlannerTier {
-        case .local: return "LM Studio"
-        case .appleFoundationModels: return "Apple Intelligence"
-        case .cliBridge: return "CLI bridge"
-        case .cliDirect: return companionManager.activePlannerTierCLIDirectUpstream.displayLabel
-        case .directAPI: return "\(companionManager.directAPIProvider.displayLabel) API"
-        }
-    }
-
-    private var selectedPlannerUsesOffDeviceTier: Bool {
-        switch companionManager.activePlannerTier {
-        case .local, .appleFoundationModels: return false
-        case .cliBridge, .cliDirect, .directAPI: return true
-        }
-    }
-
     private var watchModeSubtitle: String {
         let plannerDisclosure =
-            selectedPlannerUsesOffDeviceTier
-            ? "Sends redacted screen text to \(selectedPlannerTitle)."
-            : "Observations use your local planner."
+            "The selected planner receives redacted screen text. Off-device providers process it outside your Mac."
         if companionManager.isWatchModeEnabled, let summary = companionManager.latestWatchModeSummary {
             return "\(summary)\nRemembers your choice. Pauses while locked or asleep. \(plannerDisclosure)"
         }

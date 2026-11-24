@@ -69,6 +69,9 @@ struct PaceChatPanelView: View {
                 .padding(.horizontal, appearance.padding())
             transcriptColumn
             dockedInputRow
+            PaceChatVoiceControl(companionManager: companionManager)
+                .padding(.horizontal, appearance.padding(existing: 12))
+                .padding(.bottom, 10)
         }
         .frame(width: contentSize?.width ?? 320, height: contentSize?.height ?? 460)
         .background(panelBackground)
@@ -277,14 +280,9 @@ struct PaceChatPanelView: View {
     }
 
     private var emptyTranscriptState: some View {
-        VStack(spacing: 6) {
-            Text("Hold \(BuddyPushToTalkShortcut.currentShortcutOption.notchDisplayLabel) to talk")
-                .font(.system(size: 13, weight: .medium))
-                .foregroundColor(DS.Colors.textSecondary)
-            Text("Or type a message below.")
-                .font(.system(size: 12))
-                .foregroundColor(DS.Colors.textTertiary)
-        }
+        Text("What’s on your mind?")
+            .font(appearance.font(size: 15, weight: .medium))
+            .foregroundStyle(DS.Colors.textSecondary)
         .frame(maxWidth: .infinity)
     }
 

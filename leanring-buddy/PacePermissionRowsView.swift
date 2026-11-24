@@ -22,7 +22,6 @@
 //  doesn't match the lighter helpers in PaceSettingsSharedComponents.
 //
 
-import AVFoundation
 import SaaSMakerUI
 import SwiftUI
 
@@ -193,20 +192,7 @@ struct PaceCorePermissionsView: View {
                 pacePanelGrantedBadge
             } else {
                 Button(action: {
-                    // Triggers the native macOS microphone permission dialog on
-                    // first attempt. If already denied, opens System Settings.
-                    let status = AVCaptureDevice.authorizationStatus(for: .audio)
-                    if status == .notDetermined {
-                        AVCaptureDevice.requestAccess(for: .audio) { _ in
-                            Task { @MainActor in
-                                companionManager.refreshAllPermissions()
-                            }
-                        }
-                    } else {
-                        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone") {
-                            NSWorkspace.shared.open(url)
-                        }
-                    }
+                    companionManager.requestMicrophoneAccess()
                 }) {
                     pacePanelGrantButtonLabel
                 }

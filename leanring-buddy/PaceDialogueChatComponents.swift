@@ -209,7 +209,7 @@ struct PaceDialogueCurrentStatusView: View {
     @ObservedObject var companionManager: CompanionManager
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    private var signalState: PaceSignalState { companionManager.nativeEffectiveSignalState }
+    private var signalState: PaceSignalState { companionManager.nativePanelPresentation.signalState }
     private var hasFailure: Bool { companionManager.currentTurnHUDState.status == .failed }
     private var tracksElapsedTime: Bool { [.listening, .understanding, .acting].contains(signalState) }
 
@@ -232,8 +232,7 @@ struct PaceDialogueCurrentStatusView: View {
             isFinalizing: companionManager.buddyDictationManager.isFinalizingTranscript,
             startedAt: companionManager.currentRequestStartedAt, now: date)
         let displayedTitle =
-            companionManager.currentTurnHUDState.status == .needsClarification
-            ? companionManager.currentTurnHUDState.title : feedback.title
+            signalState == .blocked ? companionManager.currentTurnHUDState.title : feedback.title
         return HStack(alignment: .top, spacing: 10) {
             Group {
                 if feedback.showsSpinner && !reduceMotion {
@@ -243,7 +242,7 @@ struct PaceDialogueCurrentStatusView: View {
                         state: signalState,
                         isOffDeviceTurn: companionManager.isOffDeviceTurnInFlight,
                         audioPowerLevel: companionManager.currentAudioPowerLevel, lineCount: 1,
-                        colorRoleOverride: companionManager.nativeEffectiveSignalColorRoleOverride)
+                        colorRoleOverride: nil)
                 }
             }.frame(width: 28, height: 20)
             VStack(alignment: .leading, spacing: 4) {
@@ -298,5 +297,81 @@ struct PaceDialogueCurrentStatusView: View {
         .padding(.vertical, 8)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Pace request status: " + displayedTitle)
+    }
+}
+
+struct PaceChatVoiceControl: View {
+    @ObservedObject var companionManager: CompanionManager
+    @ObservedObject private var dictationManager: PacePushToTalkManager
+
+    init(companionManager: CompanionManager) {
+        self.companionManager = companionManager
+        _dictationManager = ObservedObject(wrappedValue: companionManager.buddyDictationManager)
+    }
+
+    var body: some View {
+        let action = PaceChatVoiceAction.resolve(for: companionManager)
+        HStack(spacing: 4) {
+            switch action {
+            case .allowMicrophone:
+                control("Allow microphone", icon: "mic", help: "Allow Pace to use your microphone for voice input") {
+                    companionManager.requestMicrophoneAccess()
+                }
+            case .allowSpeechRecognition:
+                control(
+                    "Allow speech recognition", icon: "waveform",
+                    help: "Allow the selected speech provider to transcribe your voice"
+                ) {
+                    companionManager.requestSpeechRecognitionPermission()
+                }
+            case .checkVoiceModel:
+                control(
+                    "Check voice model", icon: "waveform",
+                    help: "The transcription model is loading. Open Voice settings to see its status."
+                ) {
+                    PaceSettingsWindowManager.shared.show(companionManager: companionManager, destination: .voice)
+                }
+            case .retryPracticeMicrophone:
+                control(
+                    "Retry Japanese microphone", icon: "arrow.clockwise",
+                    help: dictationManager.japanesePracticePreparationStatus
+                ) {
+                    dictationManager.prepareJapanesePracticeTranscriptionIfNeeded()
+                }
+            case .preparingPracticeMicrophone:
+                Label("Preparing Japanese microphone…", systemImage: "waveform")
+            case .start:
+                control("Speak to Pace", icon: "mic", help: "Start voice input") {
+                    companionManager.handleMicrophoneButtonTapped()
+                }
+                if companionManager.hasAccessibilityPermission {
+                    Text("Hold " + BuddyPushToTalkShortcut.currentShortcutOption.notchDisplayLabel)
+                        .foregroundStyle(DS.Colors.textTertiary)
+                        .accessibilityLabel(
+                            "Voice shortcut: hold " + BuddyPushToTalkShortcut.currentShortcutOption.notchDisplayLabel)
+                }
+            case .finishRecording:
+                control("Finish recording", icon: "mic.fill", help: "Finish voice input and transcribe") {
+                    companionManager.handleMicrophoneButtonTapped()
+                }
+            case .transcribing:
+                Label("Transcribing…", systemImage: "waveform")
+            }
+        }
+        .font(.system(size: 11))
+        .foregroundStyle(DS.Colors.textSecondary)
+    }
+
+    private func control(_ title: String, icon: String, help: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Label(title, systemImage: icon)
+                .padding(.horizontal, 4)
+                .frame(minHeight: 24)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .paceControlHoverHighlight(cornerRadius: DS.Radius.control)
+        .pointerCursor()
+        .help(help)
     }
 }

@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Testing
 
@@ -127,6 +128,12 @@ struct PacePowerCardTests {
         #expect(
             controller.handleCardInteraction(
                 ifGenerationMatches: firstGeneration, interaction: .select(pageIndex: 0, choiceIndex: 0)))
+        let rejected = await controller.presentCard(
+            request, mayPresent: { false },
+            authorizeInteraction: { _ in false }, onDismiss: { _ in Issue.record("A denied card never opened") })
+        #expect(rejected.stopsActionPlan)
+        #expect(controller.presentationGeneration == firstGeneration)
+        #expect(controller.isVisible)
         _ = await present()
         #expect(
             !controller.handleCardInteraction(
@@ -139,6 +146,34 @@ struct PacePowerCardTests {
         #expect(!controller.isVisible)
         #expect(interactions == 1)
         #expect(dismissals == 1)
+    }
+
+    @Test func nativeCardAcceptsKeyboardFocusAndCancelDismissesOnlyItsGeneration() async throws {
+        guard NSScreen.main != nil else { return }
+        let controller = PaceMediaOverlayController()
+        defer { controller.dismiss(cancelOwnedRun: false) }
+        let request = PaceMediaPresentationRequest(
+            card: try #require(PacePowerCard.parse(definition)), durationSeconds: 120)
+        var dismissals: [UUID] = []
+        func present() async throws -> NSWindow {
+            let result = await controller.presentCard(
+                request, mayPresent: { true }, authorizeInteraction: { _ in true },
+                onDismiss: { dismissals.append($0) })
+            #expect(!result.stopsActionPlan)
+            return try #require(
+                NSApp.windows.first {
+                    $0.isVisible && $0.identifier?.rawValue == "pace.power.media" && $0.title == "Pace Power card"
+                })
+        }
+        let superseded = try await present()
+        #expect(superseded.canBecomeKey)
+        let current = try await present()
+        let generation = controller.presentationGeneration
+        superseded.cancelOperation(nil)
+        #expect(controller.isVisible && dismissals.isEmpty)
+        current.cancelOperation(nil)
+        #expect(!controller.isVisible)
+        #expect(dismissals == [generation])
     }
 
     @Test func managerPersistsDisplayedContentAndChoicesAndRechecksPowerDisablement() async throws {
