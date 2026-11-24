@@ -216,16 +216,10 @@ struct PaceOnboardingView: View {
                     .frame(maxWidth: 430, alignment: .leading)
                     .padding(.top, 22)
 
-                HStack(spacing: 18) {
-                    primaryButton("Continue", systemImage: "arrow.right") {
-                        advanceFromIgnition()
-                    }
-                    .keyboardShortcut(.return, modifiers: [])
-
-                    Text("Three steps")
-                        .font(DS.Typography.captionStrong)
-                        .foregroundStyle(DS.Colors.textTertiary)
+                primaryButton("Continue", systemImage: "arrow.right") {
+                    advanceFromIgnition()
                 }
+                .keyboardShortcut(.return, modifiers: [])
                 .padding(.top, 34)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -465,12 +459,7 @@ struct PaceOnboardingView: View {
                     }
                 }
                 .padding(22)
-                .background(DS.Colors.surfaceInset)
-                .clipShape(RoundedRectangle(cornerRadius: DS.Radius.surface, style: .continuous))
-                .overlay {
-                    RoundedRectangle(cornerRadius: DS.Radius.surface, style: .continuous)
-                        .stroke(DS.Colors.borderSubtle, lineWidth: 1)
-                }
+                .background(DS.Colors.controlFill, in: RoundedRectangle(cornerRadius: DS.Radius.surface))
                 .padding(.top, 28)
 
                 if firstCommandOutcome == .blocked || firstCommandOutcome == .failed {
@@ -566,12 +555,7 @@ struct PaceOnboardingView: View {
             }
         }
         .padding(26)
-        .background(DS.Colors.surfaceInset.opacity(0.72))
-        .clipShape(RoundedRectangle(cornerRadius: DS.Radius.window, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: DS.Radius.window, style: .continuous)
-                .stroke(signalPresentation.colorRole.color.opacity(0.25), lineWidth: 1)
-        }
+        .background(DS.Colors.controlFill.opacity(0.6), in: RoundedRectangle(cornerRadius: DS.Radius.surface))
         .accessibilityElement(children: .contain)
     }
 
@@ -801,9 +785,13 @@ struct PaceOnboardingView: View {
     ) -> some View {
         Button(action: action) {
             Label(title, systemImage: systemImage)
-                .textCase(nil)
+                .font(DS.Typography.bodyStrong)
+                .foregroundStyle(DS.Colors.textOnAccent)
+                .padding(.horizontal, 15)
+                .frame(minHeight: 36)
+                .background(DS.Colors.accent, in: RoundedRectangle(cornerRadius: DS.Radius.control))
         }
-        .buttonStyle(SMButtonStyle(.brand))
+        .buttonStyle(.plain)
         .transaction { transaction in
             if reduceMotion { transaction.disablesAnimations = true }
         }
@@ -817,13 +805,16 @@ struct PaceOnboardingView: View {
         _ title: String,
         action: @escaping () -> Void
     ) -> some View {
-        Button(title, action: action)
-            .buttonStyle(SMButtonStyle(.outline))
-            .transaction { transaction in
-                if reduceMotion { transaction.disablesAnimations = true }
-            }
-            .paceControlHoverHighlight(cornerRadius: DS.Radius.control)
-            .pointerCursor()
+        Button(action: action) {
+            Text(title)
+                .font(DS.Typography.calloutStrong)
+                .padding(.horizontal, 12)
+                .frame(minHeight: 32)
+                .background(DS.Colors.controlFill, in: RoundedRectangle(cornerRadius: DS.Radius.control))
+        }
+        .buttonStyle(.plain)
+        .paceControlHoverHighlight(cornerRadius: DS.Radius.control)
+        .pointerCursor()
     }
 
     private func advanceFromIgnition() {
