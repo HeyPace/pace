@@ -63,13 +63,14 @@ class GlowBorderWindow: NSWindow {
 /// animate smoothly when `voiceState` changes.
 struct GlowBorderView: View {
     let voiceState: CompanionVoiceState
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     /// Border thickness in points. Kept thin so the glow is ambient,
     /// not distracting.
-    private let borderWidth: CGFloat = 3
+    private let borderWidth: CGFloat = 1
     /// Inset from the screen edge. On notched MacBooks this keeps the
     /// border from overlapping the notch area visually.
-    private let borderInset: CGFloat = 2
+    private let borderInset: CGFloat = 0.5
 
     private var color: Color {
         switch voiceState {
@@ -91,11 +92,11 @@ struct GlowBorderView: View {
         case .idle:
             return 0
         case .listening:
-            return 0.55
+            return 0.42
         case .processing:
-            return 0.55
+            return 0.42
         case .responding:
-            return 0.55
+            return 0.42
         }
     }
 
@@ -120,12 +121,12 @@ struct GlowBorderView: View {
                 cornerRadius: 10,
                 style: .continuous
             )
-            .stroke(color, lineWidth: borderWidth)
+            .strokeBorder(color, lineWidth: borderWidth)
             .shadow(color: color, radius: glowRadius, x: 0, y: 0)
             .opacity(opacity)
             .padding(borderInset)
             .frame(width: geo.size.width, height: geo.size.height)
-            .animation(.easeInOut(duration: 0.4), value: voiceState)
+            .animation(reduceMotion ? nil : .easeInOut(duration: 0.4), value: voiceState)
         }
         // Respect Reduce Motion — the glow still shows but doesn't
         // animate between states.

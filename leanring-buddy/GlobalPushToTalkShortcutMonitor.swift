@@ -133,13 +133,16 @@ final class GlobalPushToTalkShortcutMonitor: ObservableObject {
         CGEvent.tapEnable(tap: globalEventTap, enable: true)
     }
 
-    func stop() {
+    func stop(preservingSimulatedPress: Bool = false) {
         cancelPendingRightOptionHold()
         functionPTapGeneration = UUID()
         functionPThread?.cancel()
         functionPThread = nil
-        isShortcutCurrentlyPressed = false
-        isSimulatedPressActive = false
+        // Permission polling can stop the hardware tap while a microphone-button session owns the press.
+        if !preservingSimulatedPress || !isSimulatedPressActive {
+            isShortcutCurrentlyPressed = false
+            isSimulatedPressActive = false
+        }
 
         if let globalEventTapRunLoopSource {
             CFRunLoopRemoveSource(CFRunLoopGetMain(), globalEventTapRunLoopSource, .commonModes)

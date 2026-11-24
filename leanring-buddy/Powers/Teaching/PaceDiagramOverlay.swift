@@ -391,7 +391,7 @@ private struct PaceDiagramHeaderView: View {
                 Text("pace is explaining").font(DS.Typography.callout)
                 Spacer()
                 if controller.currentLessonStep != nil {
-                    Button("Previous step", systemImage: "backward.end") { controller.moveLesson(by: -1) }
+                    Button("Previous step", systemImage: "chevron.left") { controller.moveLesson(by: -1) }
                         .labelStyle(.iconOnly).disabled(controller.lessonStepIndex == 0)
                     Button(
                         controller.isLessonPlaybackActive ? "Pause lesson" : "Play lesson",
@@ -407,7 +407,7 @@ private struct PaceDiagramHeaderView: View {
                         .accessibilityIdentifier("pace.lesson.play-pause")
                     Text("\(controller.lessonStepIndex + 1) / \(controller.document?.lesson?.steps.count ?? 0)")
                         .monospacedDigit().foregroundStyle(DS.Colors.textSecondary)
-                    Button("Next step", systemImage: "forward.end") { controller.moveLesson(by: 1) }
+                    Button("Next step", systemImage: "chevron.right") { controller.moveLesson(by: 1) }
                         .labelStyle(.iconOnly)
                         .disabled(controller.lessonStepIndex + 1 >= (controller.document?.lesson?.steps.count ?? 0))
                 } else {
@@ -419,7 +419,7 @@ private struct PaceDiagramHeaderView: View {
                     .help("Close diagram · Escape while hovering the diagram")
                     .accessibilityIdentifier("pace.diagram.close")
             }
-            .font(.system(size: 12))
+            .font(DS.Typography.callout)
             Text(controller.document?.title ?? "")
                 .font(.system(size: 23, weight: .semibold))
                 .lineLimit(2)
@@ -428,7 +428,7 @@ private struct PaceDiagramHeaderView: View {
         .padding(.horizontal, 18)
         .padding(.vertical, 12)
         .frame(maxWidth: .infinity, alignment: .topLeading)
-        .background(DS.Colors.background, in: RoundedRectangle(cornerRadius: 15))
+        .background(DS.Colors.background, in: RoundedRectangle(cornerRadius: DS.Radius.surface, style: .continuous))
         .buttonStyle(DiagramQuietButtonStyle())
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Interactive lesson controls")
@@ -456,10 +456,9 @@ private struct PaceDiagramDetailView: View {
                 .font(DS.Typography.caption).foregroundStyle(DS.Colors.textSecondary)
             } else if let node = controller.selectedNode {
                 HStack {
-                    Text("SELECTED · \(node.label)")
-                        .font(.system(size: 9, weight: .medium, design: .monospaced))
-                        .tracking(1)
-                        .foregroundStyle(Color(hex: "#9DB7DA"))
+                    Text("Selected · \(node.label)")
+                        .font(DS.Typography.captionStrong)
+                        .foregroundStyle(DS.Colors.textSecondary)
                         .lineLimit(1)
                     Spacer()
                     Button("Next part", systemImage: "arrow.right") { controller.selectNextNode() }
@@ -474,7 +473,7 @@ private struct PaceDiagramDetailView: View {
                 }
                 HStack {
                     Text("Keep talking to change the diagram.")
-                        .font(.system(size: 10))
+                        .font(DS.Typography.caption)
                         .foregroundStyle(DS.Colors.textSecondary)
                     Spacer()
                     Button("Explore this part", systemImage: "arrow.up.right") { controller.askAboutSelectedNode() }
@@ -490,14 +489,13 @@ private struct PaceDiagramDetailView: View {
                         ? "Select a part. Hover here and press Escape to close."
                         : "Drag to orbit. Click a physical part to explore it. Escape closes the figure."
                 )
-                .font(.system(size: 10))
+                .font(DS.Typography.caption)
                 .foregroundStyle(DS.Colors.textSecondary)
             }
         }
         .padding(18)
         .frame(maxWidth: .infinity, alignment: .topLeading)
-        .background(DS.Colors.background, in: RoundedRectangle(cornerRadius: 18))
-        .overlay(RoundedRectangle(cornerRadius: 18).stroke(Color.white.opacity(0.12), lineWidth: 1))
+        .background(DS.Colors.background, in: RoundedRectangle(cornerRadius: DS.Radius.surface, style: .continuous))
         .foregroundStyle(DS.Colors.textPrimary)
         .buttonStyle(DiagramQuietButtonStyle())
     }
@@ -521,7 +519,8 @@ private struct DiagramQuietButtonBody: View {
             .padding(.horizontal, 8)
             .padding(.vertical, 6)
             .background(
-                Color.white.opacity(isPressed ? 0.14 : isHovered ? 0.09 : 0.035), in: RoundedRectangle(cornerRadius: 7)
+                Color.white.opacity(isPressed ? 0.14 : isHovered ? 0.09 : 0.035),
+                in: RoundedRectangle(cornerRadius: DS.Radius.control, style: .continuous)
             )
             .opacity(isEnabled ? 1 : 0.4)
             .pointerCursor(isEnabled: isEnabled)

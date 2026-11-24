@@ -124,6 +124,26 @@ struct PaceGeneratedSVGTests {
         }
     }
 
+    @Test func failedIllustrationReplacementKeepsTheCurrentPresentationUsable() async throws {
+        let controller = PaceMediaOverlayController(showsWindows: false)
+        let request = PaceMediaPresentationRequest(
+            svg: try #require(PaceGeneratedSVG.parse(drawing)), durationSeconds: 8)
+        var closedOriginal = false
+        controller.prepareGeneratedRenderer = { _, _ in }
+        let original = await controller.presentGenerated(
+            request, mayPresent: { true }, onDismiss: { _ in closedOriginal = true })
+        #expect(!original.stopsActionPlan)
+        let generation = controller.presentationGeneration
+        controller.prepareGeneratedRenderer = { _, _ in throw CancellationError() }
+        let replacement = await controller.presentGenerated(
+            request, mayPresent: { true }, onDismiss: { _ in Issue.record("Replacement was never visible") })
+        #expect(replacement.stopsActionPlan)
+        #expect(controller.presentationGeneration == generation)
+        #expect(controller.isVisible)
+        controller.dismissPresentation(ifGenerationMatches: generation, cancelOwnedRun: true)
+        #expect(closedOriginal)
+    }
+
     @Test func cancellationAuthorizationAndReplacementDuringPreparationCannotShowLateVisuals() async throws {
         let controller = PaceMediaOverlayController(showsWindows: false)
         let request = PaceMediaPresentationRequest(

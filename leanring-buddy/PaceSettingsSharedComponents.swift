@@ -21,12 +21,13 @@ import SwiftUI
 @ViewBuilder
 func paceSettingsRowLabel(title: String, subtitle: String) -> some View {
     VStack(alignment: .leading, spacing: 3) {
-        Text(title.lowercased())
+        Text(title)
             .font(DS.Typography.calloutStrong)
             .foregroundColor(DS.Colors.textPrimary)
         Text(subtitle)
             .font(DS.Typography.caption)
-            .foregroundColor(DS.Colors.textTertiary)
+            .foregroundColor(DS.Colors.textSecondary)
+            .fixedSize(horizontal: false, vertical: true)
     }
 }
 
@@ -45,13 +46,15 @@ func paceSettingsToggleRow(
         Spacer()
         Toggle(title, isOn: isOn)
             .labelsHidden()
+            .toggleStyle(.switch)
+            .controlSize(.small)
+            .pointerCursor()
             .accessibilityLabel(title)
             .accessibilityHint(subtitle)
     }
     .padding(.vertical, 12)
     .overlay(alignment: .bottom) {
-        Divider()
-            .background(DS.Colors.borderSubtle)
+        PaceSettingsSeparator()
     }
 }
 
@@ -61,7 +64,7 @@ func paceSettingsToggleRow(
 @ViewBuilder
 func paceSettingsInfoRow(title: String, value: String) -> some View {
     HStack {
-        Text(title.lowercased())
+        Text(title)
             .font(DS.Typography.calloutStrong)
             .foregroundColor(DS.Colors.textSecondary)
         Spacer()
@@ -71,8 +74,7 @@ func paceSettingsInfoRow(title: String, value: String) -> some View {
     }
     .padding(.vertical, 10)
     .overlay(alignment: .bottom) {
-        Divider()
-            .background(DS.Colors.borderSubtle)
+        PaceSettingsSeparator()
     }
 }
 
@@ -88,7 +90,8 @@ func paceSettingsButton(
     Button(action: action) {
         HStack(spacing: 6) {
             Image(systemName: systemName)
-                .font(.system(size: 11, weight: .medium))
+                .font(.system(size: 12, weight: .medium))
+                .accessibilityHidden(true)
             Text(title)
                 .textCase(nil)
                 .font(DS.Typography.captionStrong)
@@ -96,15 +99,22 @@ func paceSettingsButton(
         .foregroundColor(DS.Colors.textPrimary)
         .padding(.horizontal, 10)
         .padding(.vertical, 6)
-        .background(
-            RoundedRectangle(cornerRadius: 6, style: .continuous)
-                .fill(Color.white.opacity(0.07))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 6, style: .continuous)
-                .stroke(DS.Colors.borderSubtle, lineWidth: 0.7)
-        )
+        .background(DS.Colors.controlFill, in: RoundedRectangle(cornerRadius: DS.Radius.control))
+        .contentShape(Rectangle())
     }
     .buttonStyle(.plain)
+    .paceControlHoverHighlight(cornerRadius: DS.Radius.control)
     .pointerCursor()
+}
+
+
+struct PaceSettingsSeparator: View {
+    @Environment(\.displayScale) private var displayScale
+
+    var body: some View {
+        Rectangle()
+            .fill(DS.Colors.borderSubtle)
+            .frame(height: 1 / displayScale)
+            .accessibilityHidden(true)
+    }
 }

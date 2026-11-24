@@ -148,7 +148,7 @@ call / when you're actively typing).
 
 **External integrations (MCP)** — Peekaboo provides optional OSS Mac observation and app-scoped computer control through the existing MCP settings catalog. Its own macOS permissions and Pace’s Read My Screen setting gate screen control. Beyond that, anything a configured Model Context Protocol
 server exposes. Configured via `~/.config/pace/mcp-servers.json` or the one-tap
-catalog in Settings → MCP (Peekaboo, Playwright, filesystem, fetch, applescript, composio, and Linear read-only OAuth; custom servers use live tool schemas).
+catalog in Settings → Connected apps & tools (Peekaboo, Playwright, filesystem, fetch, applescript, composio, and Linear read-only OAuth; custom servers use live tool schemas).
 
 **Automation (all default OFF)** — four opt-in automation surfaces in Settings →
 General → Automation:
@@ -161,7 +161,7 @@ General → Automation:
   of failed commands (`PaceDynamicToolRegistry`).
 - *Background agents* — persistent read-only summaries, drafts, and cited research. Tasks exposes results, cancellation, and retry from the beginning after interruption. Text or voice: "in the background, draft a reply to..." (`PaceBackgroundAgentRunner`).
 
-**Power management** — Say “list powers”, “show power Thank You”, “create a
+**Powers** — Settings → Powers shows built-in capabilities, saved programs, taught powers, and bundled workflows. Connections are listed separately under Settings → Connected apps & tools. For the full catalog of built-in powers, saved powers, and installed workflows, say “list powers”. Say “list powers”, “show power Thank You”, “create a
 power called Thank You that presents thank-you-dance for four seconds and says
 thank you”, “update power Thank You: say welcome”, “disable power Thank You”,
 “enable power Thank You”, “run power Thank You”, or “remove power Thank You”.
@@ -195,7 +195,7 @@ Research and Standup Notes. They reuse the shared planner, tools, approvals
 and conversation. Additional user skills load from the local Pace skills folder.
 A user skill with the same slug takes precedence over its bundled default.
 
-**Local automation reuse** — “list my automations” builds a non-persisted local
+**Saved powers and installed workflows** — “list my automations” builds a non-persisted local
 catalog over bundled typed automations, bounded Pace Programs, recorded flows,
 planner-grounded skills, and installed macOS Shortcuts. Each entry discloses
 its execution mode. “Run

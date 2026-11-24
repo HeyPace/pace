@@ -33,17 +33,16 @@ nonisolated struct PaceActionApprovalRequest: Equatable, Sendable {
     }
 
     var messageText: String {
-        "Approve Pace actions?"
+        "Allow Pace to control your Mac?"
     }
 
     var informativeText: String {
         """
-        Pace wants to control your Mac:
+        Pace is asking to perform the following:
 
-        \(approvalSummary)
-        \(preflightSummary.map { "\n\n\($0)" } ?? "")
+        \(approvalSummary)\(preflightSummary.map { "\n\n\($0)" } ?? "")
 
-        Only approve this if it matches what you asked for.
+        Choose Allow Once only if these actions match your request.
         """
     }
 }

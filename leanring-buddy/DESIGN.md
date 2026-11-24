@@ -63,8 +63,9 @@ scene titles, body/callout for working content, and caption for metadata.
 ## Shape And Components
 
 - Window and panel geometry follows native macOS conventions.
-- Working surfaces use 10–14pt continuous corners; pills are reserved for
-  status, filters, and short values.
+- Use 6pt corners for controls and 10pt corners for grouped content. Keep
+  the hardware notch silhouette. Use a neutral fill for hover, a visible
+  ring for keyboard focus, and a single hairline between dense list rows.
 - The shared signal mark is a waveform or single routed line, never sparkles.
 - PacePad's idle expression uses two happy signal arcs and one scanlined smile
   on the physical display. It stays abstract and screen-native rather than
@@ -130,21 +131,10 @@ state and can finish setup later.
 
 ## Command Center Information Architecture
 
-Use one resizable management window with plain-language grouped navigation:
-
-- **Use Pace:** Conversations, Automations, Multi-step automations, Scheduled
-  tasks.
-- **Activity & Privacy:** Activity history, Privacy, Permissions.
-- **Customize:** General, Voice, Local models, Memory.
-- **Help:** Help & diagnostics, About.
-
-Reasoning internals, optional integrations, experimental modes, usage detail,
-and developer tools live behind one Advanced controls disclosure but remain
-searchable by both their visible names and descriptions. Each primary group
-shows no more than four choices. The most recently selected destination is
-restored, and every destination exposes a contextual plain-language
-explanation. Settings remain stable, searchable, keyboard accessible, and
-sized for their content.
+Settings opens with direct access to Powers, Connected apps & tools, Local usage,
+and Activity history. Privacy & permissions groups access, memory, and history.
+Advanced groups models, recorded workflows, and troubleshooting. Detail screens
+provide a keyboard-accessible route back to Settings.
 
 ## References And Anti-References
 

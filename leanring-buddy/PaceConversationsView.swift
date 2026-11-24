@@ -61,7 +61,10 @@ struct PaceConversationsView: View {
     private var chatHeader: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .firstTextBaseline, spacing: 10) {
-                SMSectionHeader("", accent: "conversations", size: 28)
+                Text("Conversation history")
+                    .font(DS.Typography.sectionTitle)
+                    .foregroundStyle(DS.Colors.textPrimary)
+                    .accessibilityAddTraits(.isHeader)
                     .layoutPriority(1)
 
                 SMStatusPill(
@@ -80,9 +83,6 @@ struct PaceConversationsView: View {
                 }
             }
 
-            Text("Your voice and typed turns share one private conversation history.")
-                .font(DS.Typography.callout)
-                .foregroundStyle(DS.Colors.textSecondary)
         }
         .padding(.horizontal, appearance.padding(existing: 24))
         .padding(.top, 24)
@@ -130,7 +130,7 @@ struct PaceConversationsView: View {
             Image(systemName: "magnifyingglass")
                 .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(DS.Colors.textTertiary)
-            TextField("Search past turns", text: $searchQuery)
+            TextField("Search conversation history", text: $searchQuery)
                 .textFieldStyle(.plain)
                 .font(DS.Typography.callout)
                 .foregroundStyle(DS.Colors.textPrimary)
@@ -139,7 +139,7 @@ struct PaceConversationsView: View {
         .frame(height: 34)
         .background(
             RoundedRectangle(cornerRadius: DS.Radius.control, style: .continuous)
-                .fill(Color.black)
+                .fill(DS.Colors.surfaceRaised)
                 .overlay {
                     RoundedRectangle(cornerRadius: DS.Radius.control, style: .continuous)
                         .stroke(DS.Colors.borderSubtle, lineWidth: 0.8)
@@ -157,7 +157,7 @@ struct PaceConversationsView: View {
                 LazyVStack(alignment: .leading, spacing: 10) {
                     if filteredThreadRows.isEmpty {
                         emptyState
-                            .padding(.top, 72)
+                            .padding(.top, 40)
                     } else {
                         ForEach(filteredThreadRows) { threadRow in
                             switch threadRow {
@@ -294,7 +294,7 @@ struct PaceConversationsView: View {
             .padding(.vertical, 10)
             .background(
                 RoundedRectangle(cornerRadius: DS.Radius.surface, style: .continuous)
-                    .fill(Color.black)
+                    .fill(DS.Colors.surfaceRaised)
                     .overlay {
                         RoundedRectangle(
                             cornerRadius: DS.Radius.surface,

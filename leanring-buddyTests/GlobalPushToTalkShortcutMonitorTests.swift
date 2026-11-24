@@ -130,6 +130,21 @@ struct GlobalPushToTalkShortcutMonitorTests {
     }
 
     @Test
+    func permissionPollingLeavesTheMicrophoneButtonAbleToFinishItsRecording() {
+        let monitor = GlobalPushToTalkShortcutMonitor()
+        var transitions: [BuddyPushToTalkShortcut.ShortcutTransition] = []
+        let subscription = monitor.shortcutTransitionPublisher.sink { transitions.append($0) }
+        monitor.simulateShortcutPressed()
+        monitor.stop(preservingSimulatedPress: true)
+        monitor.stop(preservingSimulatedPress: true)
+        #expect(monitor.isSimulatedPressActive)
+        monitor.simulateShortcutReleased()
+        #expect(transitions == [.pressed, .released])
+        #expect(!monitor.isShortcutCurrentlyPressed)
+        subscription.cancel()
+    }
+
+    @Test
     func stopClearsSyntheticPressState() {
         let monitor = GlobalPushToTalkShortcutMonitor()
 

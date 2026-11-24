@@ -26,6 +26,7 @@ struct PacePlannerTierStoreTests {
         "pace.planner.tier.selectedTier",
         "pace.planner.tier.directAPI.provider",
         "pace.planner.tier.directAPI.model",
+        "pace.planner.tier.directAPI.modelsByProvider",
         "pace.planner.tier.directAPI.customEndpointURL",
         "pace.planner.tier.directAPI.fallsBackToLocalOnFailure",
         "pace.planner.tier.cliDirect.upstream"
@@ -173,6 +174,26 @@ struct PacePlannerTierStoreTests {
                 let reloadedConfiguration = PacePlannerTierStore.loadConfiguration()
                 #expect(reloadedConfiguration.directAPIProvider == providerUnderTest)
             }
+        }
+    }
+
+    @Test
+    func switchingProvidersRestoresTheirModelsIncludingLegacyChoices() {
+        withClearedAndRestoredPlannerTierState {
+            let defaults = UserDefaults.standard
+            defaults.set("openai", forKey: "pace.planner.tier.directAPI.provider")
+            defaults.set("my-existing-model", forKey: "pace.planner.tier.directAPI.model")
+            PacePlannerTierStore.saveDirectAPIProvider(.anthropic)
+            #expect(
+                PacePlannerTierStore.loadConfiguration().directAPIModelIdentifier
+                    == PaceDirectAPIProvider.anthropic.defaultModelIdentifier)
+            PacePlannerTierStore.saveDirectAPIModelIdentifier("my-anthropic-model")
+            PacePlannerTierStore.saveDirectAPIProvider(.custom)
+            #expect(PacePlannerTierStore.loadConfiguration().directAPIModelIdentifier.isEmpty)
+            PacePlannerTierStore.saveDirectAPIProvider(.openai)
+            #expect(PacePlannerTierStore.loadConfiguration().directAPIModelIdentifier == "my-existing-model")
+            PacePlannerTierStore.saveDirectAPIProvider(.anthropic)
+            #expect(PacePlannerTierStore.loadConfiguration().directAPIModelIdentifier == "my-anthropic-model")
         }
     }
 

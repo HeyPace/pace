@@ -307,7 +307,7 @@ private struct CompanionResponseOverlayView: View {
     var body: some View {
         if viewModel.isShowingResponse {
             VStack(alignment: .leading, spacing: 8) {
-                Text(viewModel.streamingResponseText.isEmpty ? "..." : viewModel.streamingResponseText)
+                Text(viewModel.streamingResponseText.isEmpty ? "…" : viewModel.streamingResponseText)
                     .font(.system(size: 13, weight: .regular))
                     .foregroundColor(DS.Colors.textPrimary)
                     .lineSpacing(3)
@@ -321,7 +321,7 @@ private struct CompanionResponseOverlayView: View {
                         HStack(spacing: 6) {
                             Image(systemName: "stop.circle.fill")
                                 .font(.system(size: 12, weight: .semibold))
-                            Text("stop")
+                            Text("Stop listening")
                                 .font(.system(size: 12, weight: .semibold))
                         }
                         .foregroundColor(.white)
@@ -343,45 +343,11 @@ private struct CompanionResponseOverlayView: View {
             .padding(.horizontal, 14)
             .padding(.vertical, 10)
             .smTheme(DS.palette)
-            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
             .background(
-                    ZStack {
-                        // Dark glass fill — slightly translucent so the bubble
-                        // feels seated against the screen instead of pasted on.
-                        RoundedRectangle(cornerRadius: 12, style: .continuous)
-                            .fill(Color.black.opacity(0.7))
-                        // Inner brand glow, very faint, only along the top edge
-                        // so the bubble reads as the cursor's speech, not just
-                        // a random tooltip.
-                        RoundedRectangle(cornerRadius: 12, style: .continuous)
-                            .fill(
-                                LinearGradient(
-                                    colors: [
-                                        DS.Colors.overlayCursorBlue.opacity(0.18),
-                                        Color.clear
-                                    ],
-                                    startPoint: .top,
-                                    endPoint: .center
-                                )
-                            )
-                        // Hairline gradient stroke — matches the voice pill
-                        RoundedRectangle(cornerRadius: 12, style: .continuous)
-                            .strokeBorder(
-                                LinearGradient(
-                                    colors: [
-                                        Color.white.opacity(0.4),
-                                        Color.white.opacity(0.05),
-                                        DS.Colors.overlayCursorBlue.opacity(0.35)
-                                    ],
-                                    startPoint: .topLeading,
-                                    endPoint: .bottomTrailing
-                                ),
-                                lineWidth: 0.8
-                            )
-                    }
-                    .shadow(color: DS.Colors.overlayCursorBlue.opacity(0.25), radius: 14, x: 0, y: 0)
-                    .shadow(color: Color.black.opacity(0.45), radius: 18, x: 0, y: 8)
-                )
+                Color.black.opacity(0.9),
+                in: RoundedRectangle(cornerRadius: DS.Radius.surface, style: .continuous)
+            )
+            .shadow(color: .black.opacity(0.3), radius: 8, y: 3)
         }
     }
 }

@@ -6,6 +6,46 @@ import Testing
 
 @MainActor @Suite(.serialized)
 struct PaceRequestFeedbackTests {
+    @Test func voiceAsksOnlyForThePermissionItsActiveProviderUses() {
+        #expect(
+            PaceChatVoiceAction.missingPermission(microphoneAllowed: false, speechRequired: true, speechAllowed: false)
+                == .allowMicrophone)
+        #expect(
+            PaceChatVoiceAction.missingPermission(microphoneAllowed: true, speechRequired: true, speechAllowed: false)
+                == .allowSpeechRecognition)
+        #expect(
+            PaceChatVoiceAction.missingPermission(microphoneAllowed: true, speechRequired: false, speechAllowed: false)
+                == nil)
+        #expect(
+            PaceChatVoiceAction.missingPermission(microphoneAllowed: true, speechRequired: true, speechAllowed: true)
+                == nil)
+    }
+
+    @Test func missingCaptureAndShortcutPermissionsDoNotBlockChatOrMicrophoneButton() throws {
+        let (root, manager, _, _) = try PacePowerManagerTests().fixture()
+        defer { try? FileManager.default.removeItem(at: root) }
+        manager.hasAccessibilityPermission = false
+        manager.hasScreenRecordingPermission = false
+        manager.hasScreenContentPermission = false
+        manager.hasMicrophonePermission = true
+        manager.hasSpeechRecognitionPermission = true
+        manager.isTranscriptionModelReady = false
+        #expect(PaceChatVoiceAction.resolve(for: manager) == .checkVoiceModel)
+        manager.isTranscriptionModelReady = true
+        #expect(PaceChatVoiceAction.resolve(for: manager) == .start)
+        #expect(manager.nativePanelPresentation.signalState == .ready)
+        #expect(
+            !PaceDialogueTranscriptModel.showsCurrentTurnStatus(
+                state: manager.nativePanelPresentation.signalState, hasFailure: false))
+        manager.hasMicrophonePermission = false
+        manager.currentTurnHUDState = .failed("Could not open the file")
+        #expect(PaceChatVoiceAction.resolve(for: manager) == .allowMicrophone)
+        #expect(manager.nativePanelPresentation.signalState == .failed)
+        manager.currentTurnHUDState = .clarification(question: "Which file?", options: ["First", "Second"])
+        #expect(manager.nativePanelPresentation.signalState == .blocked)
+        #expect(manager.currentTurnHUDState.options.count == 2)
+    }
+
     @Test func physicalMicWingRoutesToVoiceInsteadOfTheChatCatchAll() {
         #expect(
             PaceNotchTapAction.resolve(

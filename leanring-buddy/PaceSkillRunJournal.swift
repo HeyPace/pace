@@ -4,8 +4,7 @@
 //
 //  Local-only, fire-and-forget success-rate telemetry for taught-skill
 //  runs. One JSON object per line in Application Support so we can study
-//  which skills actually complete versus fail across real use, without
-//  surfacing anything in the UI yet (telemetry first).
+//  which workflows complete or fail. Usage reads the retained generations.
 //
 //  Why a JSONL log and NOT a PaceRetrievalSource journal: this is pure
 //  telemetry, not recall material. A retrieval-source journal
@@ -37,6 +36,12 @@ nonisolated struct PaceSkillRunRecord: Codable, Equatable {
     /// Plain-language reason the run did not complete. Nil on the
     /// "started" and "completed" lines; set only on a "failed" line.
     let failureReason: String?
+    // The original ISO timestamp is whole-second precision. Preserve it for older readers.
+    var millisecondsSince1970: Int64?
+
+    var measuredAt: Date {
+        millisecondsSince1970.map { Date(timeIntervalSince1970: Double($0) / 1000) } ?? at
+    }
 }
 
 nonisolated final class PaceSkillRunJournal: @unchecked Sendable {
@@ -78,6 +83,16 @@ nonisolated final class PaceSkillRunJournal: @unchecked Sendable {
             failureReason: nil
         ))
         return runId
+    }
+
+    func recordFinished(runId: String, skillSlug: String, stepsPlanned: Int, failed: Bool) {
+        if failed {
+            recordFailed(
+                runId: runId, skillSlug: skillSlug, stepsPlanned: stepsPlanned,
+                failureReason: "Workflow ended before completion was verified.")
+        } else {
+            recordCompleted(runId: runId, skillSlug: skillSlug, stepsPlanned: stepsPlanned)
+        }
     }
 
     /// Records that a previously-started skill run completed successfully.
@@ -124,21 +139,17 @@ nonisolated final class PaceSkillRunJournal: @unchecked Sendable {
 
     /// Read-only decode of the JSONL file. Chronological order (oldest
     /// first); malformed lines are silently skipped so one bad line can't
-    /// break analysis. Used by tests today; a future Settings surface can
-    /// reuse it without adding any new tracking.
+    /// break analysis. Snapshot both generations on the writer queue to avoid rotation races.
     func readAllRecords() -> [PaceSkillRunRecord] {
-        waitForPendingWrites()
-        guard let logFileData = try? Data(contentsOf: logFileURL) else {
-            return []
+        let generations = queue.sync {
+            [logFileURL.appendingPathExtension("1"), logFileURL].compactMap { try? Data(contentsOf: $0) }
         }
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
-        var decodedRecords: [PaceSkillRunRecord] = []
-        for line in logFileData.split(separator: 0x0A, omittingEmptySubsequences: true) {
-            guard let record = try? decoder.decode(PaceSkillRunRecord.self, from: Data(line)) else {
-                continue
+        let decodedRecords: [PaceSkillRunRecord] = generations.flatMap { generation in
+            generation.split(separator: 0x0A).compactMap { line in
+                try? decoder.decode(PaceSkillRunRecord.self, from: line)
             }
-            decodedRecords.append(record)
         }
         return decodedRecords
     }
@@ -150,7 +161,9 @@ nonisolated final class PaceSkillRunJournal: @unchecked Sendable {
     }
 
     private func appendSynchronously(_ record: PaceSkillRunRecord) {
-        guard var lineData = try? encoder.encode(record) else { return }
+        var timedRecord = record
+        timedRecord.millisecondsSince1970 = Int64((record.at.timeIntervalSince1970 * 1000).rounded())
+        guard var lineData = try? encoder.encode(timedRecord) else { return }
         lineData.append(0x0A)
 
         let fileManager = FileManager.default

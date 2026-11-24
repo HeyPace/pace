@@ -74,6 +74,8 @@ enum DS {
 
         static let surfaceInset = background
 
+        static let controlFill = Color(hex: "#17181B")
+
         // ── Borders ──────────────────────────────────────────────────
 
         /// Subtle border — used for card outlines, dividers, input
@@ -142,8 +144,8 @@ enum DS {
     }
 
     enum Radius {
-        static let control: CGFloat = 10
-        static let surface: CGFloat = 14
+        static let control: CGFloat = 6
+        static let surface: CGFloat = 10
         static let window: CGFloat = 20
     }
 
@@ -215,24 +217,25 @@ private struct PaceControlHoverHighlight: ViewModifier {
     let isEnabled: Bool
 
     @State private var isHovered = false
+    @Environment(\.isEnabled) private var controlIsEnabled
     @FocusState private var isKeyboardFocused: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     func body(content: Content) -> some View {
         content
-            .focusable(isEnabled)
             .focused($isKeyboardFocused)
             .overlay {
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .stroke(
-                        DS.Colors.localSignal.opacity(
-                            isEnabled && (isHovered || isKeyboardFocused) ? 0.72 : 0
-                        ),
-                        lineWidth: isKeyboardFocused ? 1.6 : 1
-                    )
+                    .fill(.white.opacity(isEnabled && controlIsEnabled && isHovered ? 0.075 : 0))
                     .allowsHitTesting(false)
             }
-            .scaleEffect(reduceMotion || !isEnabled ? 1 : (isHovered ? 1.015 : 1))
+            .overlay {
+                if isEnabled && controlIsEnabled && isKeyboardFocused {
+                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                        .strokeBorder(Color.accentColor, lineWidth: 1.5)
+                        .allowsHitTesting(false)
+                }
+            }
             .animation(
                 reduceMotion ? nil : .easeOut(duration: DS.Motion.micro),
                 value: isHovered

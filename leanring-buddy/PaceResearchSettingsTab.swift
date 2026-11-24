@@ -305,10 +305,6 @@ struct PaceResearchSettingsTab: View {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
                 .fill(DS.Colors.warning.opacity(0.10))
         )
-        .overlay(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .stroke(DS.Colors.warning.opacity(0.35), lineWidth: 0.5)
-        )
     }
 
     // MARK: - State refresh

@@ -10,17 +10,17 @@ struct PaceEssentialsSettingsView: View {
     @State private var showsAdvancedControls = false
 
     private static let privacyDestinations: [PaceCommandCenterDestination] = [
-        .privacy, .permissions, .memory, .activity, .usage, .conversations,
+        .privacy, .permissions, .memory, .conversations,
     ]
 
     private static let advancedDestinations = PaceCommandCenterDestination.allCases.filter {
-        !privacyDestinations.contains($0) && ![.planner, .voice, .about, .doctor].contains($0)
+        !PaceCommandCenterDestination.everydayDestinations.contains($0) && !privacyDestinations.contains($0)
+            && ![.planner, .voice, .about, .doctor].contains($0)
     }
 
     private enum Appearance {
         static let surface = DS.Colors.background
         static let raised = DS.Colors.surfaceRaised
-        static let border = Color(hex: "#37383C")
         static let primary = Color(hex: "#F1F1F2")
         static let secondary = Color(hex: "#AAABB1")
         static let tertiary = Color(hex: "#81838C")
@@ -33,6 +33,8 @@ struct PaceEssentialsSettingsView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 header
+                destinationGrid(PaceCommandCenterDestination.everydayDestinations, showsDescriptions: true)
+                    .padding(.vertical, 10)
                 plannerConnection
                 essentialControls
                 shortcutStrip
@@ -47,7 +49,7 @@ struct PaceEssentialsSettingsView: View {
                     )
                     disclosure(
                         title: "Advanced",
-                        summary: "Tools, automations, models & troubleshooting",
+                        summary: "Models, workflows & troubleshooting",
                         isExpanded: $showsAdvancedControls,
                         destinations: Self.advancedDestinations
                     )
@@ -88,27 +90,25 @@ struct PaceEssentialsSettingsView: View {
             Image(systemName: "terminal")
                 .font(.system(size: 14, weight: .medium))
                 .frame(width: 28, height: 28)
-                .background(Appearance.raised, in: RoundedRectangle(cornerRadius: 6))
-                .overlay {
-                    RoundedRectangle(cornerRadius: 6)
-                        .stroke(Appearance.secondary.opacity(0.4), lineWidth: 0.7)
-                }
+                .background(DS.Colors.controlFill, in: RoundedRectangle(cornerRadius: DS.Radius.control))
                 .accessibilityHidden(true)
 
-            Text(selectedPlannerTitle)
+            Text(companionManager.plannerClient.displayName)
                 .font(.system(size: 13, weight: .semibold))
-            Text("Selected")
+            Text("planner")
                 .font(.system(size: 12))
                 .foregroundStyle(Appearance.secondary)
             Spacer(minLength: 12)
-            Text(selectedPlannerUsesOffDeviceTier ? "Off-device reasoning" : "On-device reasoning")
+            Text(companionManager.defaultPlannerBoundary.label)
                 .font(.system(size: 10, weight: .medium))
-                .foregroundStyle(selectedPlannerUsesOffDeviceTier ? Appearance.amber : Appearance.secondary)
+                .foregroundStyle(
+                    companionManager.defaultPlannerBoundary == .onDevice ? Appearance.secondary : Appearance.amber
+                )
                 .padding(.horizontal, 6)
                 .padding(.vertical, 3)
                 .background(
-                    selectedPlannerUsesOffDeviceTier
-                        ? Appearance.amber.opacity(0.12) : Appearance.raised,
+                    companionManager.defaultPlannerBoundary == .onDevice
+                        ? Appearance.raised : Appearance.amber.opacity(0.12),
                     in: RoundedRectangle(cornerRadius: 4)
                 )
             destinationLink("Manage…", destination: .planner)
@@ -151,7 +151,6 @@ struct PaceEssentialsSettingsView: View {
             )
             toggleRow(
                 title: "Watch mode",
-                qualifier: "always on",
                 subtitle: watchModeSubtitle,
                 isOn: Binding(
                     get: { companionManager.isWatchModeEnabled },
@@ -182,12 +181,6 @@ struct PaceEssentialsSettingsView: View {
             .accessibilityElement(children: .combine)
 
             Spacer(minLength: 5)
-            Text("One conversation for voice and text")
-                .font(.system(size: 10))
-                .foregroundStyle(Appearance.tertiary)
-                .lineLimit(1)
-                .minimumScaleFactor(0.9)
-            Spacer(minLength: 5)
 
             Button {
                 companionManager.handleNotchChatShortcutPressed()
@@ -207,11 +200,7 @@ struct PaceEssentialsSettingsView: View {
         }
         .padding(.horizontal, 13)
         .padding(.vertical, 10)
-        .background(Appearance.raised, in: RoundedRectangle(cornerRadius: 7))
-        .overlay {
-            RoundedRectangle(cornerRadius: 7)
-                .stroke(Appearance.border, lineWidth: 1)
-        }
+        .background(DS.Colors.controlFill, in: RoundedRectangle(cornerRadius: DS.Radius.control))
     }
 
     private var footer: some View {
@@ -247,28 +236,9 @@ struct PaceEssentialsSettingsView: View {
         return "\(voiceLabel) · speech stays on this Mac."
     }
 
-    private var selectedPlannerTitle: String {
-        switch companionManager.activePlannerTier {
-        case .local: return "LM Studio"
-        case .appleFoundationModels: return "Apple Intelligence"
-        case .cliBridge: return "CLI bridge"
-        case .cliDirect: return companionManager.activePlannerTierCLIDirectUpstream.displayLabel
-        case .directAPI: return "\(companionManager.directAPIProvider.displayLabel) API"
-        }
-    }
-
-    private var selectedPlannerUsesOffDeviceTier: Bool {
-        switch companionManager.activePlannerTier {
-        case .local, .appleFoundationModels: return false
-        case .cliBridge, .cliDirect, .directAPI: return true
-        }
-    }
-
     private var watchModeSubtitle: String {
         let plannerDisclosure =
-            selectedPlannerUsesOffDeviceTier
-            ? "Sends redacted screen text to \(selectedPlannerTitle)."
-            : "Observations use your local planner."
+            "The selected planner receives redacted screen text. Off-device providers process it outside your Mac."
         if companionManager.isWatchModeEnabled, let summary = companionManager.latestWatchModeSummary {
             return "\(summary)\nRemembers your choice. Pauses while locked or asleep. \(plannerDisclosure)"
         }
@@ -301,29 +271,19 @@ struct PaceEssentialsSettingsView: View {
     }
 
     private var separator: some View {
-        Rectangle()
-            .fill(Appearance.border)
-            .frame(height: 0.7)
+        PaceSettingsSeparator()
     }
 
     private func settingsRow<Trailing: View>(
         title: String,
-        qualifier: String? = nil,
         subtitle: String,
         showsSeparator: Bool = true,
         @ViewBuilder trailing: () -> Trailing
     ) -> some View {
         HStack(spacing: 20) {
             VStack(alignment: .leading, spacing: 3) {
-                HStack(spacing: 4) {
-                    Text(title)
-                        .font(.system(size: 12, weight: .medium))
-                    if let qualifier {
-                        Text("· \(qualifier)")
-                            .font(.system(size: 10))
-                            .foregroundStyle(Appearance.tertiary)
-                    }
-                }
+                Text(title)
+                    .font(.system(size: 12, weight: .medium))
                 Text(subtitle)
                     .font(.system(size: 11))
                     .foregroundStyle(Appearance.secondary)
@@ -340,7 +300,6 @@ struct PaceEssentialsSettingsView: View {
 
     private func toggleRow(
         title: String,
-        qualifier: String? = nil,
         subtitle: String,
         isOn: Binding<Bool>,
         isEnabled: Bool = true,
@@ -348,7 +307,6 @@ struct PaceEssentialsSettingsView: View {
     ) -> some View {
         settingsRow(
             title: title,
-            qualifier: qualifier,
             subtitle: subtitle,
             showsSeparator: showsSeparator
         ) {
@@ -430,37 +388,56 @@ struct PaceEssentialsSettingsView: View {
             .accessibilityHint(summary)
 
             if isExpanded.wrappedValue {
-                LazyVGrid(
-                    columns: [GridItem(.adaptive(minimum: 205), spacing: 18)],
-                    alignment: .leading,
-                    spacing: 0
-                ) {
-                    ForEach(destinations) { destination in
-                        Button {
-                            onSelectDestination(destination)
-                        } label: {
-                            HStack(spacing: 8) {
-                                Text(destinationTitle(destination))
-                                    .font(.system(size: 12))
-                                    .foregroundStyle(Appearance.secondary)
-                                Spacer(minLength: 0)
-                                Image(systemName: "chevron.right")
-                                    .font(.system(size: 9, weight: .medium))
-                                    .foregroundStyle(Appearance.tertiary)
-                            }
-                            .frame(minHeight: 34)
-                            .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                        .paceControlHoverHighlight(cornerRadius: 5)
-                        .pointerCursor()
-                        .accessibilityHint(destination.subtitle)
-                    }
-                }
-                .padding(.bottom, 12)
+                destinationGrid(destinations)
+                    .padding(.bottom, 12)
             }
         }
         .overlay(alignment: .bottom) { separator }
+    }
+
+    private func destinationGrid(
+        _ destinations: [PaceCommandCenterDestination], showsDescriptions: Bool = false
+    ) -> some View {
+        LazyVGrid(
+            columns: [GridItem(.flexible(), spacing: 18), GridItem(.flexible())],
+            alignment: .leading,
+            spacing: 0
+        ) {
+            ForEach(destinations) { destination in
+                Button {
+                    onSelectDestination(destination)
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: destination.symbolName)
+                            .frame(width: 17)
+                            .foregroundStyle(Appearance.secondary)
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(destinationTitle(destination))
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundStyle(Appearance.primary)
+                            if showsDescriptions {
+                                Text(destination.subtitle)
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(Appearance.secondary)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                        }
+                        Spacer(minLength: 0)
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 9, weight: .medium))
+                            .foregroundStyle(Appearance.tertiary)
+                    }
+                    .padding(.horizontal, 6)
+                    .frame(minHeight: showsDescriptions ? 52 : 36)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .paceControlHoverHighlight(cornerRadius: 5)
+                .pointerCursor()
+                .accessibilityLabel(destinationTitle(destination))
+                .accessibilityHint(destination.subtitle)
+            }
+        }
     }
 
     private func destinationTitle(_ destination: PaceCommandCenterDestination) -> String {

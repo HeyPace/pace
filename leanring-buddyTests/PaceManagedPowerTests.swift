@@ -434,11 +434,11 @@ struct PaceManagedPowerTests {
                 hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 8, bitsPerPixel: 32)!)
         let presenter = PaceMediaOverlayController(showsWindows: false, resolveImage: { _ in image })
         var dismissedGenerations: [UUID] = []
-        presenter.onUserDismiss = { dismissedGenerations.append($0) }
+        let recordDismissal: (UUID) -> Void = { dismissedGenerations.append($0) }
         let request = PaceMediaPresentationRequest(assetID: "thank-you-dance", durationSeconds: 4, motion: nil)
-        #expect(!presenter.present(request).stopsActionPlan)
+        #expect(!presenter.present(request, onDismiss: recordDismissal).stopsActionPlan)
         let oldGeneration = presenter.presentationGeneration
-        #expect(!presenter.present(request).stopsActionPlan)
+        #expect(!presenter.present(request, onDismiss: recordDismissal).stopsActionPlan)
         let currentGeneration = presenter.presentationGeneration
         presenter.finishPresentation(ifGenerationMatches: oldGeneration)
         presenter.dismissPresentation(ifGenerationMatches: oldGeneration, cancelOwnedRun: true)

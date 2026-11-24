@@ -289,6 +289,12 @@ extension CompanionManager {
         transcript: String
     ) {
         guard authorizeManagedPower(catalogEntry, transcript: transcript) else { return }
+        func recordDispatch() {
+            PaceAPIAuditLog.shared.record(
+                subsystem: "workflow", operation: "dispatch",
+                target: PaceManagedPowerStore.identifier(for: catalogEntry),
+                durationMilliseconds: 0, outcome: "dispatched")
+        }
         switch catalogEntry.reference {
         case .typedDefinition(let identifier):
             guard let definition = typedDefinitions.first(where: { $0.identifier == identifier }) else {
@@ -312,6 +318,7 @@ extension CompanionManager {
             }
             do {
                 let executionPlan = try PaceAutomationCompiler.compile(definition)
+                recordDispatch()
                 handleFastLocalActionPath(
                     transcript: transcript,
                     fastActionParseResult: PaceFastActionParseResult(
@@ -377,6 +384,7 @@ extension CompanionManager {
                     case .executionPlan(let executionPlan):
                         if program.nodes.containsJavaScript { try validateJavaScriptPowerMedia(executionPlan) }
                         guard isActiveTurn(turnLease) else { return }
+                        recordDispatch()
                         handleFastLocalActionPath(
                             transcript: transcript,
                             fastActionParseResult: PaceFastActionParseResult(
@@ -415,6 +423,7 @@ extension CompanionManager {
                 spokenText: "replaying \(storedFlow.name) now.",
                 shouldRecordConversationTurn: true
             )
+            recordDispatch()
             beginFlowReplay(storedFlow)
 
         case .skill(let slug, let name):
@@ -429,6 +438,7 @@ extension CompanionManager {
             handleSkillCommand(.run(slug: slug, name: name), transcript: transcript)
 
         case .shortcut(let name):
+            recordDispatch()
             handleFastLocalActionPath(
                 transcript: transcript,
                 fastActionParseResult: PaceShortcutCommandParser.fastActionParseResult(for: name),

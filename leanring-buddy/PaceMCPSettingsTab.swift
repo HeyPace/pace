@@ -38,49 +38,16 @@ struct PaceMCPSettingsTab: View {
     @State private var composioKeyStatusFeedback: String?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            VStack(alignment: .leading, spacing: 6) {
-                Text("config file")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundColor(DS.Colors.textSecondary)
-                Text(PaceMCPServerRegistry.configurationPaths[0].path)
-                    .font(.system(size: 12, design: .monospaced))
-                    .foregroundColor(DS.Colors.textTertiary)
-                    .textSelection(.enabled)
-            }
-
-            HStack(spacing: 10) {
-                paceSettingsButton("create / open", systemName: "doc.badge.gearshape") {
-                    createMCPConfigIfNeeded()
-                    openPrimaryMCPConfig()
-                    refreshMCPServerNames()
-                }
-                paceSettingsButton("reveal", systemName: "folder") {
-                    createMCPConfigIfNeeded()
-                    NSWorkspace.shared.activateFileViewerSelecting([PaceMCPServerRegistry.configurationPaths[0]])
-                    refreshMCPServerNames()
-                }
-                paceSettingsButton("refresh", systemName: "arrow.clockwise") {
-                    refreshMCPServerNames()
-                }
-            }
-
-            Divider()
-                .background(DS.Colors.borderSubtle)
-
-            mcpCatalogSection
-
-            Divider()
-                .background(DS.Colors.borderSubtle)
-
+        VStack(alignment: .leading, spacing: 20) {
             VStack(alignment: .leading, spacing: 8) {
-                Text("configured servers")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundColor(DS.Colors.textSecondary)
+                Text("Configured connections (\(configuredMCPServerNames.count))")
+                    .font(DS.Typography.sectionTitle)
+                    .foregroundColor(DS.Colors.textPrimary)
+                    .accessibilityAddTraits(.isHeader)
 
                 if configuredMCPServerNames.isEmpty {
                     Text(
-                        "No MCP servers configured yet. Install one from the catalog above, or use Create / Open to seed the file."
+                        "Choose an MCP server below or open the configuration file to add a connection."
                     )
                     .font(.system(size: 12))
                     .foregroundColor(DS.Colors.textTertiary)
@@ -94,6 +61,7 @@ struct PaceMCPSettingsTab: View {
                                         ? DS.Colors.success : DS.Colors.textTertiary
                                 )
                                 .frame(width: 7, height: 7)
+                                .accessibilityHidden(true)
                             Text(serverName)
                                 .font(.system(size: 13, weight: .medium))
                                 .foregroundColor(DS.Colors.textPrimary)
@@ -119,6 +87,40 @@ struct PaceMCPSettingsTab: View {
                     }
                 }
             }
+
+            Divider()
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Configuration file")
+                    .font(DS.Typography.sectionTitle)
+                    .foregroundColor(DS.Colors.textPrimary)
+                    .accessibilityAddTraits(.isHeader)
+                Text(PaceMCPServerRegistry.configurationPaths[0].path)
+                    .font(.system(size: 12, design: .monospaced))
+                    .foregroundColor(DS.Colors.textTertiary)
+                    .textSelection(.enabled)
+            }
+
+            HStack(spacing: 10) {
+                paceSettingsButton("Open configuration", systemName: "doc.badge.gearshape") {
+                    createMCPConfigIfNeeded()
+                    openPrimaryMCPConfig()
+                    refreshMCPServerNames()
+                }
+                paceSettingsButton("Show in Finder", systemName: "folder") {
+                    createMCPConfigIfNeeded()
+                    NSWorkspace.shared.activateFileViewerSelecting([PaceMCPServerRegistry.configurationPaths[0]])
+                    refreshMCPServerNames()
+                }
+                paceSettingsButton("Refresh", systemName: "arrow.clockwise") {
+                    refreshMCPServerNames()
+                }
+            }
+
+            Divider()
+                .background(DS.Colors.borderSubtle)
+
+            mcpCatalogSection
         }
         .onAppear {
             refreshMCPServerNames()
@@ -133,11 +135,12 @@ struct PaceMCPSettingsTab: View {
     /// has already configured by hand.
     private var mcpCatalogSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("install a popular server")
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundColor(DS.Colors.textSecondary)
+            Text("Available connections")
+                .font(DS.Typography.sectionTitle)
+                .foregroundColor(DS.Colors.textPrimary)
+                .accessibilityAddTraits(.isHeader)
             Text(
-                "One-tap installs for the curated MCP servers Pace ships with. Adds the entry to your local config — never fetches a remote catalog. Use official service connections where available. Composio is an optional hosted integration. Installed means configured; Test Connection checks real tool availability."
+                "Install a server from the bundled catalog, then select Test Connection to check its tools. Composio connects to a hosted service."
             )
             .font(.system(size: 11))
             .foregroundColor(DS.Colors.textTertiary)
@@ -162,7 +165,7 @@ struct PaceMCPSettingsTab: View {
                 Image(systemName: "key.fill")
                     .font(.system(size: 11, weight: .medium))
                     .foregroundColor(DS.Colors.textTertiary)
-                Text("composio api key")
+                Text("Composio API key")
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundColor(DS.Colors.textSecondary)
                 Spacer()
@@ -178,7 +181,7 @@ struct PaceMCPSettingsTab: View {
                     saveComposioAPIKey()
                 }
                 if composioKeyIsStoredInKeychain {
-                    paceSettingsButton("remove", systemName: "xmark.circle") {
+                    paceSettingsButton("Remove", systemName: "xmark.circle") {
                         removeComposioAPIKey()
                     }
                 }
@@ -292,16 +295,16 @@ struct PaceMCPSettingsTab: View {
 
             VStack(alignment: .trailing, spacing: 6) {
                 if isInstalled {
-                    paceSettingsButton("remove", systemName: "trash") {
+                    paceSettingsButton("Remove", systemName: "trash") {
                         uninstallCatalogEntry(entry)
                     }
                 } else {
-                    paceSettingsButton("install", systemName: "arrow.down.circle") {
+                    paceSettingsButton("Install", systemName: "arrow.down.circle") {
                         installCatalogEntry(entry)
                     }
                 }
                 if let docsURL = entry.setupDocsURL {
-                    paceSettingsButton("setup docs", systemName: "book") {
+                    paceSettingsButton("Setup guide", systemName: "book") {
                         NSWorkspace.shared.open(docsURL)
                     }
                 }

@@ -24,6 +24,7 @@ extension CompanionManager {
         diagramOverlayController.cancelLessonPlayback()
         mediaOverlayController.dismiss(cancelOwnedRun: false)
         activeManagedPower = nil
+        activeSkillRun = nil
         hasRecordedCurrentTurnSpeechUserContext = false
         cancelWatchSuggestionSpeech()
         if !preservingConversationRequest { interruptConversationRequest() }
@@ -1461,12 +1462,13 @@ extension CompanionManager {
     /// planner re-anchors on the conversation history rather than a
     /// repeated user statement.
     func sendTranscriptToPlannerWithScreenshot(
-        transcript: String, continuingAcceptedRequest: Bool = false,
+        transcript: String, continuingAcceptedRequest: Bool = false, skillRun: ActiveSkillRun? = nil,
         screenSuggestionContext: PaceScreenSuggestionRequestContext? = nil,
         allowsPermissionPrompt: Bool = false
     ) {
         let capturedScreenSuggestionContext = continuingAcceptedRequest ? nil : screenSuggestionContext
         cancelActiveTurnTasks(preservingConversationRequest: continuingAcceptedRequest)
+        activeSkillRun = skillRun
         if continuingAcceptedRequest {
             activeConversationScreenSuggestionContext = nil
             activeConversationPlannerTranscript = transcript
@@ -2308,10 +2310,13 @@ extension CompanionManager {
             currentTurnHUDState = .understanding("typing")
             currentResponseTask = Task { @MainActor [weak self] in
                 guard let self else { return }
+                let startedAt = ProcessInfo.processInfo.systemUptime
                 let result = await PaceDictationFastPath.shared.dictate(transcript: dictationText)
                 guard !Task.isCancelled else { return }
                 PaceAPIAuditLog.shared.record(
-                    subsystem: "action", operation: "dictate", target: "focused field", durationMilliseconds: 0,
+                    subsystem: "action", operation: "dictate", target: "focused field",
+                    durationMilliseconds: Int((ProcessInfo.processInfo.systemUptime - startedAt) * 1000),
+                    durationWasMeasured: true,
                     outcome: result == nil ? "error" : "posted", outputCharacterCount: result?.count)
                 if let typedText = result {
                     self.recordConversationTurn(
@@ -2354,6 +2359,7 @@ extension CompanionManager {
             || PaceActionApprovalPolicy.requestsObservationOnly(transcript)
 
         guard isActiveTurn(turnLease) else { return }
+        let dispatchedSkillRunID = activeSkillRun?.runId
         currentResponseTask = Task {
             voiceState = .processing
 
@@ -3380,7 +3386,7 @@ extension CompanionManager {
                 // A cancelled skill run was interrupted, not failed — clear
                 // the active run without a terminal line. The start-only line
                 // on disk honestly reflects "dispatched but not finished".
-                activeSkillRun = nil
+                if activeSkillRun?.runId == dispatchedSkillRunID { activeSkillRun = nil }
             } catch {
                 PaceAnalytics.trackResponseError(error: error.localizedDescription)
                 print("⚠️ Companion response error: \(error)")
@@ -3388,7 +3394,7 @@ extension CompanionManager {
                 foregroundOffDeviceTurnInFlight = false
                 // Skill-run failure telemetry: pair a "failed" line with the
                 // "started" line for a skill turn that errored out.
-                if let failedSkillRun = activeSkillRun {
+                if let failedSkillRun = activeSkillRun, failedSkillRun.runId == dispatchedSkillRunID {
                     PaceSkillRunJournal.shared.recordFailed(
                         runId: failedSkillRun.runId,
                         skillSlug: failedSkillRun.skillSlug,
@@ -3467,11 +3473,11 @@ extension CompanionManager {
                 // dispatched by a taught-skill run; the terminal "completed"
                 // line pairs with the "started" line written at dispatch.
                 // Cleared here so the next (non-skill) turn records nothing.
-                if let finishedSkillRun = activeSkillRun {
-                    PaceSkillRunJournal.shared.recordCompleted(
+                if let finishedSkillRun = activeSkillRun, finishedSkillRun.runId == dispatchedSkillRunID {
+                    PaceSkillRunJournal.shared.recordFinished(
                         runId: finishedSkillRun.runId,
                         skillSlug: finishedSkillRun.skillSlug,
-                        stepsPlanned: finishedSkillRun.stepsPlanned
+                        stepsPlanned: finishedSkillRun.stepsPlanned, failed: currentTurnHUDState.status == .failed
                     )
                     activeSkillRun = nil
                 }
@@ -3957,13 +3963,15 @@ extension CompanionManager {
             let programs = PaceUserProgramStore(directoryURL: managedPowerStore.programDirectoryURL).listValidPrograms()
             if skills.isEmpty && programs.isEmpty {
                 Task {
-                    await publishCommandFeedback(transcript: transcript, spokenText: "No skills installed.")
+                    await publishCommandFeedback(
+                        transcript: transcript, spokenText: "No saved programs or step-by-step workflows found.")
                     voiceState = .idle
                 }
             } else {
                 let names = (programs.map(\.name) + skills.map(\.name)).joined(separator: ", ")
                 Task {
-                    await publishCommandFeedback(transcript: transcript, spokenText: "Available skills: \(names).")
+                    await publishCommandFeedback(
+                        transcript: transcript, spokenText: "Available programs and step-by-step workflows: \(names).")
                     voiceState = .idle
                 }
             }
@@ -4010,20 +4018,21 @@ extension CompanionManager {
                         skillSlug: skill.slug,
                         stepsPlanned: skill.steps.count
                     )
-                    activeSkillRun = ActiveSkillRun(
+                    let skillRun = ActiveSkillRun(
                         runId: runId,
                         skillSlug: skill.slug,
                         stepsPlanned: skill.steps.count
                     )
                     let prompt = PaceSkillLoader.toPlannerPrompt(skill)
                     // The planner owns the progress and final response for this run.
-                    sendTranscriptToPlannerWithScreenshot(transcript: prompt, continuingAcceptedRequest: true)
+                    sendTranscriptToPlannerWithScreenshot(
+                        transcript: prompt, continuingAcceptedRequest: true, skillRun: skillRun)
                     activeManagedPower = managedSkill
                 }
             } else {
                 Task {
                     await publishCommandFeedback(
-                        transcript: transcript, spokenText: "I couldn't find a skill called \(name).")
+                        transcript: transcript, spokenText: "I couldn't find a step-by-step workflow called \(name).")
                     voiceState = .idle
                 }
             }
@@ -4035,13 +4044,14 @@ extension CompanionManager {
                 $0.slug.lowercased() == slug.lowercased() || $0.name.lowercased() == name.lowercased()
             }) {
                 Task {
-                    await publishCommandFeedback(transcript: transcript, spokenText: "The \(name) skill is available.")
+                    await publishCommandFeedback(
+                        transcript: transcript, spokenText: "The \(name) workflow is available.")
                     voiceState = .idle
                 }
             } else {
                 Task {
                     await publishCommandFeedback(
-                        transcript: transcript, spokenText: "No skill called \(name) was found.")
+                        transcript: transcript, spokenText: "No step-by-step workflow called \(name) was found.")
                     voiceState = .idle
                 }
             }

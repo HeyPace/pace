@@ -919,7 +919,7 @@ extension CompanionManager {
             globalPushToTalkShortcutMonitor.start()
             globalChatShortcutMonitor.start()
         } else {
-            globalPushToTalkShortcutMonitor.stop()
+            globalPushToTalkShortcutMonitor.stop(preservingSimulatedPress: true)
             globalChatShortcutMonitor.stop()
         }
 
@@ -981,6 +981,20 @@ extension CompanionManager {
             PaceAnalytics.trackAllPermissionsGranted()
         }
         if isWatchRuntimeStarted { reconcileWatchRuntime() }
+    }
+
+    func requestMicrophoneAccess() {
+        switch AVCaptureDevice.authorizationStatus(for: .audio) {
+        case .authorized: refreshAllPermissions()
+        case .notDetermined:
+            AVCaptureDevice.requestAccess(for: .audio) { [weak self] _ in
+                Task { @MainActor in self?.refreshAllPermissions() }
+            }
+        default:
+            if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone") {
+                NSWorkspace.shared.open(url)
+            }
+        }
     }
 
     func requestSpeechRecognitionPermission() {

@@ -6,7 +6,7 @@
 //  planner tier picker setters, Direct-API key management, and off-device tier checks.
 //
 
-import Foundation
+import AppKit
 
 @MainActor
 extension CompanionManager {
@@ -53,6 +53,19 @@ extension CompanionManager {
         fastAnswerCredentialStore.clearCachedKey()
     }
 
+    /// The default action planner can differ from the configured tier after a
+    /// local fallback or a legacy bridge override. The settings summary describes
+    /// the instantiated client, without starting a request or checking credentials.
+    var defaultPlannerBoundary: PacePlannerBoundary {
+        switch plannerClient {
+        case is HybridPlannerClient: return .hybrid
+        case let client as DirectAPIPlannerClient: return client.usesLoopbackEndpoint ? .loopbackEndpoint : .offDevice
+        case is CloudBridgePlannerClient, is PaceLocalCLIPlannerClient: return .offDevice
+        case is LocalPlannerClient, is PaceMLXPlannerClient, is AppleFoundationModelsPlannerClient: return .onDevice
+        default: return .unknown
+        }
+    }
+
     // MARK: - Planner tier picker state
 
     func setActivePlannerTier(_ newTier: PacePlannerTier) {
@@ -76,33 +89,21 @@ extension CompanionManager {
         }
     }
 
-    /// Selects a planner tier from any picker surface, running the SAME
-    /// consent flow the Planner tab uses. This is the single home for the
-    /// "pick a brain, run its consent, revert on cancel" policy so the
-    /// Planner tab and the RAM-aware budget picker never drift apart.
-    ///
-    /// - `.local` / `.appleFoundationModels` / `.directAPI`: no NSAlert —
-    ///   the explicit pick is the consent (Direct API still needs a saved
-    ///   key before turns actually route off-device).
-    /// - `.cliBridge`: shows the Node-bridge consent NSAlert; on accept,
-    ///   promotes a still-`.off` bridge mode to `.hybrid` so the user
-    ///   benefits immediately. On cancel, reverts to `.local`.
-    /// - `.cliDirect`: shows the DIRECT-SPAWN consent NSAlert (a different
-    ///   off-device data path from the bridge). On cancel, reverts to
-    ///   `.local`.
-    ///
-    /// Returns true when the tier was applied, false when a consent dialog
-    /// was cancelled (and the tier was reverted to `.local`).
+    /// Apply the selection only after its consent flow finishes. Cancelling leaves the
+    /// live client, saved preference, bridge mode and any open overlays untouched.
     @discardableResult
-    func selectPlannerTierWithConsent(_ newPlannerTier: PacePlannerTier) -> Bool {
+    func selectPlannerTierWithConsent(
+        _ newPlannerTier: PacePlannerTier,
+        presentConsentAlert: @MainActor (NSAlert) -> NSApplication.ModalResponse = CompanionManager
+            .presentPlannerConsentAlert
+    ) -> Bool {
         switch newPlannerTier {
         case .local, .appleFoundationModels:
             setActivePlannerTier(newPlannerTier)
             return true
         case .cliBridge:
-            let consentAccepted = requestCloudBridgeConsentIfNeeded()
+            let consentAccepted = requestCloudBridgeConsentIfNeeded(presentConsentAlert: presentConsentAlert)
             guard consentAccepted else {
-                setActivePlannerTier(.local)
                 return false
             }
             if cloudBridgeMode == .off {
@@ -112,10 +113,9 @@ extension CompanionManager {
             return true
         case .cliDirect:
             let consentAccepted = requestDirectSpawnConsentIfNeeded(
-                upstream: activePlannerTierCLIDirectUpstream
+                upstream: activePlannerTierCLIDirectUpstream, presentConsentAlert: presentConsentAlert
             )
             guard consentAccepted else {
-                setActivePlannerTier(.local)
                 return false
             }
             setActivePlannerTier(newPlannerTier)
@@ -149,23 +149,12 @@ extension CompanionManager {
     }
 
     func setDirectAPIProvider(_ newProvider: PaceDirectAPIProvider) {
-        if newProvider != directAPIProvider {
-            diagramOverlayController.dismiss()
-            imageOverlayController.dismiss()
-        }
-        directAPIProvider = newProvider
+        guard newProvider != directAPIProvider else { return }
+        diagramOverlayController.dismiss()
+        imageOverlayController.dismiss()
         PacePlannerTierStore.saveDirectAPIProvider(newProvider)
-        // When the provider changes, also seed the model field with that
-        // provider's default — the user can immediately overwrite it but
-        // most users want a sensible starting model identifier.
-        let savedModelForProvider = PacePlannerTierStore.loadConfiguration().directAPIModelIdentifier
-        let modelIdentifierLooksEmptyOrStale =
-            savedModelForProvider
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .isEmpty
-        if modelIdentifierLooksEmptyOrStale {
-            setDirectAPIModelIdentifier(newProvider.defaultModelIdentifier)
-        }
+        directAPIProvider = newProvider
+        directAPIModelIdentifier = PacePlannerTierStore.loadConfiguration().directAPIModelIdentifier
         screenSuggestionCoordinator.invalidate(clearAnchor: true)
         screenWatchNoteCoordinator.invalidate()
         plannerClient = BuddyPlannerClientFactory.makeDefault()
@@ -296,5 +285,19 @@ extension CompanionManager {
     /// provider.
     func providersWithStoredDirectAPIKeys() -> Set<PaceDirectAPIProvider> {
         return PaceKeychainStore.providersWithStoredKeys()
+    }
+}
+
+enum PacePlannerBoundary {
+    case onDevice, offDevice, hybrid, loopbackEndpoint, unknown
+
+    var label: String {
+        switch self {
+        case .onDevice: return "On this Mac"
+        case .offDevice: return "Off-device"
+        case .hybrid: return "Local + off-device"
+        case .loopbackEndpoint: return "Local API endpoint"
+        case .unknown: return "Boundary unknown"
+        }
     }
 }

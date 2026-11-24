@@ -182,13 +182,12 @@ struct PaceScreenSuggestionNotificationView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 15) {
             HStack(spacing: 9) {
-                PaceBrandMark().foregroundStyle(.white.opacity(0.94))
+                PaceBrandMark().foregroundStyle(DS.Colors.textPrimary)
                     .frame(width: 25, height: 25)
-                    .padding(5)
-                    .background(.white.opacity(0.055), in: RoundedRectangle(cornerRadius: 9))
+                    .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Pace").font(.system(size: 12, weight: .semibold))
-                    Text("On your screen").font(.system(size: 11)).foregroundStyle(.white.opacity(0.48))
+                    Text("Pace").font(DS.Typography.calloutStrong)
+                    Text("On your screen").font(DS.Typography.caption).foregroundStyle(DS.Colors.textTertiary)
                 }
                 Spacer()
                 Button {
@@ -201,28 +200,27 @@ struct PaceScreenSuggestionNotificationView: View {
                 .help("Dismiss suggestion").accessibilityLabel("Dismiss suggestion")
             }
             VStack(alignment: .leading, spacing: 7) {
-                Text(suggestion.subject).font(.system(size: 17, weight: .semibold))
+                Text(suggestion.subject).font(DS.Typography.sectionTitle)
                     .tracking(-0.3).fixedSize(horizontal: false, vertical: true)
-                Text(suggestion.offer).font(.system(size: 13)).lineSpacing(3)
-                    .foregroundStyle(.white.opacity(0.68)).fixedSize(horizontal: false, vertical: true)
+                Text(suggestion.offer).font(DS.Typography.body).lineSpacing(3)
+                    .foregroundStyle(DS.Colors.textSecondary).fixedSize(horizontal: false, vertical: true)
             }
             HStack(spacing: 8) {
                 actionButton("Explain", symbol: "waveform", action: .explain, isPrimary: true)
-                actionButton("Draw it", symbol: "square.on.circle", action: .draw, isPrimary: false)
+                actionButton("Draw it", symbol: "pencil.and.outline", action: .draw, isPrimary: false)
                 Spacer(minLength: 0)
                 Button {
                     onAction(.dismiss)
                 } label: {
-                    Text("Not now").font(.system(size: 11)).padding(.horizontal, 8).padding(.vertical, 9)
+                    Text("Not now").font(DS.Typography.caption).padding(.horizontal, 8).padding(.vertical, 9)
                 }
                 .buttonStyle(PaceSuggestionNotificationButtonStyle(isPrimary: false))
             }
         }
         .padding(18)
         .frame(width: 360, alignment: .leading)
-        .foregroundStyle(.white.opacity(0.94))
-        .background(DS.Colors.background, in: RoundedRectangle(cornerRadius: 16))
-        .overlay { RoundedRectangle(cornerRadius: 16).stroke(.white.opacity(0.15), lineWidth: 1) }
+        .foregroundStyle(DS.Colors.textPrimary)
+        .background(DS.Colors.background, in: RoundedRectangle(cornerRadius: DS.Radius.surface, style: .continuous))
         .colorScheme(.dark)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Pace screen suggestion")
@@ -235,7 +233,7 @@ struct PaceScreenSuggestionNotificationView: View {
         Button {
             onAction(action)
         } label: {
-            Label(title, systemImage: symbol).font(.system(size: 12, weight: .semibold))
+            Label(title, systemImage: symbol).font(DS.Typography.calloutStrong)
                 .padding(.horizontal, 12).padding(.vertical, 9)
         }
         .buttonStyle(PaceSuggestionNotificationButtonStyle(isPrimary: isPrimary))
@@ -257,19 +255,16 @@ private struct PaceSuggestionNotificationButtonStyle: ButtonStyle {
 
         var body: some View {
             configuration.label
-                .foregroundStyle(.white.opacity(isPrimary || isHovered ? 0.95 : 0.65))
-                .background(background, in: RoundedRectangle(cornerRadius: 8))
-                .overlay {
-                    RoundedRectangle(cornerRadius: 8).stroke(.white.opacity(isPrimary ? 0.16 : 0), lineWidth: 1)
-                }
-                .overlay { PointerCursorView().allowsHitTesting(false) }
+                .foregroundStyle(isPrimary ? DS.Colors.textOnAccent : DS.Colors.textPrimary)
+                .background(background, in: RoundedRectangle(cornerRadius: DS.Radius.control, style: .continuous))
+                .pointerCursor()
                 .opacity(configuration.isPressed ? 0.76 : 1)
                 .onHover { isHovered = $0 }
                 .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: isHovered)
         }
 
         private var background: Color {
-            if isPrimary { return .white.opacity(configuration.isPressed ? 0.20 : isHovered ? 0.16 : 0.10) }
+            if isPrimary { return DS.Colors.accent.opacity(isHovered ? 0.88 : 1) }
             return .white.opacity(configuration.isPressed ? 0.13 : isHovered ? 0.08 : 0.025)
         }
     }

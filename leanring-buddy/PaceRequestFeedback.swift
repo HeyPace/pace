@@ -14,7 +14,7 @@ nonisolated struct PaceRequestFeedback: Equatable {
         let elapsed = seconds.map { $0 < 60 ? "\($0)s" : "\($0 / 60)m \($0 % 60)s" }
         if state == .failed || state == .blocked {
             return Self(
-                title: state == .failed ? "Needs attention" : "Setup needs attention",
+                title: state == .failed ? "Needs attention" : "Request needs attention",
                 detail: hudDetail, elapsedLabel: nil, showsSpinner: false)
         }
         if isPreparing || hudDetail == "Starting microphone…" {
@@ -49,9 +49,42 @@ nonisolated struct PaceRequestFeedback: Equatable {
             return Self(title: "Waiting for your approval", detail: hudDetail, elapsedLabel: nil, showsSpinner: false)
         case .failed: return Self(title: "Needs attention", detail: hudDetail, elapsedLabel: nil, showsSpinner: false)
         case .blocked:
-            return Self(title: "Setup needs attention", detail: hudDetail, elapsedLabel: nil, showsSpinner: false)
+            return Self(title: "Request needs attention", detail: hudDetail, elapsedLabel: nil, showsSpinner: false)
         case .completed: return Self(title: "Done", detail: nil, elapsedLabel: nil, showsSpinner: false)
         case .ready: return Self(title: "Ready", detail: nil, elapsedLabel: nil, showsSpinner: false)
         }
+    }
+}
+
+enum PaceChatVoiceAction: Equatable {
+    case allowMicrophone, allowSpeechRecognition, checkVoiceModel, retryPracticeMicrophone
+    case preparingPracticeMicrophone, start, finishRecording, transcribing
+
+    @MainActor
+    static func resolve(for manager: CompanionManager) -> Self {
+        let dictation = manager.buddyDictationManager
+        if dictation.isFinalizingTranscript { return .transcribing }
+        if dictation.isDictationInProgress { return .finishRecording }
+        if let permission = missingPermission(
+            microphoneAllowed: manager.hasMicrophonePermission,
+            speechRequired: dictation.selectedTranscriptionProvider.requiresSpeechRecognitionPermission,
+            speechAllowed: manager.hasSpeechRecognitionPermission)
+        {
+            return permission
+        }
+        if dictation.usesJapanesePracticeTranscription {
+            switch dictation.japanesePracticeMicrophoneReadiness {
+            case .failed: return .retryPracticeMicrophone
+            case .preparing, .inactive: return .preparingPracticeMicrophone
+            case .ready: break
+            }
+        }
+        return manager.isTranscriptionModelReady ? .start : .checkVoiceModel
+    }
+
+    static func missingPermission(microphoneAllowed: Bool, speechRequired: Bool, speechAllowed: Bool) -> Self? {
+        if !microphoneAllowed { return .allowMicrophone }
+        if speechRequired && !speechAllowed { return .allowSpeechRecognition }
+        return nil
     }
 }

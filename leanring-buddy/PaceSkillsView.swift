@@ -26,6 +26,8 @@ import SwiftUI
 // MARK: - PaceSkillsView
 
 struct PaceSkillsView: View {
+    var onManageConnections: (() -> Void)? = nil
+    @State private var showsBuiltInPowers = false
     @State private var searchQuery: String = ""
     @State private var configuredMCPServerNames: [String] = []
     @State private var lastCopiedExampleUtteranceSlug: String? = nil
@@ -49,11 +51,10 @@ struct PaceSkillsView: View {
             LazyVStack(alignment: .leading, spacing: 18) {
                 sectionHeader
                 searchField
+                builtInPowersSection
                 yourSkillsSection
+                mcpSkillsSection
                 localSkillsSection
-                if !configuredMCPServerNames.isEmpty {
-                    mcpSkillsSection
-                }
             }
             .padding(24)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -73,17 +74,89 @@ struct PaceSkillsView: View {
 
     private var sectionHeader: some View {
         VStack(alignment: .leading, spacing: 6) {
-            SMSectionHeader("", accent: "automations", size: 28)
-            Text("Teach Pace a repeatable action in plain language, or browse what it can already run on this Mac.")
+            Text("Find a power or teach Pace a workflow in your own words.")
                 .font(DS.Typography.body)
                 .foregroundStyle(DS.Colors.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
     }
 
+    @FocusState private var searchFieldIsFocused: Bool
+
     private var searchField: some View {
-        TextField("Search automations…", text: $searchQuery)
-            .textFieldStyle(.roundedBorder)
+        HStack(spacing: 8) {
+            Image(systemName: "magnifyingglass")
+                .foregroundStyle(.secondary)
+                .accessibilityHidden(true)
+            TextField("Search powers, workflows, actions, and connections…", text: $searchQuery)
+                .textFieldStyle(.plain)
+                .focused($searchFieldIsFocused)
+                .accessibilityLabel("Search powers, workflows, actions, and connections")
+            if !searchQuery.isEmpty {
+                Button {
+                    searchQuery = ""
+                    searchFieldIsFocused = true
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .frame(width: 24, height: 24)
+                }
+                .buttonStyle(.plain)
+                .paceControlHoverHighlight(cornerRadius: 4)
+                .pointerCursor()
+                .accessibilityLabel("Clear search")
+                .help("Clear search")
+            }
+        }
+        .padding(.horizontal, 10)
+        .frame(minHeight: 34)
+        .background(DS.Colors.surfaceRaised, in: RoundedRectangle(cornerRadius: 7))
+        .overlay {
+            RoundedRectangle(cornerRadius: 7)
+                .strokeBorder(searchFieldIsFocused ? Color.accentColor : DS.Colors.textTertiary.opacity(0.35))
+                .allowsHitTesting(false)
+        }
+    }
+
+    private var builtInPowersSection: some View {
+        let powers = PacePowerCatalog.preinstalled.powers
+        let query = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        let matching =
+            query.isEmpty
+            ? powers
+            : powers.filter {
+                $0.title.localizedCaseInsensitiveContains(query) || $0.summary.localizedCaseInsensitiveContains(query)
+            }
+        return VStack(alignment: .leading, spacing: 8) {
+            if query.isEmpty {
+                Button {
+                    showsBuiltInPowers.toggle()
+                } label: {
+                    Label(
+                        "Built-in powers (\(powers.count))",
+                        systemImage: showsBuiltInPowers ? "chevron.down" : "chevron.right"
+                    )
+                    .font(DS.Typography.sectionTitle)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.vertical, 5)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .paceControlHoverHighlight(cornerRadius: 5)
+                .pointerCursor()
+                .accessibilityValue(showsBuiltInPowers ? "Expanded" : "Collapsed")
+            } else if !matching.isEmpty {
+                Text("Matching built-in powers (\(matching.count) of \(powers.count))").font(DS.Typography.sectionTitle)
+            }
+            if showsBuiltInPowers || !query.isEmpty {
+                ForEach(matching) { power in
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(power.title).font(.callout.weight(.semibold))
+                        Text(power.summary).font(.callout).foregroundStyle(.secondary)
+                    }
+                    .padding(.vertical, 3)
+                }
+            }
+        }
     }
 
     // MARK: - Your skills (taught .skill.md skills)
@@ -92,14 +165,15 @@ struct PaceSkillsView: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .firstTextBaseline) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("your automations")
-                        .font(.system(size: 14, weight: .semibold))
-                    Text("Repeatable actions you taught Pace. Say a saved trigger phrase to run one.")
+                    Text("Saved powers")
+                        .font(DS.Typography.sectionTitle)
+                        .accessibilityAddTraits(.isHeader)
+                    Text("Programs and step-by-step workflows you saved as powers.")
                         .font(.system(size: 12))
                         .foregroundColor(.secondary)
                 }
                 Spacer()
-                Button(isTeachFormExpanded ? "cancel" : "teach an automation") {
+                Button(isTeachFormExpanded ? "Cancel" : "Teach a power") {
                     withAnimation { isTeachFormExpanded.toggle() }
                     if !isTeachFormExpanded { clearTeachDraft() }
                 }
@@ -123,9 +197,11 @@ struct PaceSkillsView: View {
                 if filteredUserPrograms().isEmpty
                     && filteredUserSkills().isEmpty
                     && !isTeachFormExpanded {
-                    Text(searchQuery.isEmpty
-                         ? "No taught automations yet. Describe one here or ask Pace to create one."
-                         : "No taught automations match \u{201C}\(searchQuery)\u{201D}.")
+                    Text(
+                        searchQuery.isEmpty
+                            ? "Teach Pace a step-by-step workflow to save it here."
+                            : "No saved programs or step-by-step workflows match \u{201C}\(searchQuery)\u{201D}."
+                    )
                         .font(.system(size: 12))
                         .foregroundColor(.secondary)
                         .padding(.vertical, 12)
@@ -133,7 +209,7 @@ struct PaceSkillsView: View {
             }
 
             if !filteredBundledSkills().isEmpty {
-                Text("built-in automations")
+                Text("Bundled workflows")
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundColor(.secondary)
                     .padding(.top, 6)
@@ -150,7 +226,7 @@ struct PaceSkillsView: View {
     private var teachSkillForm: some View {
         SMCard(padding: 12) {
             VStack(alignment: .leading, spacing: 8) {
-                TextField("Automation name (e.g. Start My Day)", text: $teachDraftName)
+                TextField("Power name (e.g. Start My Day)", text: $teachDraftName)
                     .textFieldStyle(.roundedBorder)
                 TextField("Trigger phrase — optional (e.g. start my day)", text: $teachDraftTrigger)
                     .textFieldStyle(.roundedBorder)
@@ -171,7 +247,7 @@ struct PaceSkillsView: View {
                             .foregroundColor(.secondary)
                     }
                     Spacer()
-                    Button("save automation") { saveTaughtSkillFromForm() }
+                    Button("Save power") { saveTaughtSkillFromForm() }
                         .buttonStyle(.borderedProminent)
                         .pointerCursor()
                         .disabled(
@@ -224,7 +300,7 @@ struct PaceSkillsView: View {
                 }
                 .buttonStyle(.plain)
                 .pointerCursor()
-                .help("Delete this automation")
+                .help("Delete this saved power")
             }
         }
         .padding(.vertical, 10)
@@ -238,7 +314,7 @@ struct PaceSkillsView: View {
                 HStack(spacing: 6) {
                     Text(program.name)
                         .font(.system(size: 13, weight: .medium))
-                    Text("deterministic program")
+                    Text("Program")
                         .font(.system(size: 10, weight: .medium))
                         .padding(.horizontal, 6)
                         .padding(.vertical, 2)
@@ -275,7 +351,7 @@ struct PaceSkillsView: View {
             }
             .buttonStyle(.plain)
             .pointerCursor()
-            .help("Delete this programmed automation")
+            .help("Delete this saved program")
         }
         .padding(.vertical, 10)
     }
@@ -370,9 +446,10 @@ struct PaceSkillsView: View {
 
     private var localSkillsSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("built-in actions")
-                .font(.system(size: 14, weight: .semibold))
-            Text("On-device. No network. Always available.")
+            Text("Built-in actions")
+                .font(DS.Typography.sectionTitle)
+                .accessibilityAddTraits(.isHeader)
+            Text("Copy an example to try an action in Pace.")
                 .font(.system(size: 12))
                 .foregroundColor(.secondary)
 
@@ -479,11 +556,17 @@ struct PaceSkillsView: View {
 
     private var mcpSkillsSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("mcp servers")
-                .font(.system(size: 14, weight: .semibold))
-            Text("Configured at ~/.config/pace/mcp-servers.json. Each server adds external actions through the Model Context Protocol.")
-                .font(.system(size: 12))
-                .foregroundColor(.secondary)
+            HStack {
+                Text("Configured connections (\(configuredMCPServerNames.count))")
+                    .font(DS.Typography.sectionTitle)
+                    .accessibilityAddTraits(.isHeader)
+                Spacer()
+                if let onManageConnections {
+                    Button("Manage connections", action: onManageConnections)
+                        .buttonStyle(.bordered)
+                        .pointerCursor()
+                }
+            }
 
             VStack(spacing: 0) {
                 ForEach(filteredMCPServerNames(), id: \.self) { serverName in
@@ -491,7 +574,10 @@ struct PaceSkillsView: View {
                     Divider().opacity(0.25)
                 }
                 if filteredMCPServerNames().isEmpty {
-                    Text("No MCP servers match \"\(searchQuery)\".")
+                    Text(
+                        configuredMCPServerNames.isEmpty
+                            ? "No connections configured yet." : "No connections match \"\(searchQuery)\"."
+                    )
                         .font(.system(size: 12))
                         .foregroundColor(.secondary)
                         .padding(.vertical, 12)
@@ -505,10 +591,6 @@ struct PaceSkillsView: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text(serverName)
                     .font(.system(size: 13, weight: .medium, design: .monospaced))
-                Text("MCP server registered in ~/.config/pace/mcp-servers.json. Pace calls it via stdio JSON-RPC when the planner emits an mcp tool call targeting this server.")
-                    .font(.system(size: 12))
-                    .foregroundColor(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
             }
             Spacer()
             Text(PaceToolRiskLevel.externalIntegration.displayName.lowercased())

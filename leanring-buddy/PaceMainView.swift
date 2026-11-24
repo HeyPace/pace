@@ -21,7 +21,7 @@ struct PaceMainView: View {
         VStack(spacing: 0) {
             if let detailDestination {
                 detailToolbar(for: detailDestination)
-                Divider().overlay(DS.Colors.borderSubtle)
+                PaceSettingsSeparator()
                 detail(for: detailDestination)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
@@ -73,6 +73,21 @@ struct PaceMainView: View {
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(DS.Colors.textPrimary)
             Spacer()
+            Menu {
+                ForEach(PaceCommandCenterDestination.everydayDestinations) { item in
+                    Button {
+                        showDestination(item)
+                    } label: {
+                        Label(item.title, systemImage: item.symbolName)
+                    }
+                }
+            } label: {
+                Label("Go to", systemImage: "arrow.turn.down.right")
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+            .pointerCursor()
+            .accessibilityLabel("Go to another settings page")
         }
         .padding(.horizontal, 24)
         .frame(minHeight: 46)
@@ -85,7 +100,7 @@ struct PaceMainView: View {
         case .conversations:
             PaceConversationsView(companionManager: companionManager)
         case .skills:
-            PaceSkillsView()
+            PaceSkillsView(onManageConnections: { showDestination(.mcp) })
         case .usage:
             PaceUsageAnalyticsView()
         case .privacy:
@@ -170,18 +185,16 @@ struct PacePermissionsView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                SMSectionHeader("", accent: "permissions", size: 28)
-                Text("Live macOS capability state. Pace asks only when a requested feature needs access.")
+                SMSectionHeader("", accent: "Permissions", size: 28)
+                Text("Pace requests access when you use a feature that needs it.")
                     .font(DS.Typography.body)
                     .foregroundColor(DS.Colors.textSecondary)
 
-                SMCard(padding: 0) {
-                    VStack(spacing: 0) {
-                        ForEach(PacePermissionKind.allCases, id: \.rawValue) { permissionKind in
-                            permissionRow(permissionKind: permissionKind)
-                            if permissionKind != PacePermissionKind.allCases.last {
-                                Divider().overlay(DS.Colors.borderSubtle)
-                            }
+                VStack(spacing: 0) {
+                    ForEach(PacePermissionKind.allCases, id: \.rawValue) { permissionKind in
+                        permissionRow(permissionKind: permissionKind)
+                        if permissionKind != PacePermissionKind.allCases.last {
+                            PaceSettingsSeparator()
                         }
                     }
                 }
@@ -204,7 +217,7 @@ struct PacePermissionsView: View {
                 .frame(width: 22)
 
             VStack(alignment: .leading, spacing: 3) {
-                Text(humanName(permissionKind).lowercased())
+                Text(humanName(permissionKind))
                     .font(DS.Typography.bodyStrong)
                 Text(humanDescription(permissionKind))
                     .font(DS.Typography.callout)
@@ -214,12 +227,13 @@ struct PacePermissionsView: View {
             Spacer()
 
             if isGranted {
-                SMStatusPill("granted", tone: .success)
-                    .fixedSize()
+                Text("Granted")
+                    .font(DS.Typography.callout)
+                    .foregroundStyle(DS.Colors.textSecondary)
             } else {
                 Button(
                     permissionKind == .calendar && companionManager.shouldRequestCalendarPermission
-                        ? "grant access" : "open settings"
+                        ? "Grant access" : "Open settings"
                 ) {
                     openSettings(for: permissionKind)
                 }
@@ -228,7 +242,6 @@ struct PacePermissionsView: View {
                 .pointerCursor()
             }
         }
-        .padding(.horizontal, 18)
         .padding(.vertical, 13)
         .accessibilityElement(children: .contain)
         .accessibilityValue(isGranted ? "Granted" : "Not granted")
@@ -306,7 +319,7 @@ struct PaceAboutView: View {
             .foregroundColor(DS.Colors.textTertiary)
             .multilineTextAlignment(.center)
             .frame(maxWidth: 440)
-            Button("open-source credits and licenses") {
+            Button("Open-source credits and licenses") {
                 if let noticesURL = Bundle.main.url(forResource: "OpenSourceNotices", withExtension: "txt") {
                     NSWorkspace.shared.open(noticesURL)
                 }
