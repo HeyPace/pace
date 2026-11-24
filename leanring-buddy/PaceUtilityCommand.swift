@@ -53,6 +53,7 @@ extension CompanionManager {
                 spokenText: PaceUtilityCommand.updateCheckReply(for: result)
             )
         case .speak(let text, let useKokoro):
+            let userEventID = activeConversationUserEvent?.eventID
             responseOverlayManager.showOverlayAndBeginStreaming()
             responseOverlayManager.updateStreamingText(text)
             recordConversationTurn(userTranscript: transcript, assistantResponse: text)
@@ -76,7 +77,8 @@ extension CompanionManager {
                 } else {
                     response = "Read aloud: " + text
                 }
-                recordAssistantNarration(response)
+                guard isActiveTurn(turnLease) else { return }
+                recordAssistantNarration(response, turnIdentifier: userEventID)
                 responseOverlayManager.updateStreamingText(response)
                 currentTurnHUDState = .done(response)
             } catch {

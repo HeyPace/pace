@@ -1583,7 +1583,8 @@ extension CompanionManager {
             guard let request = conversationSpeechRequest(for: spokenText) else {
                 let failure =
                     "Japanese practice reply did not match its validated speech and subtitles. Please try again."
-                recordAssistantNarration(failure, origin: .failure)
+                recordAssistantNarration(
+                    failure, origin: .failure, turnIdentifier: activeConversationUserEvent?.eventID)
                 responseOverlayManager.updateStreamingText(failure)
                 responseOverlayManager.finishStreaming()
                 currentTurnHUDState = .failed(failure)
