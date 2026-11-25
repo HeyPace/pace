@@ -454,6 +454,10 @@ final class PaceActiveDisplayCoordinatorTests: XCTestCase {
                 $0.identifier == PaceExplanationAutoClose.windowIdentifier && $0.isVisible
             })
         window.makeKeyAndOrderFront(nil)
+        let session = CGSessionCopyCurrentDictionary() as? [String: Any]
+        try XCTSkipIf(
+            !window.isKeyWindow && session?["CGSSessionScreenIsLocked"] as? Bool == true,
+            "The macOS lock screen owns keyboard focus.")
         XCTAssertTrue(window.isKeyWindow)
         manager.chatSession.draftMessageText = "Explain the next part"
         panelManager.handleExplanationVoiceStateChange(.idle)
