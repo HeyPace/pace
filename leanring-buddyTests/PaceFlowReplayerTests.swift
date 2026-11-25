@@ -58,8 +58,10 @@ private final class RecordingActionSink: PaceFlowReplayActionSink {
     func typeText(_ text: String) async {
         dispatched.append(.typeText(text))
     }
-    func performAXPress(_ resolution: PaceAXPressResolution) async {
+    var pressSucceeds = true
+    func performAXPress(_ resolution: PaceAXPressResolution) async -> Bool {
         dispatched.append(.axPress(resolution.debugLabel))
+        return pressSucceeds
     }
     func postKeyShortcut(_ comboString: String) async {
         dispatched.append(.keyShortcut(comboString))
@@ -72,6 +74,39 @@ private final class RecordingActionSink: PaceFlowReplayActionSink {
 final class PaceFlowReplayerTests: XCTestCase {
 
     // MARK: AX target resolution
+
+    func testUniqueTargetResolvesBothPathOrdersAndRejectsAmbiguity() {
+        let roles = ["AXApplication", "AXWindow", "AXButton", "AXButton"]
+        for path in [["AXButton", "AXWindow", "AXApplication"], ["AXWindow", "AXButton"]] {
+            func lookup(_ names: [String]) -> Int? {
+                PaceFrontmostAppAXTreeSource.uniqueTarget(
+                    root: 0, rolePath: path, label: "Mark sample ready",
+                    role: { roles[$0] }, labels: { [names[$0]] },
+                    children: { [[1], [2, 3], [], []][$0] }
+                )
+            }
+            XCTAssertEqual(lookup(["Fixture", "Window", "Mark sample ready later", "Mark sample ready"]), 3)
+            XCTAssertNil(lookup(["Fixture", "Window", "Mark sample ready", "Mark sample ready"]))
+        }
+    }
+
+    func testRejectedPressStopsBeforeNextStep() async {
+        let source = StubAXTreeSource()
+        source.defaultResponse = PaceAXPressResolution(debugLabel: "Fixture")
+        let sink = RecordingActionSink()
+        sink.pressSucceeds = false
+        var outcome: PaceFlowReplayOutcome?
+        await PaceFlowReplayer(axTreeSource: source, actionSink: sink).play(
+            PaceRecordedFlow(name: "Fixture", createdAt: Date(), steps: [
+                .axPress(rolePath: ["AXButton"], label: "Fixture"),
+                .keyShortcut(key: "cmd+s")
+            ]),
+            onProgress: { _ in XCTFail("Rejected press must stop before reporting progress") },
+            onCompletion: { outcome = $0 }
+        )
+        XCTAssertEqual(outcome, .failedToPressTarget(stepIndex: 0, axLabel: "Fixture"))
+        XCTAssertEqual(sink.dispatched, [.axPress("Fixture")])
+    }
 
     func testReplayerFindsTargetAndDispatchesPressInOrder() async {
         let axTreeSource = StubAXTreeSource()

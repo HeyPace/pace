@@ -141,6 +141,8 @@ extension CompanionManager {
                 .clickMissed(targetLabel: axLabel)
             )
             spokenText = "\(narration.spokenText) (step \(stepIndex + 1) of \(flowName))"
+        case .failedToPressTarget(let stepIndex, let axLabel):
+            spokenText = "I couldn't press \(axLabel) at step \(stepIndex + 1) of \(flowName)."
         case .userCancelled:
             spokenText = "stopped \(flowName)."
         }

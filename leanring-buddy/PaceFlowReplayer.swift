@@ -57,6 +57,8 @@ nonisolated enum PaceFlowReplayOutcome: Equatable {
     /// narrator) can describe what was missed.
     case failedToFindTarget(stepIndex: Int, axLabel: String)
 
+    case failedToPressTarget(stepIndex: Int, axLabel: String)
+
     /// The caller invoked `cancelInFlight()` while the replayer was
     /// between steps (or polling for an AX target).
     case userCancelled
@@ -79,99 +81,84 @@ protocol PaceAXTreeSource {
     ) -> PaceAXPressResolution?
 }
 
-/// What `PaceAXTreeSource.resolveAXPressTarget` returns when it finds
-/// a viable target. The replayer calls into `PaceAXTargeter` (or the
-/// injected stub) to actually post the press, then steps forward.
-struct PaceAXPressResolution: Equatable {
-    /// Marker used by tests so we can assert "this is the target we
-    /// expected the replayer to press" without exposing the live
-    /// `AXUIElement` to test code. Production callers ignore this.
+/// Keeps the exact resolved AX element alive until the press is dispatched.
+@MainActor
+struct PaceAXPressResolution {
     let debugLabel: String
+    let element: AXUIElement?
+
+    init(debugLabel: String, element: AXUIElement? = nil) {
+        self.debugLabel = debugLabel
+        self.element = element
+    }
 }
 
-/// Production default — uses the frontmost app's `AXFocusedApplication`
-/// root and descends through the recorded role hops. This is the only
-/// place that does real `AXUIElementCopyAttributeValue` traversal so the
-/// RAM budget claim ("no global AX-tree snapshots") stays honest.
 @MainActor
 struct PaceFrontmostAppAXTreeSource: PaceAXTreeSource {
-    func resolveAXPressTarget(
-        rolePath: [String],
-        label: String
-    ) -> PaceAXPressResolution? {
-        guard let frontmostApp = NSWorkspace.shared.frontmostApplication else {
-            return nil
-        }
-        let appAXElement = AXUIElementCreateApplication(frontmostApp.processIdentifier)
-        guard let pressTarget = descend(
-            into: appAXElement,
-            remainingRolePath: rolePath,
-            targetLabel: label
-        ) else {
-            return nil
-        }
-        // The `debugLabel` is best-effort — we read the leaf element's
-        // title/description so callers (and the production press
-        // adapter) can log what they pressed.
-        let leafLabel = stringAXAttribute(kAXTitleAttribute as String, of: pressTarget)
-            ?? stringAXAttribute(kAXDescriptionAttribute as String, of: pressTarget)
-            ?? label
-        return PaceAXPressResolution(debugLabel: leafLabel)
+    func resolveAXPressTarget(rolePath: [String], label: String) -> PaceAXPressResolution? {
+        guard let app = NSWorkspace.shared.frontmostApplication else { return nil }
+        let root = AXUIElementCreateApplication(app.processIdentifier)
+        guard let target = Self.uniqueTarget(
+            root: root, rolePath: rolePath, label: label,
+            role: { stringAXAttribute(kAXRoleAttribute as String, of: $0) ?? "" },
+            labels: { element in
+                [kAXTitleAttribute, kAXDescriptionAttribute, kAXIdentifierAttribute].compactMap {
+                    stringAXAttribute($0 as String, of: element)
+                }
+            },
+            children: axChildren
+        ) else { return nil }
+        return PaceAXPressResolution(debugLabel: label, element: target)
     }
 
-    private func descend(
-        into rootElement: AXUIElement,
-        remainingRolePath: [String],
-        targetLabel: String
-    ) -> AXUIElement? {
-        // No rolePath at all — return root. Defensive: the recorder
-        // always emits at least one hop, but a malformed/migrated flow
-        // might have an empty array.
-        guard !remainingRolePath.isEmpty else { return rootElement }
+    /// Recordings store leaf first. Older flows can start at the app or window.
+    /// The recorder caps ancestor depth, so either path may omit the app root.
+    static func uniqueTarget<Node>(
+        root: Node, rolePath: [String], label: String,
+        role: (Node) -> String, labels: (Node) -> [String], children: (Node) -> [Node]
+    ) -> Node? {
+        guard !rolePath.isEmpty, !label.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+        let reversed = Array(rolePath.reversed())
+        let paths: [[String]]
+        if rolePath.first == "AXApplication" || rolePath.first == "AXWindow" {
+            paths = [rolePath]
+        } else if rolePath.last == "AXApplication" || rolePath.last == "AXWindow" {
+            paths = [reversed]
+        } else {
+            paths = [rolePath, reversed]
+        }
 
-        // Breadth-first walk capped at 64 visited elements. This keeps
-        // us well below any RAM panic even for deeply nested AppKit
-        // chrome, while still finding the typical 3–5 hop role path
-        // from a Mail "Send" button to its enclosing window.
-        var visitedCount = 0
-        let visitCap = 64
-        var queue: [(element: AXUIElement, pathIndex: Int)] = [(rootElement, 0)]
-
-        while !queue.isEmpty, visitedCount < visitCap {
-            let (currentElement, currentPathIndex) = queue.removeFirst()
-            visitedCount += 1
-
-            let currentRole = stringAXAttribute(kAXRoleAttribute as String, of: currentElement) ?? ""
-            let targetRole = remainingRolePath[currentPathIndex]
-
-            // Match by role first. If the role lines up and we are at
-            // the leaf, additionally require the label to match (loose:
-            // either title or description contains the target).
-            let isLeafHop = currentPathIndex == remainingRolePath.count - 1
-            if currentRole == targetRole {
-                if isLeafHop {
-                    if axElementLabelMatches(currentElement, expected: targetLabel) {
-                        return currentElement
-                    }
-                    // Right role wrong label — keep looking among
-                    // siblings rather than committing to this element.
-                } else {
-                    // Intermediate hop matched; descend into children
-                    // with the next path index.
-                    for child in axChildren(of: currentElement) {
-                        queue.append((child, currentPathIndex + 1))
-                    }
-                    continue
-                }
+        var pending: [(node: Node, ancestors: [String])] = [(root, [])]
+        var remainingVisits = 256
+        var match: Node?
+        while let (node, ancestors) = pending.popLast() {
+            guard remainingVisits > 0 else { return nil }
+            remainingVisits -= 1
+            let branch = ancestors + [role(node)]
+            if paths.contains(where: { branch.suffix($0.count).elementsEqual($0) }),
+               labels(node).contains(where: { $0.caseInsensitiveCompare(label) == .orderedSame }) {
+                guard match == nil else { return nil }
+                match = node
             }
 
-            // Role mismatch (or label mismatch at the leaf): enqueue
-            // children at the SAME path index so we keep searching.
-            for child in axChildren(of: currentElement) {
-                queue.append((child, currentPathIndex))
+            // An anchored path can only match along its exact chain of ancestors.
+            let canDescend = paths.contains { path in
+                if path.first == "AXApplication" {
+                    return branch.count < path.count && path.starts(with: branch)
+                }
+                if path.first == "AXWindow", let index = branch.firstIndex(of: "AXWindow") {
+                    let windowBranch = branch[index...]
+                    return windowBranch.count < path.count && path.starts(with: windowBranch)
+                }
+                return true
+            }
+            if canDescend {
+                let descendants = children(node)
+                guard descendants.count + pending.count <= remainingVisits else { return nil }
+                for child in descendants { pending.append((child, branch)) }
             }
         }
-        return nil
+        return match
     }
 
     private func axChildren(of element: AXUIElement) -> [AXUIElement] {
@@ -185,18 +172,6 @@ struct PaceFrontmostAppAXTreeSource: PaceAXTreeSource {
             return []
         }
         return array
-    }
-
-    private func axElementLabelMatches(_ element: AXUIElement, expected: String) -> Bool {
-        let normalizedExpected = expected.lowercased()
-        let title = stringAXAttribute(kAXTitleAttribute as String, of: element)?.lowercased() ?? ""
-        let description = stringAXAttribute(kAXDescriptionAttribute as String, of: element)?.lowercased() ?? ""
-        if title == normalizedExpected || description == normalizedExpected { return true }
-        if !normalizedExpected.isEmpty,
-           (title.contains(normalizedExpected) || description.contains(normalizedExpected)) {
-            return true
-        }
-        return false
     }
 
     private func stringAXAttribute(_ attributeName: String, of element: AXUIElement) -> String? {
@@ -218,7 +193,7 @@ struct PaceFrontmostAppAXTreeSource: PaceAXTreeSource {
 protocol PaceFlowReplayActionSink {
     func activateApp(bundleIdentifier: String) async
     func typeText(_ text: String) async
-    func performAXPress(_ resolution: PaceAXPressResolution) async
+    func performAXPress(_ resolution: PaceAXPressResolution) async -> Bool
     func postKeyShortcut(_ comboString: String) async
 }
 
@@ -228,10 +203,6 @@ protocol PaceFlowReplayActionSink {
 /// keeps the replayer's call surface narrow.
 @MainActor
 final class PaceLiveFlowReplayActionSink: PaceFlowReplayActionSink {
-    /// Single AX targeter instance reused per replay so we don't burn
-    /// `AXUIElementCreateSystemWide()` calls per step.
-    private let axTargeter = PaceAXTargeter()
-
     func activateApp(bundleIdentifier: String) async {
         // Open by bundle identifier rather than re-launching the .app
         // bundle path — handles the "already running" case correctly.
@@ -268,19 +239,13 @@ final class PaceLiveFlowReplayActionSink: PaceFlowReplayActionSink {
         }
     }
 
-    func performAXPress(_ resolution: PaceAXPressResolution) async {
-        // The production AX-tree source has already located the press
-        // target; we don't have a way to thread the live AXUIElement
-        // through PaceAXPressResolution without crossing the test
-        // boundary. Instead, we re-resolve via cursor-position press
-        // through PaceAXTargeter — close enough for the production path
-        // because the recorder captured the press at the user's actual
-        // click point, and the replayer brings the focused app forward
-        // immediately before the press. This keeps `Equatable` on
-        // `PaceAXPressResolution` for tests.
-        let cursorPoint = CGEvent(source: nil)?.location ?? .zero
-        _ = axTargeter.tryClickViaAccessibility(atGlobalCGPoint: cursorPoint)
-        print("🪟 PaceFlowReplayer: AX press attempt at cursor for \"\(resolution.debugLabel)\"")
+    func performAXPress(_ resolution: PaceAXPressResolution) async -> Bool {
+        guard let element = resolution.element,
+              let frontmostApp = NSWorkspace.shared.frontmostApplication else { return false }
+        var targetPID: pid_t = 0
+        guard AXUIElementGetPid(element, &targetPID) == .success,
+              targetPID == frontmostApp.processIdentifier else { return false }
+        return AXUIElementPerformAction(element, kAXPressAction as CFString) == .success
     }
 
     func postKeyShortcut(_ comboString: String) async {
@@ -459,7 +424,10 @@ final class PaceFlowReplayer {
                 )
                 switch pollOutcome {
                 case .resolved(let resolution):
-                    await actionSink.performAXPress(resolution)
+                    guard await actionSink.performAXPress(resolution) else {
+                        onCompletion(.failedToPressTarget(stepIndex: stepIndex, axLabel: label))
+                        return
+                    }
                 case .timedOut:
                     onCompletion(.failedToFindTarget(stepIndex: stepIndex, axLabel: label))
                     return
