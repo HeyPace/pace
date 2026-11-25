@@ -122,7 +122,7 @@ extension PaceActionExecutor {
             toolName: "click_candidates",
             summary: "Click failed after trying \(attemptedCandidates.count) of \(orderedCandidates.count) candidate\(orderedCandidates.count == 1 ? "" : "s"): \(attemptedCandidateSummary).\(skippedCandidateText)",
             userFacingSummary: "I couldn’t verify the click. Check the control before continuing.",
-            terminalReason: .inspectionInterrupted, setOfMarkRecovery: recoveryRequest
+            setOfMarkRecovery: recoveryRequest, terminalReason: .inspectionInterrupted
         )
     }
 
