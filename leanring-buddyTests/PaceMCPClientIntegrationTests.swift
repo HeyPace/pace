@@ -69,6 +69,9 @@ private enum PaceMCPFixture {
                         if name in ["click", "scroll"] and args.get("snapshot") == "unconfirmed-fixture":
                             text = name.capitalize() + " did not return a confirmed outcome. Fixture diagnostic."
                             result = {"isError": True, "content": [{"type": "text", "text": text}]}
+                        elif name == "click" and args.get("snapshot") == "missing-control":
+                            text = "Failed to perform click: Service unavailable: No pressable accessibility element was found"
+                            result = {"isError": True, "content": [{"type": "text", "text": text}]}
                         elif name in ["window", "see"] and target == "Google Chrome":
                             result = {"isError": True, "content": [{"type": "text", "text": "Multiple apps match 'Google Chrome'. Did you mean: Google Chrome (PID:111), Google Chrome (PID:222)?"}]}
                         else:
@@ -260,6 +263,24 @@ struct PaceMCPClientIntegrationTests {
             #expect(!PaceActionRunRecord.completed(observations: observations).showsInConversation)
             #expect(try String(contentsOf: receipt, encoding: .utf8) == toolName + "\n")
         }
+    }
+
+    @MainActor @Test(.enabled(if: PaceMCPFixture.isFixtureRunnable))
+    func missingClickTargetInterruptsTheBatchAndBoundsRecovery() async throws {
+        let client = PaceMCPFixture.makeAmbiguityClient()
+        let executor = PaceActionExecutor(
+            actionsAreEnabledOverride: true, mcpClient: client, readMyScreenIsEnabled: { true })
+        let click = PaceMCPToolCall(
+            serverName: "peekaboo", toolName: "click", arguments: ["snapshot": .string("missing-control")])
+        let plan = PaceActionExecutionPlan.serial(actions: [.mcp(click), .mcp(click)])
+        let observations = await executor.executeActionPlan(plan, screenCaptures: [])
+        #expect(observations.count == 1)
+        #expect(observations.first?.requiresFreshInspectionPlan == true)
+        let secondMiss = await executor.callMCPTool(click)
+        #expect(secondMiss.stopsAgentLoop)
+        executor.beginUserTurn()
+        let nextTurn = await executor.callMCPTool(click)
+        #expect(nextTurn.requiresFreshInspectionPlan)
     }
 
     @MainActor @Test(.enabled(if: PaceMCPFixture.isFixtureRunnable))

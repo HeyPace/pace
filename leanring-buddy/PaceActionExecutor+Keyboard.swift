@@ -472,6 +472,22 @@ extension PaceActionExecutor {
                 terminalReason: .staleApplicationTarget
             )
         } catch {
+            if mcpToolCall.serverName == "peekaboo", mcpToolCall.toolName == "click",
+                case PaceMCPClientError.rpcError(let diagnostic) = error,
+                diagnostic.localizedCaseInsensitiveContains("No pressable accessibility element was found")
+            {
+                let canInspectAgain =
+                    !hasAttemptedInspectionRecovery && !Task.isCancelled && actionsAreEnabled
+                    && readMyScreenIsEnabled() && executionGeneration == applicationTargetGeneration
+                if canInspectAgain { hasAttemptedInspectionRecovery = true }
+                return .init(
+                    toolName: toolObservationName,
+                    summary: canInspectAgain
+                        ? "The click found no actionable control. Inspect the same window again before choosing the next action."
+                        : "The requested control could not be clicked. Remaining actions were skipped.",
+                    userFacingSummary: canInspectAgain ? "" : "I couldn’t click the requested control in that window.",
+                    terminalReason: canInspectAgain ? .recoverableInspectionFailure : .inspectionInterrupted)
+            }
             if Self.isUnconfirmedPeekabooInput(error, toolCall: mcpToolCall) {
                 let canVerify =
                     !hasAttemptedInspectionRecovery && !Task.isCancelled && actionsAreEnabled
