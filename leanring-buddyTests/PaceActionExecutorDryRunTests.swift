@@ -78,7 +78,7 @@ struct PaceActionExecutorDryRunTests {
             label: nil, confidence: 1, expectStateChange: false)
         let click = PaceParsedAction.clickCandidates(.init(candidates: [candidate], clickCount: 1))
         let receipt = await executor.executeActionPlanWithReceipt(
-            .serial(actions: [click, .pressKey("invalid-fixture-key", modifiers: [])]), screenCaptures: [])
+            .serial(actions: [click, .pressKey(name: "invalid-fixture-key", modifiers: [])]), screenCaptures: [])
         #expect(receipt.executedPlan.flattenedActions.isEmpty)
         #expect(receipt.observations.count == 1)
         #expect(receipt.observations.first?.stopsActionPlan == true)
