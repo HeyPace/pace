@@ -484,10 +484,9 @@ extension PaceActionExecutor {
                     toolName: toolObservationName,
                     summary: canInspectAgain
                         ? """
-                        The click failed. Inspect the same window. If it is still frontmost and the user wants an ordinary
-                        button activated, prefer native Key.press for standard keyboard navigation when allowed.
-                        Verify focus before activation and observe the result before proceeding. Respect any
-                        explicit input-method constraint. Stop on an access restriction or an uncertain target.
+                        Could not activate the control. Inspect the same window again. Only retry against a freshly
+                        identified, actionable control in that window using the existing approval path. Do not switch
+                        to untargeted global input. Report a blocker for an access restriction or an uncertain target.
                         """
                         : "The requested control could not be clicked. Remaining actions were skipped.",
                     userFacingSummary: canInspectAgain ? "" : "I couldn’t click the requested control in that window.",
