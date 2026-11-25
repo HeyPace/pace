@@ -483,7 +483,12 @@ extension PaceActionExecutor {
                 return .init(
                     toolName: toolObservationName,
                     summary: canInspectAgain
-                        ? "The click found no actionable control. Inspect the same window again before choosing the next action."
+                        ? """
+                            The pointer missed. Inspect the same window again. For an ordinary visible button, you may use
+                            standard keyboard navigation when the user requested activation and the keyboard is allowed.
+                            Verify focus on the named control before activating it, then observe the result. Respect any
+                            explicit input-method constraint. Stop on an access restriction or an uncertain target.
+                            """
                         : "The requested control could not be clicked. Remaining actions were skipped.",
                     userFacingSummary: canInspectAgain ? "" : "I couldn’t click the requested control in that window.",
                     terminalReason: canInspectAgain ? .recoverableInspectionFailure : .inspectionInterrupted)
