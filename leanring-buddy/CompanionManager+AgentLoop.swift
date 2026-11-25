@@ -2854,6 +2854,26 @@ extension CompanionManager {
                     //    `spokenText` is clean enough to play via TTS.
                     try prepareBilingualReplyIfNeeded(fullResponseText, turnLease: turnLease)
                     let rawActionParseResult = PaceActionTagParser.parseActions(from: fullResponseText)
+                    if rawActionParseResult.rejectedScreenClick {
+                        recordToolCallDebug(
+                            PaceToolCallDebugRecord(
+                                transcript: isFirstStep ? transcript : "(agent step \(stepIndex))",
+                                lane: .planner, routingDetail: "Rejected screen click",
+                                plannerPathDetail: plannerPathDetailForStep,
+                                screenElementCount: lastPlannerElementLineCountForDebug,
+                                rawPlannerOutput: fullResponseText,
+                                spokenText: rawActionParseResult.spokenText,
+                                parsedActionsSummary: "Invalid click request",
+                                dispatchSummary: "Rejected before dispatch", plannerLatencyMs: plannerSectionElapsedMs,
+                                totalTurnLatencyMs: Int(Date().timeIntervalSince(turnStartedAt) * 1000),
+                                userPrompt: userPromptForPlannerForDebug),
+                            systemPromptForExport: isResearchTurn ? nil : systemPromptForTurn)
+
+                        pendingPostActionFeedbackText = rawActionParseResult.spokenText
+                        currentTurnHUDState = .failed("Click target unverified")
+                        plannerLoopFinished = true
+                        break agentStepLoop
+                    }
                     if finishInitialInspectionIfOutOfScope(
                         initialInspectionPlan: initialInspectionPlan,
                         executionPlan: rawActionParseResult.executionPlan, turnLease: turnLease,

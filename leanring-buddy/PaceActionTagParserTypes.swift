@@ -806,6 +806,7 @@ nonisolated struct PaceActionTagParseResult {
     /// move to the target before it executes.
     let firstClickVisualisationLocation: ScreenshotPixelLocation?
     var teachingDelivery: PaceTeachingDelivery? = nil
+    var rejectedScreenClick = false
 }
 
 nonisolated struct PaceFastActionParseResult {

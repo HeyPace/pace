@@ -29,7 +29,7 @@ extension PaceActionExecutor {
             coordinateConverter: { [weak self] location, captures in
                 self?.convertScreenshotPixelToDisplayGlobalPoint(
                     screenshotPixelLocation: location,
-                    screenCaptures: captures
+                    screenCaptures: captures, requiresExactLocation: true
                 )
             }
         )
@@ -211,10 +211,12 @@ extension PaceActionExecutor {
         screenCaptures: [CompanionScreenCapture],
         clickCount: Int
     ) async -> Bool {
-        guard let displayGlobalPoint = convertScreenshotPixelToDisplayGlobalPoint(
-            screenshotPixelLocation: screenshotPixelLocation,
-            screenCaptures: screenCaptures
-        ) else {
+        guard
+            let displayGlobalPoint = convertScreenshotPixelToDisplayGlobalPoint(
+                screenshotPixelLocation: screenshotPixelLocation,
+                screenCaptures: screenCaptures, requiresExactLocation: true
+            )
+        else {
             print("⚠️ PaceActionExecutor: could not resolve display coordinates for click — skipping")
             return false
         }

@@ -128,26 +128,11 @@ nonisolated enum PaceTeachingPower {
     ]
 
     static let pointingRules = """
-        on-screen elements are given to you in this format, one per line:
-            [N] role|x,y|label|text
-        where N is the integer element ID. POINT and CLICK fields take ONE of those integer IDs, or -1 for "no target".
+        Screen observations may include numbered elements with a role, location, label and visible text. Use the current observation to identify the exact control the user named. Describe or point for a question like "where is Save?"; click only for an explicit request to activate that control. General screen descriptions need no pointer.
 
-        - the x,y in the middle of the line are pixel coordinates — they are NOT element IDs. only the integer in brackets at the start of the line is the ID. do not confuse the two.
-        - spokenText is what's read aloud to the user. NEVER mention element IDs, coordinates, "ID 260", or any other internal numbers — those are implementation details the user must never hear. talk like a person, not a parser.
+        Follow the response schema supplied for this planner. The numbers in the element list identify observations. Never add fields to an action envelope or invent coordinates from an element number. Use the selected tool's coordinate space and only a position supplied by the current trusted screen observation. If the target is missing or ambiguous, request a fresh inspection or ask the user to bring it into view.
 
-        point ONLY when the user named a SPECIFIC target ("the save button", "the file menu", "that link"). do NOT point for general questions, descriptions, summaries, or overviews — those don't need a cursor anywhere.
-
-        decide which case the user's request falls into:
-
-        A. pure knowledge question OR description / summary / overview ("what's on the screen", "what does this show", "explain this", "what is html"): pointAtElementId = -1, clickElementId = -1. spokenText answers naturally. example: spokenText="this screen has a search button, a save button, and a message field."
-
-        B. user named a target that IS in the element list. example: if the list contains `[3] button|548,40|save button|Save Draft` and the user said "click save", set pointAtElementId=3 AND clickElementId=3. if they said "where's save" without a verb, set pointAtElementId=3 and clickElementId=-1 (just point, don't click). RULE: if the user used any of these verbs — click, tap, press, open, launch, hit, choose, select — you MUST set clickElementId to the same ID as pointAtElementId. spokenText should sound natural: "opening the save button" — NOT "clicking element 3".
-
-        C. user named a target that is NOT in the element list: pointAtElementId = -1, clickElementId = -1, spokenText names what they asked for and says you can't see it. example: spokenText="i can't see an elephant button on this screen."
-
-        case C is critical. picking a wrong but nearby element from the list is FORBIDDEN. picking arbitrary IDs is FORBIDDEN. the only acceptable response when the target is missing is to refuse cleanly with both IDs set to -1.
-
-        case C applies ONLY to on-screen UI elements — buttons, menus, links, fields the user pointed at. it does NOT apply to opening apps or websites. "open chrome", "launch xcode", "open hacker news", "open hacker news on chrome" are ACTIONS, not pointing targets: you open them, you do not point at them, and you do NOT need to see them on screen first. NEVER answer an open-or-launch request with "i can't see it on screen". also treat "can you open X", "could you open X", and "please open X" as direct commands to open it — do NOT reply "yes i can, would you like me to?"; just emit the open action (see agent mode below).
+        Opening an application or URL is a launch request and does not require an on-screen target. Keep internal element numbers and coordinates out of spoken replies.
         """
 
     static let genericDiagramExample =

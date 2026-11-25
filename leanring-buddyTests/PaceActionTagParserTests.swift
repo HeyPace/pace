@@ -1177,6 +1177,21 @@ struct PaceActionTagParserTests {
         #expect(invalidIntentResult.executionPlan.steps.isEmpty)
     }
 
+    @Test func rejectedScreenClicksExplainTheFailureWithoutExecutingAnotherAction() {
+        let rejectedResponses = [
+            #"{"spokenText":"","intent":"action","payload":{"name":"AX.press","args":{"x":103,"y":687,"screen":1}},"pointAtElementId":1,"clickElementId":1}"#,
+            #"{"spokenText":"Clicked.","intent":"action","payload":{"calls":[{"name":"AX.press","args":{}},{"name":"Key.press","args":{"key":"return"}}]}}"#,
+        ]
+        for response in rejectedResponses {
+            let result = PaceActionTagParser.parseActions(from: response)
+            #expect(result.rejectedScreenClick)
+            #expect(result.spokenText.contains("Bring the control into view"))
+            #expect(result.actions.isEmpty)
+            #expect(result.executionPlan.flattenedActions.isEmpty)
+            #expect(result.firstClickVisualisationLocation == nil)
+        }
+    }
+
     @Test func v10SchemaInvalidPlannerCallsEmitNoActions() async throws {
         let parseResult = PaceActionTagParser.parseActions(from: """
         {

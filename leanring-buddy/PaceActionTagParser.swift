@@ -407,6 +407,24 @@ nonisolated enum PaceActionTagParser {
         }) {
             envelopeValidationIssues.append("generate_image requires a valid image request")
         }
+        if strictStringValue(for: "intent", in: plannerResponseObject)?.lowercased() == "action",
+            let payload = objectValue(for: "payload", in: plannerResponseObject)
+        {
+            let clickCalls = (actionCallObjects(from: payload) ?? [payload]).filter { call in
+                guard let name = strictStringValue(for: "name", in: call) else { return false }
+                return ["ax.press", "click", "mouse.click", "ax.doublepress", "double.click", "mouse.doubleclick"]
+                    .contains(normalizedParameterizedActionName(name))
+            }
+            if !clickCalls.isEmpty,
+                !envelopeValidationIssues.isEmpty || clickCalls.contains(where: { parsePlannerActionCall($0) == nil })
+            {
+                return PaceActionTagParseResult(
+                    spokenText:
+                        "I couldn’t verify the click target. Bring the control into view and ask me to click it again.",
+                    actions: [], executionPlan: .serial(actions: []), firstClickVisualisationLocation: nil,
+                    rejectedScreenClick: true)
+            }
+        }
         guard envelopeValidationIssues.isEmpty else {
             print("⚠️ Rejected invalid v10 planner response before execution: \(envelopeValidationIssues.joined(separator: "; "))")
             return PaceActionTagParseResult(

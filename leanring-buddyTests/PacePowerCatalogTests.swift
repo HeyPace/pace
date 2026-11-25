@@ -118,6 +118,8 @@ struct PacePowerCatalogTests {
         #expect(prompt.contains(PaceTextPower.conversationRules))
         #expect(prompt.contains(PaceVoicePower.responseRules))
         #expect(prompt.contains(PaceTeachingPower.pointingRules))
+        #expect(!prompt.contains("pointAtElementId"))
+        #expect(!prompt.contains("clickElementId"))
         #expect(!prompt.contains("available tools:"))
         #expect(!prompt.contains("Pace WILL call you again"))
         #expect(!prompt.contains(PaceTeachingPower.tuitionModeRules))

@@ -54,6 +54,23 @@ struct PaceActionExecutorDryRunTests {
         #expect(executor.previousPlannerClick == nil)
     }
 
+    @Test func clicksRequireAnUnambiguousCapturedDisplayAndAnInBoundsPoint() async throws {
+        let executor = PaceActionExecutor(actionsAreEnabledOverride: false)
+        let capture = CompanionScreenCapture(
+            imageData: Data(), label: "Fixture", isCursorScreen: true, displayWidthInPoints: 100,
+            displayHeightInPoints: 100, displayFrame: CGRect(x: 0, y: 0, width: 100, height: 100),
+            screenshotWidthInPixels: 200, screenshotHeightInPixels: 200)
+        func resolves(x: Int, screen: Int?, count: Int) async -> Bool {
+            await executor.clickAtScreenshotLocation(
+                .init(xInScreenshotPixels: x, yInScreenshotPixels: 40, screenNumber: screen),
+                screenCaptures: Array(repeating: capture, count: count), clickCount: 1)
+        }
+        #expect(await resolves(x: 50, screen: 1, count: 1))
+        #expect(!(await resolves(x: 200, screen: 1, count: 1)))
+        #expect(!(await resolves(x: 50, screen: 2, count: 1)))
+        #expect(!(await resolves(x: 50, screen: nil, count: 2)))
+    }
+
     @Test func targetedScrollUsesTheSelectedDisplayAndRejectsItsEdges() throws {
         let screenHeight = try #require(NSScreen.screens.first).frame.height
         let primary = CompanionScreenCapture(
