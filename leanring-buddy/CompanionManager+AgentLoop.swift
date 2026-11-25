@@ -564,10 +564,7 @@ extension CompanionManager {
             )
             if didRecover {
                 print("🎯 Set-of-Mark recovery succeeded for \"\(targetDescription)\"")
-                updatedObservations[observationIndex] = PaceActionExecutionObservation(
-                    toolName: "click_candidates",
-                    summary: "Recovered the missed click via on-screen marks: clicked \"\(targetDescription)\"."
-                )
+                updatedObservations[observationIndex] = recoveryRequest.verifiedClickObservation
             }
         }
         return updatedObservations

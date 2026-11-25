@@ -82,6 +82,34 @@ struct PaceActionExecutorDryRunTests {
         #expect(receipt.executedPlan.flattenedActions.isEmpty)
         #expect(receipt.observations.count == 1)
         #expect(receipt.observations.first?.stopsActionPlan == true)
+        let recovery = try #require(receipt.observations.first?.setOfMarkRecovery)
+        #expect(recovery.unattemptedActionCount == 1)
+        let partial = recovery.verifiedClickObservation
+        #expect(partial.stopsAgentLoop)
+        let result = PaceActionRunRecord.completed(observations: [partial])
+        #expect(result.status == .failed && result.showsInConversation)
+        #expect(result.detail.contains("one action left"))
+
+        let finalReceipt = await executor.executeActionPlanWithReceipt(.serial(actions: [click]), screenCaptures: [])
+        let finalRecovery = try #require(finalReceipt.observations.first?.setOfMarkRecovery)
+        #expect(!finalRecovery.verifiedClickObservation.stopsAgentLoop)
+        let finalResult = PaceActionRunRecord.completed(observations: [finalRecovery.verifiedClickObservation])
+        #expect(finalResult.status == .completed)
+
+        let (root, manager, persister, _) = try PacePowerManagerTests().fixture()
+        defer {
+            manager.cancelActiveTurnTasks()
+            try? FileManager.default.removeItem(at: root)
+        }
+        PacePowerManagerTests().begin("Click the field and press Return", manager: manager)
+        let request = try #require(manager.activeConversationUserEvent)
+        let feedback = try #require(PaceActionExecutionObservation.formatForUserFeedback([partial]))
+        _ = await manager.deliverPostActionFeedbackIfCurrentTurn(
+            feedback, turnLease: manager.turnLeaseRegistry.currentLease)
+        #expect(
+            persister.events.values.contains { event in
+                event.turnID == request.eventID && event.role == .pace && event.text == feedback
+            })
     }
 
     @Test func targetedScrollUsesTheSelectedDisplayAndRejectsItsEdges() throws {

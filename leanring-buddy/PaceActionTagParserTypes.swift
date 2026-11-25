@@ -57,6 +57,20 @@ nonisolated struct PaceSetOfMarkRecoveryRequest {
     /// The screenshot/display the failed click targeted, if known. Lets the
     /// loop pick the matching capture + cached element map.
     let screenNumber: Int?
+    var unattemptedActionCount = 0
+
+    var verifiedClickObservation: PaceActionExecutionObservation {
+        let target = targetDescription.isEmpty ? "the requested control" : "“\(targetDescription)”"
+        let clickSummary = "I verified the click on \(target)."
+        guard unattemptedActionCount > 0 else {
+            return .init(toolName: "click_candidates", summary: clickSummary)
+        }
+        let remaining = unattemptedActionCount == 1 ? "one action" : "\(unattemptedActionCount) actions"
+        return .init(
+            toolName: "click_candidates",
+            summary: "\(clickSummary) I stopped with \(remaining) left. Check the current screen before continuing.",
+            terminalReason: .incompleteActionPlan)
+    }
 }
 
 nonisolated enum PaceApplicationTargetResolution: Equatable, Sendable {
@@ -82,6 +96,7 @@ nonisolated struct PaceActionExecutionObservation {
         case staleApplicationTarget
         case inspectionInterrupted
         case managedWorkflowUnavailable
+        case incompleteActionPlan
     }
 
     let toolName: String
@@ -100,12 +115,12 @@ nonisolated struct PaceActionExecutionObservation {
         case .ambiguousApplicationTarget: return .clarification(userFacingSummary ?? "Which app window do you mean?")
         case .staleApplicationTarget, .inspectionInterrupted:
             return .interrupted(userFacingSummary ?? "I stopped checking that window.")
-        case nil, .managedWorkflowUnavailable: return nil
+        case nil, .managedWorkflowUnavailable, .incompleteActionPlan: return nil
         }
     }
     let didDispatchCoordinateClick: Bool
     /// Non-nil only on an all-fail click, to request Set-of-Mark recovery.
-    let setOfMarkRecovery: PaceSetOfMarkRecoveryRequest?
+    var setOfMarkRecovery: PaceSetOfMarkRecoveryRequest?
 
     /// Explicit init (a defaulted `let` is excluded from the synthesized
     /// memberwise init), so the recovery field is optional at every call site.

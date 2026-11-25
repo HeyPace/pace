@@ -88,7 +88,11 @@ extension PaceActionExecutor {
             for (actionIndex, action) in step.actions.enumerated() {
                 guard !Task.isCancelled, executionGeneration == applicationTargetGeneration else { return receipt() }
 
-                if let observation = await executeSingleAction(action, screenCaptures: screenCaptures) {
+                if var observation = await executeSingleAction(action, screenCaptures: screenCaptures) {
+                    if observation.setOfMarkRecovery != nil {
+                        observation.setOfMarkRecovery?.unattemptedActionCount =
+                            actionExecutionPlan.flattenedActions.count - executedActions.count - 1
+                    }
                     observations.append(observation)
                     if observation.stopsActionPlan { return receipt() }
                 }
