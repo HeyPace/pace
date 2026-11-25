@@ -42,9 +42,12 @@ nonisolated struct PaceAPIAuditEntry: Codable, Equatable {
         if outcome.hasPrefix("http_"), let code = Int(outcome.dropFirst(5)) {
             return !(200..<300).contains(code)
         }
+        if outcome.hasPrefix("httpFailure="), let code = Int(outcome.dropFirst("httpFailure=".count)) {
+            return !(200..<300).contains(code)
+        }
         switch outcome {
         case "error", "failed", "bad_response", "non_http_response", "non_2xx",
-            "invalid_structured_json", "count_mismatch":
+            "invalid_structured_json", "count_mismatch", "invalidResponse":
             return true
         default:
             return outcome.hasSuffix("_error") || outcome.hasSuffix("_failed") || outcome.hasPrefix("failed_")

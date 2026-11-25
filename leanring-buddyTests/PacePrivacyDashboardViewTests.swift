@@ -52,8 +52,9 @@ struct PacePrivacyDashboardViewTests {
         }
         let snapshot = PacePrivacyDashboardAggregator.aggregate(auditEntries: rows)
         #expect(snapshot.totalOffDeviceCallCount == confirmed.count)
+        #expect(snapshot.unconfirmedResponsesRequests == 3)
         #expect(snapshot.totalOffDeviceBytesSent == 10 * confirmed.count)
-        #expect(snapshot.perTargetStats.first?.target == "model/v1")
+        #expect(snapshot.perTargetStats.first?.target == "openai/model/v1")
     }
 
     @Test func cloudBridgeSubsystemIsClassifiedAsCloudBridgeTier() {

@@ -135,7 +135,7 @@ final class PaceOpenAIResponsesEverydayClient: PaceEverydayAnswerClient, PacePas
             auditLog.record(
                 subsystem: requestWasSubmitted ? "planner.directAPI.responses" : "planner.openai.responses.preflight",
                 operation: operation,
-                target: Self.model, durationMilliseconds: Int(Date().timeIntervalSince(startedAt) * 1000),
+                target: "openai/\(Self.model)", durationMilliseconds: Int(Date().timeIntervalSince(startedAt) * 1000),
                 outcome: outcome, inputCharacterCount: requestWasSubmitted ? inputCharacterCount : 0,
                 outputCharacterCount: outputCharacterCount,
                 detail: "route=\(route) model=\(Self.model) reasoning=none store=false imageBytes=\(imageByteCount)",

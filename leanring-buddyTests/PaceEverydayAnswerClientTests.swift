@@ -189,7 +189,7 @@ struct PaceEverydayAnswerClientTests {
         let snapshot = PacePrivacyDashboardAggregator.aggregate(auditEntries: entries)
         #expect(snapshot.totalOffDeviceCallCount == 1)
         #expect(snapshot.totalOffDeviceBytesSent > 0)
-        #expect(snapshot.perTargetStats.first?.target == PaceOpenAIResponsesEverydayClient.model)
+        #expect(snapshot.perTargetStats.first?.target == "openai/" + PaceOpenAIResponsesEverydayClient.model)
         #expect(entries.first?.inputTokenCount == 157)
         #expect(entries.first?.outputTokenCount == 2)
         #expect(entries.first?.outputCharacterCount == 2)

@@ -157,10 +157,13 @@ struct PaceAPIAuditLogTests {
     }
 
     @Test func auditOutcomeClassification() {
-        for outcome in ["failed", "decode_error", "fetch_failed", "failed_validation", "http_503", "non_2xx"] {
+        for outcome in [
+            "failed", "decode_error", "fetch_failed", "failed_validation", "http_503", "httpFailure=403",
+            "invalidResponse", "non_2xx",
+        ] {
             #expect(PaceAPIAuditEntry.isRecordedFailure(outcome))
         }
-        for outcome in ["loaded", "skipped_muted", "cancelled", "unknown", "http_200"] {
+        for outcome in ["loaded", "skipped_muted", "cancelled", "unknown", "http_200", "httpFailure=200"] {
             #expect(!PaceAPIAuditEntry.isRecordedFailure(outcome))
         }
     }

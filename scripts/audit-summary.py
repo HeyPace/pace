@@ -39,9 +39,11 @@ def is_recorded_failure(outcome):
         return False
     if outcome.startswith("http_") and outcome[5:].isdigit():
         return not 200 <= int(outcome[5:]) < 300
+    if outcome.startswith("httpFailure=") and outcome[len("httpFailure="):].isdigit():
+        return not 200 <= int(outcome[len("httpFailure="):]) < 300
     return (
         outcome in {"error", "failed", "bad_response", "non_http_response", "non_2xx",
-                    "invalid_structured_json", "count_mismatch"}
+                    "invalid_structured_json", "count_mismatch", "invalidResponse"}
         or outcome.endswith(("_error", "_failed"))
         or outcome.startswith("failed_")
     )

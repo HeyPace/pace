@@ -101,6 +101,10 @@ struct PacePrivacyDashboardAggregator {
         return tier(forSubsystem: entry.subsystem, target: entry.target)
     }
 
+    static func target(for entry: PaceAPIAuditEntry) -> String {
+        entry.subsystem == "planner.openai.responses" ? "openai/" + entry.target : entry.target
+    }
+
     struct AggregatedPerTierStats {
         let tier: PaceOffDeviceTier
         let callCount: Int
@@ -110,6 +114,7 @@ struct PacePrivacyDashboardAggregator {
     struct AggregatedSnapshot {
         let totalOffDeviceBytesSent: Int
         let totalOffDeviceCallCount: Int
+        var unconfirmedResponsesRequests = 0
         let perTierStats: [AggregatedPerTierStats]
         /// Per-target byte totals — useful for the "X KB to claude.ai"
         /// fragment when traffic is non-zero. Sorted descending by bytes.
@@ -143,6 +148,7 @@ struct PacePrivacyDashboardAggregator {
         var perTargetByteTotals: [String: Int] = [:]
         var totalBytes = 0
         var totalCalls = 0
+        var unconfirmedResponsesRequests = 0
         var localPlannerEntryCount = 0
         var appleFoundationModelsEntryCount = 0
 
@@ -151,10 +157,13 @@ struct PacePrivacyDashboardAggregator {
                 let bytesForEntry = entry.inputCharacterCount ?? 0
                 perTierByteTotals[tier, default: 0] += bytesForEntry
                 perTierCallCounts[tier, default: 0] += 1
-                perTargetByteTotals[entry.target, default: 0] += bytesForEntry
+                perTargetByteTotals[target(for: entry), default: 0] += bytesForEntry
                 totalBytes += bytesForEntry
                 totalCalls += 1
                 continue
+            }
+            if entry.subsystem == "planner.openai.responses", entry.outcome != "missingKey" {
+                unconfirmedResponsesRequests += 1
             }
             if entry.subsystem == "planner" {
                 if entry.target.hasPrefix("apple-fm") || entry.target.contains("foundation") {
@@ -180,6 +189,7 @@ struct PacePrivacyDashboardAggregator {
         return AggregatedSnapshot(
             totalOffDeviceBytesSent: totalBytes,
             totalOffDeviceCallCount: totalCalls,
+            unconfirmedResponsesRequests: unconfirmedResponsesRequests,
             perTierStats: perTierStats,
             perTargetStats: perTargetStats,
             localPlannerEntryCount: localPlannerEntryCount,
@@ -248,6 +258,10 @@ struct PacePrivacyDashboardView: View {
                 Text(headlineCardPrimaryText)
                     .font(DS.Typography.sectionTitle)
                     .fixedSize(horizontal: false, vertical: true)
+                if snapshot.unconfirmedResponsesRequests > 0 {
+                    Text("Earlier OpenAI requests with unknown delivery: \(snapshot.unconfirmedResponsesRequests).")
+                        .font(DS.Typography.callout).foregroundStyle(DS.Colors.textSecondary)
+                }
                 Text(headlineCardSecondaryText)
                     .font(DS.Typography.callout)
                     .foregroundStyle(DS.Colors.textSecondary)
@@ -272,7 +286,7 @@ struct PacePrivacyDashboardView: View {
 
     private var headlineCardSecondaryText: String {
         if snapshot.totalOffDeviceCallCount == 0 {
-            return "No off-device requests were recorded in this window."
+            return "No confirmed off-device requests in this window."
         }
         let perTierFragments = snapshot.perTierStats
             .filter { $0.callCount > 0 }
@@ -367,7 +381,7 @@ struct PacePrivacyDashboardView: View {
             Text(tier?.rawValue ?? entry.subsystem)
                 .font(.system(size: 11))
                 .frame(minWidth: 40, maxWidth: .infinity, alignment: .leading)
-                .help(entry.target)
+                .help(PacePrivacyDashboardAggregator.target(for: entry))
             Text(PacePrivacyByteFormatter.format(bytes: entry.inputCharacterCount ?? 0))
                 .font(.system(size: 11))
                 .frame(width: 60, alignment: .trailing)
@@ -410,7 +424,7 @@ struct PacePrivacyDashboardView: View {
             return tierFiltered.reversed() // newest first
         }
         return tierFiltered.filter { entry in
-            entry.target.lowercased().contains(trimmedQuery)
+            PacePrivacyDashboardAggregator.target(for: entry).lowercased().contains(trimmedQuery)
                 || entry.outcome.lowercased().contains(trimmedQuery)
         }.reversed()
     }
