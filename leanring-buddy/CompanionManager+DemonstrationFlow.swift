@@ -64,8 +64,12 @@ extension CompanionManager {
         guard !trimmedFlowName.isEmpty else {
             return "flow recording needs a name."
         }
-        flowRecorder.start(flowName: trimmedFlowName)
-        return "recording \(trimmedFlowName). say stop recording when you're done."
+        switch flowRecorder.start(flowName: trimmedFlowName) {
+        case .success:
+            return "recording \(trimmedFlowName). say stop recording when you're done."
+        case .failure(let error):
+            return error.localizedDescription
+        }
     }
 
     /// Stop the live recorder and persist whatever was captured. Public
@@ -73,12 +77,21 @@ extension CompanionManager {
     /// voice command parser can all share one save site.
     @discardableResult
     func stopFlowRecordingFromVoiceCommand() -> String {
-        let assembledFlow = flowRecorder.stop(reason: .userCommand)
+        Self.stopFlowRecording(flowRecorder, savingTo: flowStore)
+    }
+
+    static func stopFlowRecording(_ recorder: PaceFlowRecorder, savingTo store: PaceFlowStore) -> String {
+        guard recorder.isRecording else { return "no recording was in progress." }
+        let assembledFlow = recorder.stop(reason: .userCommand)
         guard let assembledFlow else {
             return "no recording was in progress."
         }
+        guard !assembledFlow.steps.isEmpty else {
+            return
+                "No steps were captured, so \(assembledFlow.name) wasn’t saved. Start recording again and perform the steps."
+        }
         do {
-            try flowStore.save(assembledFlow)
+            try store.save(assembledFlow)
             return "saved \(assembledFlow.name) with \(assembledFlow.steps.count) step\(assembledFlow.steps.count == 1 ? "" : "s")."
         } catch {
             return "i recorded \(assembledFlow.name) but couldn't save it: \(error.localizedDescription)"

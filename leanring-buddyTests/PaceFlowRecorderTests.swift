@@ -25,13 +25,13 @@ final class PaceFlowRecorderTests: XCTestCase {
     // MARK: - Lifecycle
 
     func testFreshRecorderIsIdle() {
-        let recorder = PaceFlowRecorder()
+        let recorder = PaceFlowRecorder(startCaptureOverride: {})
         XCTAssertEqual(recorder.state, .idle)
         XCTAssertFalse(recorder.isRecording)
     }
 
     func testStartTransitionsIntoRecording() {
-        let recorder = PaceFlowRecorder()
+        let recorder = PaceFlowRecorder(startCaptureOverride: {})
         recorder.start(flowName: "compose mail")
         XCTAssertTrue(recorder.isRecording)
         if case .recording(let flowName, _) = recorder.state {
@@ -68,7 +68,7 @@ final class PaceFlowRecorderTests: XCTestCase {
     /// context still exists and safely observes `nil` rather than a
     /// dangling recorder.
     func testEventTapCallbackContextSafelyObservesNilAfterRecorderDeallocatesWithoutStop() {
-        var recorder: PaceFlowRecorder? = PaceFlowRecorder()
+        var recorder: PaceFlowRecorder? = PaceFlowRecorder(startCaptureOverride: {})
         recorder?.start(flowName: "context capture")
 
         guard let capturedCallbackContext = recorder?.eventTapCallbackContextForTesting() else {
@@ -96,6 +96,7 @@ final class PaceFlowRecorderTests: XCTestCase {
     func testStopReturnsAssembledFlow() {
         let recorder = PaceFlowRecorder(
             idleTimeoutSeconds: 0, // disables idle timer for the test
+            startCaptureOverride: {},
             currentDateProvider: { Date(timeIntervalSince1970: 1_700_000_000) }
         )
         recorder.start(flowName: "test flow")
@@ -120,31 +121,62 @@ final class PaceFlowRecorderTests: XCTestCase {
     }
 
     func testStopWithoutStartingReturnsNil() {
-        let recorder = PaceFlowRecorder(idleTimeoutSeconds: 0)
+        let recorder = PaceFlowRecorder(idleTimeoutSeconds: 0, startCaptureOverride: {})
         let result = recorder.stop(reason: .userCommand)
         XCTAssertNil(result)
         XCTAssertEqual(recorder.state, .stopped(reason: .userCommand, recordedFlow: nil))
     }
 
-    func testRestartingDiscardsPreviousRecording() {
-        let recorder = PaceFlowRecorder(idleTimeoutSeconds: 0)
+    func testDuplicateStartPreservesPreviousRecording() {
+        let recorder = PaceFlowRecorder(idleTimeoutSeconds: 0, startCaptureOverride: {})
         recorder.start(flowName: "first flow")
         recorder.recordAppActivationForTesting(
             bundleIdentifier: "com.apple.mail",
             at: Date()
         )
 
-        recorder.start(flowName: "second flow")
+        guard case .failure(.alreadyRecording("first flow")) = recorder.start(flowName: "second flow") else {
+            return XCTFail("The original recording should remain active")
+        }
         let assembledFlow = recorder.stop(reason: .userCommand)
-        // First-flow steps must NOT survive the restart.
-        XCTAssertEqual(assembledFlow?.name, "second flow")
-        XCTAssertEqual(assembledFlow?.steps, [])
+        XCTAssertEqual(assembledFlow?.name, "first flow")
+        XCTAssertEqual(assembledFlow?.steps, [.activateApp(bundleIdentifier: "com.apple.mail")])
+    }
+
+    func testCaptureFailuresLeaveRecorderIdleAndExposeNextStep() {
+        for failure in [PaceFlowRecordingStartError.needsInputMonitoring, .needsAccessibility, .captureUnavailable] {
+            let recorder = PaceFlowRecorder(startCaptureOverride: { () throws(PaceFlowRecordingStartError) in
+                throw failure
+            })
+            guard case .failure(let error) = recorder.start(flowName: "Fixture") else {
+                return XCTFail("Expected capture setup to fail")
+            }
+            XCTAssertEqual(error, failure)
+            XCTAssertEqual(recorder.state, .idle)
+            XCTAssertNil(recorder.eventTapCallbackContextForTesting())
+            XCTAssertFalse(error.localizedDescription.isEmpty)
+        }
+    }
+
+    func testStoppingEmptyRecordingPreservesExistingWorkflow() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = PaceFlowStore(directoryURL: directory)
+        let previous = PaceRecordedFlow(
+            name: "Fixture", createdAt: Date(timeIntervalSince1970: 10),
+            steps: [.activateApp(bundleIdentifier: "fixture")])
+        try store.save(previous)
+        let recorder = PaceFlowRecorder(startCaptureOverride: {})
+        recorder.start(flowName: "Fixture")
+        let summary = CompanionManager.stopFlowRecording(recorder, savingTo: store)
+        XCTAssertTrue(summary.contains("No steps were captured"))
+        XCTAssertEqual(store.load(named: "Fixture"), previous)
     }
 
     // MARK: - Workspace activation
 
     func testActivateAppEmitsStepInOrder() {
-        let recorder = PaceFlowRecorder(idleTimeoutSeconds: 0)
+        let recorder = PaceFlowRecorder(idleTimeoutSeconds: 0, startCaptureOverride: {})
         recorder.start(flowName: "morning")
         recorder.recordAppActivationForTesting(bundleIdentifier: "com.apple.mail", at: Date())
         recorder.recordAppActivationForTesting(bundleIdentifier: "com.apple.iCal", at: Date())
@@ -157,7 +189,7 @@ final class PaceFlowRecorderTests: XCTestCase {
     }
 
     func testConsecutiveActivationsOfSameAppAreDeduplicated() {
-        let recorder = PaceFlowRecorder(idleTimeoutSeconds: 0)
+        let recorder = PaceFlowRecorder(idleTimeoutSeconds: 0, startCaptureOverride: {})
         recorder.start(flowName: "noisy switch")
         recorder.recordAppActivationForTesting(bundleIdentifier: "com.apple.mail", at: Date())
         recorder.recordAppActivationForTesting(bundleIdentifier: "com.apple.mail", at: Date())
@@ -170,7 +202,7 @@ final class PaceFlowRecorderTests: XCTestCase {
     }
 
     func testEmptyBundleIdentifierIsIgnored() {
-        let recorder = PaceFlowRecorder(idleTimeoutSeconds: 0)
+        let recorder = PaceFlowRecorder(idleTimeoutSeconds: 0, startCaptureOverride: {})
         recorder.start(flowName: "blank")
         recorder.recordAppActivationForTesting(bundleIdentifier: "   ", at: Date())
         recorder.recordAppActivationForTesting(bundleIdentifier: "", at: Date())
@@ -182,7 +214,7 @@ final class PaceFlowRecorderTests: XCTestCase {
     // MARK: - Idle timeout
 
     func testIdleTimeoutStopsRecordingWithIdleReason() {
-        let recorder = PaceFlowRecorder(idleTimeoutSeconds: 0)
+        let recorder = PaceFlowRecorder(idleTimeoutSeconds: 0, startCaptureOverride: {})
         recorder.start(flowName: "timeout test")
         XCTAssertTrue(recorder.isRecording)
 
@@ -263,7 +295,7 @@ final class PaceFlowRecorderTests: XCTestCase {
         // the buffer flush peeks at the system-wide focused AX element,
         // which doesn't exist in the test process — so this verifies
         // ONLY the modifier-driven shortcut emission path.
-        let recorder = PaceFlowRecorder(idleTimeoutSeconds: 0)
+        let recorder = PaceFlowRecorder(idleTimeoutSeconds: 0, startCaptureOverride: {})
         recorder.start(flowName: "save flow")
 
         let cmdSEvent = try XCTUnwrap(
@@ -283,7 +315,7 @@ final class PaceFlowRecorderTests: XCTestCase {
     }
 
     func testBareReturnEmitsKeyShortcutStep() throws {
-        let recorder = PaceFlowRecorder(idleTimeoutSeconds: 0)
+        let recorder = PaceFlowRecorder(idleTimeoutSeconds: 0, startCaptureOverride: {})
         recorder.start(flowName: "press enter")
 
         let returnEvent = try XCTUnwrap(
@@ -302,7 +334,7 @@ final class PaceFlowRecorderTests: XCTestCase {
     }
 
     func testFlagsChangedAloneDoesNotEmitStep() throws {
-        let recorder = PaceFlowRecorder(idleTimeoutSeconds: 0)
+        let recorder = PaceFlowRecorder(idleTimeoutSeconds: 0, startCaptureOverride: {})
         recorder.start(flowName: "modifier held")
 
         // A `flagsChanged` event with the command modifier flipping
@@ -330,7 +362,7 @@ final class PaceFlowRecorderTests: XCTestCase {
         // point. The recorder should silently drop the step — never
         // record a pixel-only click — because Wave 3a's contract is
         // "AX role path only".
-        let recorder = PaceFlowRecorder(idleTimeoutSeconds: 0)
+        let recorder = PaceFlowRecorder(idleTimeoutSeconds: 0, startCaptureOverride: {})
         recorder.start(flowName: "click in void")
 
         let mouseEvent = try XCTUnwrap(
