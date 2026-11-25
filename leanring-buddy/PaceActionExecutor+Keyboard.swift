@@ -477,16 +477,16 @@ extension PaceActionExecutor {
                 diagnostic.localizedCaseInsensitiveContains("No pressable accessibility element was found")
             {
                 let canInspectAgain =
-                    !hasAttemptedInspectionRecovery && !Task.isCancelled && actionsAreEnabled
+                    !hasAttemptedClickTargetRecovery && !Task.isCancelled && actionsAreEnabled
                     && readMyScreenIsEnabled() && executionGeneration == applicationTargetGeneration
-                if canInspectAgain { hasAttemptedInspectionRecovery = true }
+                if canInspectAgain { hasAttemptedClickTargetRecovery = true }
                 return .init(
                     toolName: toolObservationName,
                     summary: canInspectAgain
                         ? """
-                        The pointer missed. Inspect the same window again. For an ordinary visible button, you may use
-                        standard keyboard navigation when the user requested activation and the keyboard is allowed.
-                        Verify focus on the named control before activating it, then observe the result. Respect any
+                        The click failed. Inspect the same window. If it is still frontmost and the user wants an ordinary
+                        button activated, prefer native Key.press for standard keyboard navigation when allowed.
+                        Verify focus before activation and observe the result before proceeding. Respect any
                         explicit input-method constraint. Stop on an access restriction or an uncertain target.
                         """
                         : "The requested control could not be clicked. Remaining actions were skipped.",

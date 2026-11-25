@@ -743,6 +743,7 @@ final class PaceActionExecutor {
     var activeStreamingMailDraftState: PaceStreamingMailDraftState?
     private(set) var applicationTargetGeneration = UUID()
     private var launchedApplicationTargets: [String: LaunchedApplicationTarget] = [:]
+    var hasAttemptedClickTargetRecovery = false
     var hasAttemptedInspectionRecovery = false
     var previousPlannerClick: PacePlannerClickFingerprint?
     var unconfirmedPeekabooInput: PaceMCPToolCall?
@@ -758,6 +759,7 @@ final class PaceActionExecutor {
         applicationTargetGeneration = UUID()
         remindersSavedThisTurn.removeAll()
         launchedApplicationTargets.removeAll()
+        hasAttemptedClickTargetRecovery = false
         hasAttemptedInspectionRecovery = false
         previousPlannerClick = nil
         unconfirmedPeekabooInput = nil

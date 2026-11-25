@@ -270,6 +270,7 @@ struct PaceMCPClientIntegrationTests {
         let client = PaceMCPFixture.makeAmbiguityClient()
         let executor = PaceActionExecutor(
             actionsAreEnabledOverride: true, mcpClient: client, readMyScreenIsEnabled: { true })
+        executor.hasAttemptedInspectionRecovery = true
         let click = PaceMCPToolCall(
             serverName: "peekaboo", toolName: "click", arguments: ["snapshot": .string("missing-control")])
         let plan = PaceActionExecutionPlan.serial(actions: [.mcp(click), .mcp(click)])
