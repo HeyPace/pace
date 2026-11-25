@@ -382,6 +382,7 @@ struct PaceMCPClientIntegrationTests {
         for diagnostic in [
             "invalid parameter: app", "Application not running", "Invalid params: window_id 14013",
             "Invalid params: window title Sign in", "Missing required argument: accessibility",
+            "Failed to capture UI state: Desktop observation target was not found: window id 44 owned by PID 123",
         ] {
             executor.beginUserTurn()
             let inspection = PaceParsedAction.mcp(
