@@ -83,6 +83,14 @@ final class PaceFailureNarratorTests: XCTestCase {
         )
     }
 
+    func testProviderFailureKeepsTheSelectedUpstream() {
+        let failure = NSError(domain: NSURLErrorDomain, code: -1004)
+        XCTAssertEqual(
+            PaceFailureNarrator.kindForPlannerPipelineError(failure, upstreamProvider: "Codex"),
+            .cloudBridgeUpstreamError(provider: "Codex")
+        )
+    }
+
     func testMissingCalendarPermissionNamesCalendar() {
         let narration = PaceFailureNarrator.compose(
             .missingPermission(permission: .calendar)
