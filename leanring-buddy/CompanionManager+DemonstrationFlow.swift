@@ -66,6 +66,14 @@ extension CompanionManager {
         }
         switch flowRecorder.start(flowName: trimmedFlowName) {
         case .success:
+            let recordingTurnIdentifier = activeConversationUserEvent?.eventID
+            flowRecorder.onAutomaticStop = { [weak self] reason, flow in
+                guard let self else { return }
+                let feedback = Self.finishAutomaticRecording(
+                    reason, flow: flow, recorder: flowRecorder, savingTo: flowStore)
+                recordAssistantNarration(feedback, turnIdentifier: recordingTurnIdentifier, recordsDerivedMemory: false)
+                revealRequestFeedback()
+            }
             return "recording \(trimmedFlowName). say stop recording when you're done."
         case .failure(let error):
             return error.localizedDescription
@@ -81,20 +89,45 @@ extension CompanionManager {
     }
 
     static func stopFlowRecording(_ recorder: PaceFlowRecorder, savingTo store: PaceFlowStore) -> String {
-        guard recorder.isRecording else { return "no recording was in progress." }
-        let assembledFlow = recorder.stop(reason: .userCommand)
-        guard let assembledFlow else {
+        let flow = recorder.isRecording ? recorder.stop(reason: .userCommand) : recorder.unsavedRecording
+        guard let flow else {
+            if let summary = recorder.lastAutomaticStopSummary {
+                recorder.lastAutomaticStopSummary = nil
+                return summary
+            }
             return "no recording was in progress."
         }
-        guard !assembledFlow.steps.isEmpty else {
-            return
-                "No steps were captured, so \(assembledFlow.name) wasn’t saved. Start recording again and perform the steps."
+        recorder.lastAutomaticStopSummary = nil
+        return saveFlowRecording(flow, recorder: recorder, savingTo: store)
+    }
+
+    static func finishAutomaticRecording(
+        _ reason: PaceFlowRecorderStopReason, flow: PaceRecordedFlow, recorder: PaceFlowRecorder,
+        savingTo store: PaceFlowStore
+    ) -> String {
+        let cause = reason == .idleTimeout ? "Recording stopped after inactivity." : "Input capture was interrupted."
+        let result = saveFlowRecording(flow, recorder: recorder, savingTo: store, replacingExisting: false)
+        let feedback = cause + " " + result
+        recorder.lastAutomaticStopSummary = feedback
+        return feedback
+    }
+
+    private static func saveFlowRecording(
+        _ flow: PaceRecordedFlow, recorder: PaceFlowRecorder, savingTo store: PaceFlowStore,
+        replacingExisting: Bool = true
+    ) -> String {
+        guard !flow.steps.isEmpty else {
+            return "No steps were captured, so \(flow.name) wasn’t saved. Start recording again and perform the steps."
         }
         do {
-            try store.save(assembledFlow)
-            return "saved \(assembledFlow.name) with \(assembledFlow.steps.count) step\(assembledFlow.steps.count == 1 ? "" : "s")."
+            try store.save(flow, replacingExisting: replacingExisting)
+            recorder.markSaved(flow)
+            return "saved \(flow.name) with \(flow.steps.count) step\(flow.steps.count == 1 ? "" : "s")."
+        } catch PaceFlowStoreError.destinationFlowAlreadyExists {
+            return
+                "Captured \(flow.steps.count) steps. Say stop recording to replace the saved workflow \(flow.name) with these steps."
         } catch {
-            return "i recorded \(assembledFlow.name) but couldn't save it: \(error.localizedDescription)"
+            return "Could not save \(flow.name). Its captured steps are still in Pace. Say stop recording to retry."
         }
     }
 

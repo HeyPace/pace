@@ -173,6 +173,76 @@ final class PaceFlowRecorderTests: XCTestCase {
         XCTAssertEqual(store.load(named: "Fixture"), previous)
     }
 
+    func testAutomaticStopSavesCapturedStepsAndLetsASeparateRecordingStart() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = PaceFlowStore(directoryURL: directory)
+        let recorder = PaceFlowRecorder(idleTimeoutSeconds: 0, startCaptureOverride: {})
+        var stopReasons: [PaceFlowRecorderStopReason] = []
+        recorder.onAutomaticStop = { [weak recorder] reason, flow in
+            guard let recorder else { return XCTFail("Recorder disappeared") }
+            stopReasons.append(reason)
+            _ = CompanionManager.finishAutomaticRecording(reason, flow: flow, recorder: recorder, savingTo: store)
+        }
+        for name in ["Idle", "Disabled"] {
+            recorder.start(flowName: name)
+            recorder.recordAppActivationForTesting(bundleIdentifier: "local.fixture", at: Date())
+            if name == "Idle" {
+                recorder.fireIdleTimeoutForTesting()
+            } else {
+                recorder.recordEventForTesting(
+                    try XCTUnwrap(CGEvent(source: nil)), eventType: .tapDisabledByTimeout, at: Date())
+            }
+            XCTAssertFalse(recorder.isRecording)
+            XCTAssertNil(recorder.unsavedRecording)
+            XCTAssertEqual(store.load(named: name)?.steps, [.activateApp(bundleIdentifier: "local.fixture")])
+            XCTAssertTrue(CompanionManager.stopFlowRecording(recorder, savingTo: store).contains("saved"))
+        }
+        XCTAssertEqual(stopReasons, [.idleTimeout, .captureInterrupted])
+    }
+
+    func testAutomaticStopPreservesExistingFileAndRetainsPendingCaptureForExplicitSave() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = PaceFlowStore(directoryURL: directory)
+        let previous = PaceRecordedFlow(
+            name: "Fixture", createdAt: Date(timeIntervalSince1970: 1), steps: [.keyShortcut(key: "tab")])
+        try store.save(previous)
+        let recorder = PaceFlowRecorder(idleTimeoutSeconds: 0, startCaptureOverride: {})
+        recorder.start(flowName: "Fixture")
+        recorder.recordAppActivationForTesting(bundleIdentifier: "local.fixture", at: Date())
+        let pending = try XCTUnwrap(recorder.stop(reason: .captureInterrupted))
+        let result = CompanionManager.finishAutomaticRecording(
+            .captureInterrupted, flow: pending, recorder: recorder, savingTo: store)
+        XCTAssertTrue(result.contains("replace the saved workflow"))
+        XCTAssertEqual(store.load(named: "Fixture"), previous)
+        guard case .failure(.unsavedRecording("Fixture")) = recorder.start(flowName: "Other") else {
+            return XCTFail("Unsaved steps must survive attempted restart")
+        }
+        XCTAssertTrue(CompanionManager.stopFlowRecording(recorder, savingTo: store).contains("saved"))
+        XCTAssertEqual(store.load(named: "Fixture")?.steps, pending.steps)
+        XCTAssertNil(recorder.unsavedRecording)
+    }
+
+    func testSaveFailureKeepsStepsUntilTheDestinationBecomesWritable() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try Data().write(to: directory)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = PaceFlowStore(directoryURL: directory)
+        let recorder = PaceFlowRecorder(idleTimeoutSeconds: 0, startCaptureOverride: {})
+        recorder.start(flowName: "Recoverable")
+        recorder.recordAppActivationForTesting(bundleIdentifier: "local.fixture", at: Date())
+        let pending = try XCTUnwrap(recorder.stop(reason: .idleTimeout))
+        let result = CompanionManager.finishAutomaticRecording(
+            .idleTimeout, flow: pending, recorder: recorder, savingTo: store)
+        XCTAssertTrue(result.contains("Could not save"))
+        XCTAssertEqual(recorder.unsavedRecording, pending)
+        try FileManager.default.removeItem(at: directory)
+        XCTAssertTrue(CompanionManager.stopFlowRecording(recorder, savingTo: store).contains("saved"))
+        XCTAssertEqual(store.load(named: "Recoverable")?.steps, pending.steps)
+        XCTAssertNil(recorder.unsavedRecording)
+    }
+
     // MARK: - Workspace activation
 
     func testActivateAppEmitsStepInOrder() {

@@ -61,14 +61,14 @@ nonisolated struct PaceFlowStore {
 
     // MARK: - Public API
 
-    func save(_ flow: PaceRecordedFlow) throws {
+    func save(_ flow: PaceRecordedFlow, replacingExisting: Bool = true) throws {
         try FileManager.default.createDirectory(
             at: directoryURL,
             withIntermediateDirectories: true
         )
         let encodedFlowJSON = try Self.jsonEncoder.encode(flow)
         let destinationFileURL = fileURL(for: flow.name)
-        try writeAtomically(data: encodedFlowJSON, to: destinationFileURL)
+        try writeAtomically(data: encodedFlowJSON, to: destinationFileURL, replacingExisting: replacingExisting)
     }
 
     func load(named name: String) -> PaceRecordedFlow? {
@@ -237,12 +237,22 @@ nonisolated struct PaceFlowStore {
     /// Atomic temp-file + rename write. Mirrors the pattern in
     /// `PaceMCPCatalogInstaller` so the implementation looks the same
     /// to a reviewer who has already read that file.
-    private func writeAtomically(data: Data, to destinationFileURL: URL) throws {
+    private func writeAtomically(data: Data, to destinationFileURL: URL, replacingExisting: Bool) throws {
         let parentDirectoryURL = destinationFileURL.deletingLastPathComponent()
         let temporaryFileURL = parentDirectoryURL.appendingPathComponent(
             ".\(destinationFileURL.lastPathComponent).pace.tmp.\(UUID().uuidString)"
         )
         try data.write(to: temporaryFileURL, options: [.atomic])
+        if !replacingExisting {
+            // Publish the complete file only if the name is still free, including across processes.
+            defer { try? FileManager.default.removeItem(at: temporaryFileURL) }
+            do {
+                try FileManager.default.linkItem(at: temporaryFileURL, to: destinationFileURL)
+            } catch let error as CocoaError where error.code == .fileWriteFileExists {
+                throw PaceFlowStoreError.destinationFlowAlreadyExists(destinationFileURL.lastPathComponent)
+            }
+            return
+        }
         do {
             if FileManager.default.fileExists(atPath: destinationFileURL.path) {
                 _ = try FileManager.default.replaceItemAt(

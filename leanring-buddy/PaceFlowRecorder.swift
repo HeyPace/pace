@@ -101,11 +101,13 @@ struct PaceAXRolePath: Equatable {
 enum PaceFlowRecorderStopReason: Equatable {
     case userCommand
     case idleTimeout
+    case captureInterrupted
     case appQuit
 }
 
 enum PaceFlowRecordingStartError: LocalizedError, Equatable {
     case alreadyRecording(String)
+    case unsavedRecording(String)
     case needsInputMonitoring
     case needsAccessibility
     case captureUnavailable
@@ -113,7 +115,9 @@ enum PaceFlowRecordingStartError: LocalizedError, Equatable {
     var errorDescription: String? {
         switch self {
         case .alreadyRecording(let name):
-            return "Already recording \(name). Say stop recording before starting another workflow."
+            return "Could not start another workflow. Already recording \(name). Say stop recording first."
+        case .unsavedRecording(let name):
+            return "Could not start another workflow. Say stop recording to save the captured steps for \(name) first."
         case .needsInputMonitoring:
             return
                 "Could not start recording. Allow Pace in System Settings → Privacy & Security → Input Monitoring, then try again."
@@ -172,6 +176,19 @@ final class PaceFlowRecorder: ObservableObject {
 
     @Published private(set) var state: PaceFlowRecorderState = .idle
 
+    var onAutomaticStop: ((PaceFlowRecorderStopReason, PaceRecordedFlow) -> Void)?
+    var lastAutomaticStopSummary: String?
+
+    var unsavedRecording: PaceRecordedFlow? {
+        guard case .stopped(_, let flow) = state, let flow, !flow.steps.isEmpty else { return nil }
+        return flow
+    }
+
+    func markSaved(_ flow: PaceRecordedFlow) {
+        guard case .stopped(let reason, let pendingFlow) = state, flow == pendingFlow else { return }
+        state = .stopped(reason: reason, recordedFlow: nil)
+    }
+
     var isRecording: Bool {
         if case .recording = state { return true }
         return false
@@ -215,9 +232,7 @@ final class PaceFlowRecorder: ObservableObject {
     /// it was mid-deallocation, which matches the
     /// `objc_release`-inside-`AutoreleasePoolPage::releaseUntil`
     /// EXC_BAD_ACCESS observed crashing the test host
-    /// (`PaceFlowRecorderTests` installs a real tap via `start(
-    /// flowName:)` and, having no `tearDown()`, always tears the
-    /// recorder down via `deinit` rather than `stop(reason:)`).
+    /// during recorder teardown. Tests inject capture and verify this weak reference.
     ///
     /// Routing through this box means the callback safely observes
     /// `recorder == nil` instead of touching freed memory once
@@ -282,6 +297,8 @@ final class PaceFlowRecorder: ObservableObject {
             return .failure(.alreadyRecording(currentName))
         }
 
+        if let unsavedRecording { return .failure(.unsavedRecording(unsavedRecording.name)) }
+
         // The installed C callback owns this retain until the tap is removed.
         let context = Unmanaged.passRetained(EventTapCallbackContext(recorder: self))
         do {
@@ -298,6 +315,7 @@ final class PaceFlowRecorder: ObservableObject {
         eventTapCallbackContext = context.takeUnretainedValue()
         recordedSteps = []
         activeTypingBuffer = nil
+        lastAutomaticStopSummary = nil
         state = .recording(flowName: flowName, startedAt: currentDateProvider())
         rearmIdleTimer()
         return .success(())
@@ -307,6 +325,10 @@ final class PaceFlowRecorder: ObservableObject {
     /// was in progress and had a non-empty name; otherwise `nil`.
     @discardableResult
     func stop(reason: PaceFlowRecorderStopReason) -> PaceRecordedFlow? {
+        guard isRecording else {
+            if case .idle = state { state = .stopped(reason: reason, recordedFlow: nil) }
+            return nil
+        }
         flushActiveTypingBuffer()
 
         let assembledFlow: PaceRecordedFlow?
@@ -332,6 +354,9 @@ final class PaceFlowRecorder: ObservableObject {
         removeCGEventTap()
         invalidateIdleTimer()
         state = .stopped(reason: reason, recordedFlow: assembledFlow)
+        if let assembledFlow, reason == .idleTimeout || reason == .captureInterrupted {
+            onAutomaticStop?(reason, assembledFlow)
+        }
         return assembledFlow
     }
 
@@ -372,6 +397,10 @@ final class PaceFlowRecorder: ObservableObject {
         observedAt: Date
     ) {
         guard isRecording else { return }
+        if eventType == .tapDisabledByTimeout || eventType == .tapDisabledByUserInput {
+            stop(reason: .captureInterrupted)
+            return
+        }
         rearmIdleTimer()
 
         switch eventType {
