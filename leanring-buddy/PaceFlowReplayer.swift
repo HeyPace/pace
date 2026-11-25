@@ -23,9 +23,9 @@
 //
 //  Send restriction (hard halt)
 //  ----------------------------
-//  The last step whose AX label matches the
+//  Each step whose AX label matches the
 //  `PaceFlowReplayPlanner.shouldPauseBeforeSend(...)` heuristic is NOT
-//  executed. The replayer emits `.stoppedBeforeSendStep(stepIndex:)`
+//  executed without explicit approval. Without a presenter it emits `.stoppedBeforeSendStep(stepIndex:)`
 //  and the caller decides whether to proceed with explicit "go ahead"
 //  confirmation. This is enforced even when the user pre-approved the
 //  flow — destructive UI should never fire on autopilot.
@@ -149,7 +149,10 @@ struct PaceFrontmostAppAXTreeSource: PaceAXTreeSource {
                 if path.first == "AXApplication" {
                     return branch.count < path.count && path.starts(with: branch)
                 }
-                if path.first == "AXWindow", let index = branch.firstIndex(of: "AXWindow") {
+                if path.first == "AXWindow" {
+                    guard let index = branch.firstIndex(of: "AXWindow") else {
+                        return branch == ["AXApplication"]
+                    }
                     let windowBranch = branch[index...]
                     return windowBranch.count < path.count && path.starts(with: windowBranch)
                 }
@@ -238,7 +241,7 @@ final class PaceLiveFlowReplayActionSink: PaceFlowReplayActionSink {
             keyUpEvent.keyboardSetUnicodeString(stringLength: utf16Units.count, unicodeString: utf16Units)
             keyUpEvent.post(tap: .cghidEventTap)
 
-            try? await Task.sleep(nanoseconds: 8_000_000) // 8ms between chars feels natural
+            try? await Task.sleep(nanoseconds: 8_000_000)  // 8ms between chars feels natural
         }
     }
 
@@ -255,7 +258,8 @@ final class PaceLiveFlowReplayActionSink: PaceFlowReplayActionSink {
 
     func postKeyShortcut(_ comboString: String) async {
         // Parse "cmd+s" / "ctrl+shift+t" into modifier flags + key.
-        let lowercaseTokens = comboString
+        let lowercaseTokens =
+            comboString
             .lowercased()
             .split(separator: "+")
             .map { String($0).trimmingCharacters(in: .whitespaces) }
@@ -273,7 +277,8 @@ final class PaceLiveFlowReplayActionSink: PaceFlowReplayActionSink {
             }
         }
         guard let keyToken,
-              let virtualKeyCode = PaceActionExecutor.virtualKeyCode(forKeyName: keyToken) else {
+            let virtualKeyCode = PaceActionExecutor.virtualKeyCode(forKeyName: keyToken)
+        else {
             print("⚠️ PaceFlowReplayer: unknown shortcut combo \(comboString)")
             return
         }
@@ -360,11 +365,16 @@ final class PaceFlowReplayer {
     /// `cancelRequested` between steps.
     func play(
         _ flowToPlay: PaceRecordedFlow,
+        confirmSensitivePress: ((PaceAXPressResolution, Int) async -> Bool)? = nil,
         onProgress: @escaping (Int) -> Void,
         onCompletion: @escaping (PaceFlowReplayOutcome) -> Void
     ) async {
         // Reset state at the top so a second play() on the same
         // instance starts clean.
+        guard flow == nil else {
+            onCompletion(.userCancelled)
+            return
+        }
         self.flow = flowToPlay
         self.startedAt = Date()
         self.cancelRequested = false
@@ -394,8 +404,8 @@ final class PaceFlowReplayer {
 
             // Hard halt for the send-restriction step BEFORE any
             // execution happens.
-            let isLastStep = stepIndex == flowToPlay.steps.count - 1
-            if PaceFlowReplayPlanner.shouldPauseBeforeSend(step: step, isLastStep: isLastStep) {
+            let requiresConfirmation = PaceFlowReplayPlanner.shouldPauseBeforeSend(step: step)
+            if requiresConfirmation && confirmSensitivePress == nil {
                 onProgress(stepIndex)
                 onCompletion(.stoppedBeforeSendStep(stepIndex: stepIndex))
                 return
@@ -411,10 +421,11 @@ final class PaceFlowReplayer {
                     // intentionally never stored the plaintext. Bail
                     // out with a deterministic failure the caller can
                     // surface via PaceFailureNarrator.
-                    onCompletion(.failedToFindTarget(
-                        stepIndex: stepIndex,
-                        axLabel: "secure field; cannot replay"
-                    ))
+                    onCompletion(
+                        .failedToFindTarget(
+                            stepIndex: stepIndex,
+                            axLabel: "secure field; cannot replay"
+                        ))
                     return
                 }
                 await actionSink.typeText(text)
@@ -429,6 +440,13 @@ final class PaceFlowReplayer {
                 )
                 switch pollOutcome {
                 case .resolved(let resolution):
+                    if requiresConfirmation, let confirmSensitivePress {
+                        guard await confirmSensitivePress(resolution, stepIndex), !cancelRequested, !Task.isCancelled
+                        else {
+                            onCompletion(.userCancelled)
+                            return
+                        }
+                    }
                     guard await actionSink.performAXPress(resolution) else {
                         onCompletion(.failedToPressTarget(stepIndex: stepIndex, axLabel: label))
                         return
@@ -490,7 +508,7 @@ final class PaceFlowReplayer {
         case resolved(PaceAXPressResolution)
         case timedOut
         case cancelled
-        case retried // sentinel; never returned externally
+        case retried  // sentinel; never returned externally
     }
 
     /// Flag set whenever the most-recent AX poll needed more than the

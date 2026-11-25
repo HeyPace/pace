@@ -8,6 +8,8 @@
 //  remain in the main file — Swift extensions cannot hold stored properties.
 //
 
+import AppKit
+import ApplicationServices
 import Foundation
 
 @MainActor
@@ -139,6 +141,32 @@ extension CompanionManager {
             guard let self else { return }
             await self.flowReplayer.play(
                 storedFlow,
+                confirmSensitivePress: { [weak self] resolution, stepIndex in
+                    guard let self, let element = resolution.element,
+                        let target = NSWorkspace.shared.frontmostApplication
+                    else { return false }
+                    var targetPID: pid_t = 0
+                    guard AXUIElementGetPid(element, &targetPID) == .success, targetPID == target.processIdentifier,
+                        let approval = PaceActionApprovalRequest(
+                            approvalSummary:
+                                "Press “\(resolution.debugLabel)” in \(target.localizedName ?? "the current app") for step \(stepIndex + 1) of “\(storedFlow.name)”.",
+                            requiresActionApproval: true),
+                        self.presentActionApproval(approval)
+                    else { return false }
+                    // The modal brings Pace forward. Restore only the original app, and
+                    // leave a newly selected third-party app alone.
+                    if target.isActive { return true }
+                    guard
+                        NSWorkspace.shared.frontmostApplication?.processIdentifier
+                            == ProcessInfo.processInfo.processIdentifier,
+                        target.activate(options: [])
+                    else { return false }
+                    for _ in 0..<20 {
+                        if target.isActive { return true }
+                        try? await Task.sleep(for: .milliseconds(25))
+                    }
+                    return target.isActive
+                },
                 onProgress: { stepIndex in
                     print("🔁 PaceFlowReplayer: completed step \(stepIndex + 1) of \(storedFlow.steps.count)")
                 },
@@ -150,7 +178,7 @@ extension CompanionManager {
                 }
             )
         }
-        _ = replayTask // task lifetime is tied to MainActor; no need to retain
+        _ = replayTask  // task lifetime is tied to MainActor; no need to retain
     }
 
     /// Compose + speak the per-outcome line. Failure paths route
@@ -165,7 +193,7 @@ extension CompanionManager {
         case .completed:
             spokenText = "done with \(flowName)."
         case .stoppedBeforeSendStep:
-            spokenText = "ready to send the \(flowName) flow — say go ahead."
+            spokenText = "Stopped \(flowName) before sending. The step needs your approval."
         case .failedToFindTarget(let stepIndex, let axLabel):
             // Reuse the click-missed narration shape so the user hears
             // the same "I couldn't find X" phrasing they get from a

@@ -113,14 +113,16 @@ enum PaceFlowCommandParser {
 
         for prefix in ["remember this flow as ", "remember this as ", "save this as a flow called "] {
             if normalizedTranscript.hasPrefix(prefix) {
-                let name = String(trimmedTranscript.dropFirst(prefix.count)).trimmingCharacters(in: .whitespacesAndNewlines)
+                let name = String(trimmedTranscript.dropFirst(prefix.count)).trimmingCharacters(
+                    in: .whitespacesAndNewlines)
                 return name.isEmpty ? nil : .startRecording(name: name)
             }
         }
 
         for prefix in ["delete the flow ", "forget the flow "] {
             if normalizedTranscript.hasPrefix(prefix) {
-                let name = String(trimmedTranscript.dropFirst(prefix.count)).trimmingCharacters(in: .whitespacesAndNewlines)
+                let name = String(trimmedTranscript.dropFirst(prefix.count)).trimmingCharacters(
+                    in: .whitespacesAndNewlines)
                 return name.isEmpty ? nil : .delete(name: name)
             }
         }
@@ -132,7 +134,8 @@ enum PaceFlowCommandParser {
         if !normalizedTranscript.contains("skill") {
             for prefix in ["run the flow ", "run flow ", "do the flow ", "play back "] {
                 if normalizedTranscript.hasPrefix(prefix) {
-                    let name = String(trimmedTranscript.dropFirst(prefix.count)).trimmingCharacters(in: .whitespacesAndNewlines)
+                    let name = String(trimmedTranscript.dropFirst(prefix.count)).trimmingCharacters(
+                        in: .whitespacesAndNewlines)
                     return name.isEmpty ? nil : .run(name: name)
                 }
             }
@@ -148,8 +151,7 @@ enum PaceFlowCommandParser {
 }
 
 enum PaceFlowReplayPlanner {
-    static func shouldPauseBeforeSend(step: PaceRecordedStep, isLastStep: Bool) -> Bool {
-        guard isLastStep else { return false }
+    static func shouldPauseBeforeSend(step: PaceRecordedStep) -> Bool {
         guard case .axPress(_, let label) = step else { return false }
         let normalizedLabel = label.lowercased()
         return ["send", "submit", "post", "reply"].contains { sendWord in
@@ -158,8 +160,8 @@ enum PaceFlowReplayPlanner {
     }
 
     static func replayObservations(for flow: PaceRecordedFlow) -> [String] {
-        flow.steps.enumerated().map { index, step in
-            if shouldPauseBeforeSend(step: step, isLastStep: index == flow.steps.count - 1) {
+        flow.steps.map { step in
+            if shouldPauseBeforeSend(step: step) {
                 return "ready to send - say go ahead"
             }
             switch step {

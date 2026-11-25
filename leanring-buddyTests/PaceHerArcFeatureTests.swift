@@ -6,6 +6,7 @@
 import Combine
 import EventKit
 import XCTest
+
 @testable import Pace
 
 private final class HerArcNoOpEmbeddingClient: PaceTextEmbedding {
@@ -350,18 +351,20 @@ final class PaceProactiveQueueDrainTests: XCTestCase {
     func testExpiredQueuedUtteranceIsDiscardedWithoutBlockingNextEntry() {
         let companionManager = CompanionManager()
         let now = Date()
-        companionManager.enqueueProactiveUtterance(PaceProactiveUtterance(
-            spokenText: "expired companion observation",
-            source: .companionEvent,
-            confidence: 0.9,
-            relevanceWindowExpiresAt: now.addingTimeInterval(-1)
-        ))
-        companionManager.enqueueProactiveUtterance(PaceProactiveUtterance(
-            spokenText: "still relevant reminder",
-            source: .backgroundReminder,
-            confidence: 0.9,
-            relevanceWindowExpiresAt: now.addingTimeInterval(60)
-        ))
+        companionManager.enqueueProactiveUtterance(
+            PaceProactiveUtterance(
+                spokenText: "expired companion observation",
+                source: .companionEvent,
+                confidence: 0.9,
+                relevanceWindowExpiresAt: now.addingTimeInterval(-1)
+            ))
+        companionManager.enqueueProactiveUtterance(
+            PaceProactiveUtterance(
+                spokenText: "still relevant reminder",
+                source: .backgroundReminder,
+                confidence: 0.9,
+                relevanceWindowExpiresAt: now.addingTimeInterval(60)
+            ))
 
         companionManager.drainProactiveQueueIfIdle(now: now)
 
@@ -373,18 +376,20 @@ final class PaceProactiveQueueDrainTests: XCTestCase {
 
     func testCompanionSpeechOptOutRemovesOnlyCompanionQueueEntries() {
         let companionManager = CompanionManager()
-        companionManager.enqueueProactiveUtterance(PaceProactiveUtterance(
-            spokenText: "companion observation",
-            source: .companionEvent,
-            confidence: 0.9,
-            relevanceWindowExpiresAt: nil
-        ))
-        companionManager.enqueueProactiveUtterance(PaceProactiveUtterance(
-            spokenText: "calendar reminder",
-            source: .backgroundReminder,
-            confidence: 0.9,
-            relevanceWindowExpiresAt: nil
-        ))
+        companionManager.enqueueProactiveUtterance(
+            PaceProactiveUtterance(
+                spokenText: "companion observation",
+                source: .companionEvent,
+                confidence: 0.9,
+                relevanceWindowExpiresAt: nil
+            ))
+        companionManager.enqueueProactiveUtterance(
+            PaceProactiveUtterance(
+                spokenText: "calendar reminder",
+                source: .backgroundReminder,
+                confidence: 0.9,
+                relevanceWindowExpiresAt: nil
+            ))
 
         companionManager.proactivityPipeline.removeQueuedProactiveUtterances(
             from: .companionEvent
@@ -500,11 +505,12 @@ final class PaceWakeWordSpotterTests: XCTestCase {
 
 final class PaceBargeInVADTests: XCTestCase {
     func testSustainedSpeechFires() {
-        var detector = PaceBargeInVAD(configuration: PaceBargeInVADConfiguration(
-            speechLevelThreshold: 0.2,
-            sustainedSpeechDuration: 0.6,
-            maximumInterSampleGap: 0.3
-        ))
+        var detector = PaceBargeInVAD(
+            configuration: PaceBargeInVADConfiguration(
+                speechLevelThreshold: 0.2,
+                sustainedSpeechDuration: 0.6,
+                maximumInterSampleGap: 0.3
+            ))
         let start = Date()
 
         XCTAssertFalse(detector.observe(normalizedLevel: 0.25, at: start))
@@ -548,7 +554,8 @@ final class PaceEpisodicMemoryTests: XCTestCase {
         // opts in. Flip the opt-in for this test so the retrieval
         // mechanics get exercised end to end. Restored on teardown
         // so other tests inherit the default-off behavior.
-        let originalInjectSensitivePreference = PaceUserPreferencesStore
+        let originalInjectSensitivePreference =
+            PaceUserPreferencesStore
             .bool(.injectSensitiveEpisodicTopics, default: false)
         PaceUserPreferencesStore.setBool(true, for: .injectSensitiveEpisodicTopics)
         defer {
@@ -587,12 +594,13 @@ final class PaceEpisodicMemoryTests: XCTestCase {
 final class PaceProactiveNudgeDecisionTests: XCTestCase {
     func testFocusFatigueRequiresLongActiveSession() {
         let now = Date()
-        XCTAssertNil(PaceFocusFatigueNudgeDecision.utterance(
-            appName: "Figma",
-            continuousForegroundSeconds: 20 * 60,
-            lastUserInputAt: now,
-            now: now
-        ))
+        XCTAssertNil(
+            PaceFocusFatigueNudgeDecision.utterance(
+                appName: "Figma",
+                continuousForegroundSeconds: 20 * 60,
+                lastUserInputAt: now,
+                now: now
+            ))
 
         let utterance = PaceFocusFatigueNudgeDecision.utterance(
             appName: "Figma",
@@ -683,7 +691,8 @@ final class PaceProactiveNudgeDecisionTests: XCTestCase {
         )
 
         XCTAssertEqual(evaluation.decision, .queueUntilIdle(reason: "active call"))
-        XCTAssertNotNil(evaluation.utterance, "Active call should queue (not drop) so the nudge fires once the call ends")
+        XCTAssertNotNil(
+            evaluation.utterance, "Active call should queue (not drop) so the nudge fires once the call ends")
     }
 
     /// Wave 1b: when the user typed within the last three seconds the
@@ -961,17 +970,18 @@ final class PaceFlowReplayTests: XCTestCase {
     }
 
     func testFlowToolsParseThroughActionLayer() {
-        let parseResult = PaceActionTagParser.parseActions(from: """
-        recording.
-        <tool_calls>
-        [
-          [
-            {"tool":"record_flow","name":"morning standup"},
-            {"tool":"run_flow","name":"morning standup"}
-          ]
-        ]
-        </tool_calls>
-        """)
+        let parseResult = PaceActionTagParser.parseActions(
+            from: """
+                recording.
+                <tool_calls>
+                [
+                  [
+                    {"tool":"record_flow","name":"morning standup"},
+                    {"tool":"run_flow","name":"morning standup"}
+                  ]
+                ]
+                </tool_calls>
+                """)
 
         XCTAssertEqual(parseResult.actions.count, 2)
         guard case .recordFlow(let recordRequest) = parseResult.actions[0] else {
@@ -1017,25 +1027,12 @@ final class PaceFlowReplayOutcomeContractTests: XCTestCase {
         )
     }
 
-    func testSendRestrictionHeuristicFiresOnLastSendStep() {
-        // The replayer relies on PaceFlowReplayPlanner.shouldPauseBeforeSend
-        // for its hard halt. Pin the contract that "Send" matches as
-        // the LAST step but not as a mid-flow step.
-        let sendStep = PaceRecordedStep.axPress(rolePath: ["AXButton"], label: "Send")
-        XCTAssertTrue(
-            PaceFlowReplayPlanner.shouldPauseBeforeSend(step: sendStep, isLastStep: true)
-        )
-        XCTAssertFalse(
-            PaceFlowReplayPlanner.shouldPauseBeforeSend(step: sendStep, isLastStep: false)
-        )
-    }
-
     func testSendRestrictionHeuristicMatchesReplyAndPost() {
         for label in ["Reply", "Post", "Submit", "send"] {
             let step = PaceRecordedStep.axPress(rolePath: ["AXButton"], label: label)
             XCTAssertTrue(
-                PaceFlowReplayPlanner.shouldPauseBeforeSend(step: step, isLastStep: true),
-                "Expected last-step send heuristic to match label \(label)"
+                PaceFlowReplayPlanner.shouldPauseBeforeSend(step: step),
+                "Expected send heuristic to match label \(label)"
             )
         }
     }
