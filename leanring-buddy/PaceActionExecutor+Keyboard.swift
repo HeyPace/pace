@@ -557,7 +557,6 @@ extension PaceActionExecutor {
             return .applicationClosed
         }
         if [
-            "desktop observation target was not found: window id",
             "-32602", "invalid value for", "unrecognized argument", "missing required argument",
             "missing required parameter", "invalid parameter",
             "invalid argument", "invalid params", "missing parameter", "missing argument", "unknown parameter",
@@ -587,6 +586,14 @@ extension PaceActionExecutor {
                 options: .regularExpression) != nil
         {
             return .authentication
+        }
+        let missingWindowDiagnostic =
+            #"^(?:mcp tool reported an error: )?(?:failed to capture ui state: )?"#
+            + #"desktop observation target was not found: window id [0-9]+ owned by pid [0-9]+\.?$"#
+        if text.trimmingCharacters(in: .whitespacesAndNewlines)
+            .range(of: missingWindowDiagnostic, options: .regularExpression) != nil
+        {
+            return .invalidArguments
         }
         return .other
     }

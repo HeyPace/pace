@@ -385,10 +385,13 @@ struct PaceMCPClientIntegrationTests {
             "Failed to capture UI state: Desktop observation target was not found: window id 44 owned by PID 123",
         ] {
             executor.beginUserTurn()
+            let missingWindow = diagnostic.contains("Desktop observation target was not found")
             let inspection = PaceParsedAction.mcp(
                 .init(
-                    serverName: "peekaboo", toolName: "window",
-                    arguments: ["action": .string("list"), "failure": .string(diagnostic)]))
+                    serverName: "peekaboo", toolName: missingWindow ? "see" : "window",
+                    arguments: missingWindow
+                        ? ["window_id": .string("44"), "failure": .string(diagnostic)]
+                        : ["action": .string("list"), "failure": .string(diagnostic)]))
             let plan = PaceActionExecutionPlan.serial(actions: [inspection, futureWrite])
             let first = await executor.executeActionPlanWithReceipt(plan, screenCaptures: [])
             #expect(first.observations.count == 1)
@@ -413,6 +416,10 @@ struct PaceMCPClientIntegrationTests {
                 "Enable Screen Recording for Peekaboo in System Settings, then try again."
             ),
             ("Accessibility access denied", "Enable Accessibility for Peekaboo in System Settings, then try again."),
+            (
+                "Desktop observation target was not found: window id 44 owned by PID 123; Screen Recording permission denied",
+                "Enable Screen Recording for Peekaboo in System Settings, then try again."
+            ),
             ("Unauthorized: expired token", "Reconnect Peekaboo in Pace settings, then try again."),
             ("HTTP status: 401", "Reconnect Peekaboo in Pace settings, then try again."),
             ("403 Forbidden", "Reconnect Peekaboo in Pace settings, then try again."),
