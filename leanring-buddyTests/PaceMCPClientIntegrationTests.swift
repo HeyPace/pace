@@ -209,12 +209,21 @@ struct PaceMCPClientIntegrationTests {
     @Test func navigationKeepsEarlierEvidenceAlongsideTheLatestActionResult() {
         var history = PaceAgentInspectionHistory()
         _ = history.continuationEvidence(
-            plannerRequest: "Inspect the document", observations: [.init(toolName: "inspect", summary: "Edition 42")],
+            plannerRequest: "Inspect the document using old-selector",
+            observations: [
+                .init(toolName: "mcp.peekaboo.see", summary: #"""
+                    Snapshot ID: old-snapshot
+                    elem_3 - "Edition" - at (1, 2) size 10×20 - value: "Edition 42"
+                    """#)
+            ],
             needsInspectionAnswer: true)
         let next = history.continuationEvidence(
             plannerRequest: "Next page", observations: [.init(toolName: "key", summary: "Dispatched; unverified")],
             needsInspectionAnswer: false)
         #expect(next.contains("Edition 42"))
+        for stale in ["old-selector", "old-snapshot", "elem_3", "(1, 2)"] {
+            #expect(!next.contains(stale))
+        }
         #expect(next.hasSuffix("Dispatched; unverified"))
         let largeResult = String(repeating: "x", count: PaceAgentInspectionHistory.maximumCharacterCount)
         let observations = [PaceActionExecutionObservation(toolName: "action", summary: largeResult)]

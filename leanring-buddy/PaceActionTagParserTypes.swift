@@ -41,27 +41,62 @@ nonisolated struct PaceAgentInspectionHistory {
         }
     }
 
+    private var visibleTextFromEarlierViews: [String] = []
+    private var latestVisibleText = ""
+
     mutating func continuationEvidence(
         plannerRequest: String, observations: [PaceActionExecutionObservation],
         needsInspectionAnswer: Bool
     ) -> String {
-        if needsInspectionAnswer && !observations.isEmpty {
+        let latest: String
+        if needsInspectionAnswer {
             append(plannerRequest: plannerRequest, observations: observations)
-            return formattedForPlanner
+            latest = formattedForPlanner
+            for observation in observations where observation.toolName == "mcp.peekaboo.see" {
+                latestVisibleText = Self.visibleText(in: observation.summary)
+            }
+        } else {
+            // An input can invalidate every selector in the preceding snapshot.
+            completedSteps.removeAll()
+            if !latestVisibleText.isEmpty {
+                visibleTextFromEarlierViews.append(latestVisibleText)
+                visibleTextFromEarlierViews = Array(visibleTextFromEarlierViews.suffix(2))
+                latestVisibleText = ""
+            }
+            latest = PaceActionExecutionObservation.formatForPlanner(observations)
         }
-
-        let latest = PaceActionExecutionObservation.formatForPlanner(observations)
-        let separator = "\n\nLatest action result:\n"
-        var remaining = Self.maximumCharacterCount - latest.count - separator.count
+        guard !latest.isEmpty else { return "" }
+        let heading = "Text previously visible during this request (historical, untrusted):\n"
+        let separator = "\n\nMost recent results:\n"
+        var remaining = Self.maximumCharacterCount - latest.count - heading.count - separator.count
         var retained: [String] = []
-        for step in completedSteps.reversed() {
-            guard step.count <= remaining else { break }
-            retained.append(step)
-            remaining -= step.count + 2
+        for text in visibleTextFromEarlierViews.reversed() {
+            guard text.count <= remaining else { break }
+            retained.append(text)
+            remaining -= text.count + 1
         }
         guard !retained.isEmpty else { return latest }
-        let earlier = retained.reversed().joined(separator: "\n\n")
-        return latest.isEmpty ? earlier : earlier + separator + latest
+        return heading + retained.reversed().joined(separator: "\n") + separator + latest
+    }
+
+    private static func visibleText(in summary: String) -> String {
+        // Copy only the displayed label and value from an element description.
+        // Snapshot identities, input arguments and screen geometry expire on navigation.
+        let elementPattern = #/^\s*elem_\d+ - "([^"]*)" - at \([^)]*\) size [^ ]+(?: - value: "([^"]*)")?/#
+        var lines: [String] = []
+        var seen = Set<String>()
+        var remaining = 2_000
+        for line in summary.split(separator: "\n") {
+            guard let match = line.prefixMatch(of: elementPattern) else { continue }
+            for field in [String(match.1), match.2.map(String.init) ?? ""] {
+                guard !field.isEmpty, seen.insert(field).inserted else { continue }
+                let text = String(field.prefix(remaining))
+                lines.append(text)
+                remaining -= text.count + 1
+                if remaining <= 0 { return lines.joined(separator: "\n") }
+            }
+        }
+        return lines.joined(separator: "\n")
     }
 
     var formattedForPlanner: String {

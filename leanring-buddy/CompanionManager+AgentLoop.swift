@@ -3372,6 +3372,9 @@ extension CompanionManager {
                     // Set up the next iteration.
                     // Intermediate inventories must not overwrite the final answer.
                     pendingPostActionFeedbackText = nil
+                    if !useLocalVLMForScreenContext && initialInspectionPlan == nil {
+                        inspectionHistory = PaceAgentInspectionHistory()
+                    }
                     let inspectionHistoryPromptText = inspectionHistory.continuationEvidence(
                         plannerRequest: fullResponseText, observations: toolObservations,
                         needsInspectionAnswer: needsInspectionAnswer)
