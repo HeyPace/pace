@@ -104,10 +104,14 @@ struct CloudBridgePlannerClientTests {
         defer { fixtureProcess.terminate() }
 
         let bridgeBaseURL = URL(string: "http://127.0.0.1:\(port)")!
+        let auditURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let auditLog = PaceAPIAuditLog(logFileURL: auditURL)
+        defer { try? FileManager.default.removeItem(at: auditURL) }
         let bridgeClient = CloudBridgePlannerClient(
             bridgeBaseURL: bridgeBaseURL,
             upstreamProvider: .claude,
-            modelIdentifier: "sonnet"
+            modelIdentifier: "sonnet",
+            auditLog: auditLog
         )
 
         var receivedChunks: [String] = []
@@ -127,6 +131,16 @@ struct CloudBridgePlannerClientTests {
         #expect(finalText == expectedFullText)
         // Should have received multiple progressive chunks.
         #expect(receivedChunks.count >= 2)
+        auditLog.waitForPendingWrites()
+        let entries = auditLog.readAllEntries()
+        #expect(entries.count == 1)
+        let entry = try #require(entries.first)
+        #expect(entry.subsystem == "planner.cloudBridge")
+        #expect(entry.target == "claude/sonnet")
+        #expect(entry.outcome == "ok")
+        #expect(entry.inputCharacterCount == "You are a test assistant.".count + "Hello from test".count)
+        #expect(entry.outputCharacterCount == expectedFullText.count)
+        #expect(entry.detail == nil)
     }
 
     // MARK: Error event handling

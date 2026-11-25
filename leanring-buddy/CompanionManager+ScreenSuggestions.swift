@@ -257,7 +257,8 @@ extension CompanionManager {
         guard let ocr = PaceScreenSuggestionBoundary.redactedBackgroundOCR(boxes.map(\.text).joined(separator: "\n")),
             ocr.count >= 30
         else { return .quiet }
-        let selectedPlanner = try BuddyPlannerClientFactory.makeScreenSuggestionClient()
+        let selectedPlanner = try BuddyPlannerClientFactory.makeScreenSuggestionClient(
+            configuration: configuration, bridgeConfiguration: bridgeConfiguration)
         let disclosureLease = beginScreenSuggestionDisclosureLease(isOffDevice: selectedPlanner.isOffDevice)
         defer { endScreenSuggestionDisclosureLease(disclosureLease) }
         print("👀 Watch check: OCR characters=\(ocr.count) images=0 offDevice=\(selectedPlanner.isOffDevice)")

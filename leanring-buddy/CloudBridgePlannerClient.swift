@@ -66,11 +66,13 @@ final class CloudBridgePlannerClient: BuddyPlannerClient {
     private let upstreamProvider: PaceCloudBridgeUpstream
     private let modelIdentifier: String
     private let urlSession: URLSession
+    private let auditLog: PaceAPIAuditLog
 
     init(
         bridgeBaseURL: URL,
         upstreamProvider: PaceCloudBridgeUpstream,
-        modelIdentifier: String
+        modelIdentifier: String,
+        auditLog: PaceAPIAuditLog = .shared
     ) {
         let validatedBridgeBaseURL = PaceLocalEndpointGuard.validatedCloudBridgeURL(
             from: bridgeBaseURL.absoluteString
@@ -78,6 +80,7 @@ final class CloudBridgePlannerClient: BuddyPlannerClient {
         self.bridgeChatURL = validatedBridgeBaseURL.appendingPathComponent("chat")
         self.upstreamProvider = upstreamProvider
         self.modelIdentifier = modelIdentifier
+        self.auditLog = auditLog
         self.displayName = "\(upstreamProvider.displayLabel) (\(modelIdentifier))"
 
         let urlSessionConfiguration = URLSessionConfiguration.default
@@ -159,6 +162,20 @@ final class CloudBridgePlannerClient: BuddyPlannerClient {
             throw PaceCloudBridgeError.unexpectedNonHTTPResponse
         }
 
+        var auditOutcome =
+            (200...299).contains(httpResponse.statusCode)
+            ? "error" : "http_\(httpResponse.statusCode)"
+        var accumulatedResponseText = ""
+        defer {
+            let inputCharacters = systemPrompt.count + messages.reduce(0) { $0 + ($1["content"]?.count ?? 0) }
+            auditLog.record(
+                subsystem: "planner.cloudBridge", operation: "chat.stream",
+                target: "\(upstreamProvider.rawValue)/\(modelIdentifier)",
+                durationMilliseconds: Int(Date().timeIntervalSince(startTime) * 1000),
+                outcome: auditOutcome, inputCharacterCount: inputCharacters,
+                outputCharacterCount: accumulatedResponseText.count)
+        }
+
         guard (200...299).contains(httpResponse.statusCode) else {
             var errorBodyLines: [String] = []
             for try await line in byteStream.lines {
@@ -172,7 +189,6 @@ final class CloudBridgePlannerClient: BuddyPlannerClient {
             )
         }
 
-        var accumulatedResponseText = ""
         var hasLoggedTimeToFirstToken = false
 
         for try await line in byteStream.lines {
@@ -223,6 +239,7 @@ final class CloudBridgePlannerClient: BuddyPlannerClient {
             print("⚠️ CloudBridgePlannerClient: empty response from bridge (provider=\(upstreamProvider.rawValue))")
         }
 
+        auditOutcome = trimmedResponse.isEmpty ? "bad_response" : "ok"
         return (text: trimmedResponse, duration: duration)
     }
 }

@@ -93,12 +93,22 @@ chmod +x "$APP_PATH/Contents/Resources/scripts/start-tts-server.sh"
 
 /usr/bin/plutil -replace PaceLocalDevelopmentBuild -bool YES "$APP_PATH/Contents/Info.plist"
 
-echo "🔐 Signing frameworks + app with the stable cert ..."
+echo "🔐 Signing frameworks, Power helpers, and app with the stable cert ..."
 find "$APP_PATH/Contents/Frameworks" -maxdepth 2 -name "*.framework" -type d 2>/dev/null \
-    | while read -r fw; do
-        codesign --force --sign "$CERT_HASH" --keychain "$KEYCHAIN" "$fw" >/dev/null 2>&1
+    | while IFS= read -r framework_path; do
+        codesign --force --deep --preserve-metadata=entitlements \
+            --sign "$CERT_HASH" --keychain "$KEYCHAIN" "$framework_path"
     done
-codesign --force --deep --sign "$CERT_HASH" --keychain "$KEYCHAIN" "$APP_PATH" >/dev/null 2>&1
+POWER_SERVICE="$APP_PATH/Contents/XPCServices/PacePowerJavaScriptService.xpc"
+POWER_COMPUTE_HELPER="$POWER_SERVICE/Contents/Helpers/PacePowerJavaScriptWorker"
+[[ -d "$POWER_SERVICE" ]] || { echo "Missing isolated Power service" >&2; exit 1; }
+[[ -x "$POWER_COMPUTE_HELPER" ]] || { echo "Missing isolated Power compute helper" >&2; exit 1; }
+codesign --force --entitlements "$PROJECT_DIR/PacePowerJavaScriptWorker/PacePowerJavaScriptWorker.entitlements" \
+    --sign "$CERT_HASH" --keychain "$KEYCHAIN" "$POWER_COMPUTE_HELPER"
+codesign --force --entitlements "$PROJECT_DIR/PacePowerJavaScriptService/PacePowerJavaScriptService.entitlements" \
+    --sign "$CERT_HASH" --keychain "$KEYCHAIN" "$POWER_SERVICE"
+codesign --force --entitlements "$PROJECT_DIR/leanring-buddy/leanring-buddy.entitlements" \
+    --sign "$CERT_HASH" --keychain "$KEYCHAIN" "$APP_PATH"
 codesign --verify --deep --strict "$APP_PATH" && echo "✅ Codesign verify passed"
 echo "   designated requirement:"
 codesign -d -r- "$APP_PATH" 2>&1 | grep -i designated | sed 's/^/   /'
