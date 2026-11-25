@@ -1812,7 +1812,9 @@ extension CompanionManager {
         }
 
         let utilityCommand = PaceUtilityCommand.parse(transcript)
-        if utilityCommand == .localTime, activeSkillRun == nil, screenSuggestionContext == nil {
+        if utilityCommand == .localTime, activeConversationLanguageMode == .standard,
+            activeSkillRun == nil, screenSuggestionContext == nil
+        {
             guard isActiveTurn(turnLease) else { return }
             await handleUtilityCommand(.localTime, transcript: transcript, turnLease: turnLease)
             return

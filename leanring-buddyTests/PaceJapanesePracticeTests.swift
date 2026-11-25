@@ -331,18 +331,23 @@ struct PaceJapanesePracticeManagerTests {
         }
     }
 
-    @Test func practiceMathRoutesThroughTheSelectedBilingualPlannerAndSpeaksJapanese() async throws {
+    @Test(arguments: [
+        ("What is seven times nine?", "七かける九は六十三です。", "Seven times nine is sixty-three."),
+        ("What time is it?", "今は三時です。", "It is three o’clock."),
+    ])
+    func practiceQuestionsUseTheBilingualPlannerInsteadOfLocalShortcuts(
+        transcript: String, japaneseAnswer: String, englishSubtitle: String
+    ) async throws {
         let (root, manager, persister, speech) = try PacePowerManagerTests().fixture()
         defer {
             manager.cancelActiveTurnTasks()
             try? FileManager.default.removeItem(at: root)
         }
-        let transcript = "What is seven times nine?"
         manager.conversationLanguageMode = .japanesePractice
         PacePowerManagerTests().begin(transcript, manager: manager)
         let planner = Planner()
         planner.response =
-            #"{"spokenText":"七かける九は六十三です。","intent":"answer","payload":{"englishSubtitle":"Seven times nine is sixty-three."}}"#
+            #"{"spokenText":"\#(japaneseAnswer)","intent":"answer","payload":{"englishSubtitle":"\#(englishSubtitle)"}}"#
         manager.plannerClient = planner
         manager.textOnlyPlannerClient = planner
         manager.intentClassifier = PaceRuleBasedIntentClassifierAdapter(classifier: PaceIntentClassifier())
@@ -355,12 +360,12 @@ struct PaceJapanesePracticeManagerTests {
         #expect(
             speech.requests == [
                 .init(
-                    text: "七かける九は六十三です。", profile: .japaneseFemale,
-                    englishSubtitle: "Seven times nine is sixty-three.")
+                    text: japaneseAnswer, profile: .japaneseFemale,
+                    englishSubtitle: englishSubtitle)
             ])
-        #expect(speech.spokenTexts == ["七かける九は六十三です。"])
+        #expect(speech.spokenTexts == [japaneseAnswer])
         let assistantEvents = persister.events.values.filter { $0.role == .pace }
-        #expect(assistantEvents.count == 1 && assistantEvents.first?.text == "Seven times nine is sixty-three.")
+        #expect(assistantEvents.count == 1 && assistantEvents.first?.text == englishSubtitle)
         #expect(manager.currentTurnHUDState.status != .failed)
     }
 
