@@ -2,7 +2,7 @@
 //  PaceAmbientContextStore.swift
 //  leanring-buddy
 //
-//  Always-on ambient context store — passively gathers lightweight
+//  Read My Screen ambient context store — gathers lightweight
 //  context from the system so the planner has instant background
 //  knowledge without burning a screenshot/VLM turn.
 //
@@ -12,7 +12,7 @@
 //  from free, permission-less system APIs in <1ms, not from a 3s
 //  VLM screenshot cycle.
 //
-//  What this stores (all permission-free, cheap to read):
+//  What this samples while Read My Screen is enabled:
 //    - Frontmost app name + bundle ID
 //    - Focused window title (via AX)
 //    - Frontmost app's AX tree summary (top-level elements only)
@@ -103,13 +103,11 @@ struct PaceAmbientContextSnapshot: Equatable {
     }
 }
 
-/// Manages the always-on ambient context store. Polls the system
+/// Manages the Read My Screen ambient context store. Polls the system
 /// every 3 seconds and caches the latest snapshot for synchronous
 /// reads by the planner.
 @MainActor
 final class PaceAmbientContextStore: ObservableObject {
-    static let shared = PaceAmbientContextStore()
-
     @Published private(set) var currentSnapshot: PaceAmbientContextSnapshot?
 
     /// Polling interval in seconds. 3s balances freshness vs CPU cost.
@@ -128,6 +126,7 @@ final class PaceAmbientContextStore: ObservableObject {
     /// True while a background AX read is pending. Skips kicking a new
     /// one so a hung frontmost app can't pile up blocked tasks.
     private var isAXReadInFlight = false
+    private(set) var observationGeneration = 0
 
     static let timeFormatter: DateFormatter = {
         let formatter = DateFormatter()
@@ -135,16 +134,25 @@ final class PaceAmbientContextStore: ObservableObject {
         return formatter
     }()
 
-    private init() {
-        // Seed the clipboard change count.
-        lastClipboardChangeCount = NSPasteboard.general.changeCount
-    }
-
     // MARK: - Lifecycle
 
-    func start() {
-        guard !isRunning else { return }
+    enum Consumer {
+        case planner, companion
+    }
+
+    private var consumers: Set<Consumer> = []
+
+    func start(for consumer: Consumer = .planner) {
+        guard consumers.insert(consumer).inserted else { return }
+        if isRunning {
+            if consumer == .planner {
+                clearSnapshot()
+                refreshSnapshot(forcePublish: true)
+            }
+            return
+        }
         isRunning = true
+        lastClipboardChangeCount = NSPasteboard.general.changeCount
         print("🌐 Ambient context store started (polling every \(Int(pollIntervalSeconds))s)")
 
         // Take an immediate snapshot so the planner has context from
@@ -163,11 +171,24 @@ final class PaceAmbientContextStore: ObservableObject {
         pollTimer = timer
     }
 
-    func stop() {
+    func stop(for consumer: Consumer = .planner) {
+        guard consumers.remove(consumer) != nil else { return }
+        if consumers.isEmpty || consumer == .planner {
+            clearSnapshot()
+        }
+        guard consumers.isEmpty else { return }
         pollTimer?.invalidate()
         pollTimer = nil
         isRunning = false
         print("🌐 Ambient context store stopped")
+    }
+
+    private func clearSnapshot() {
+        observationGeneration += 1
+        currentSnapshot = nil
+        clipboardChangeCount = 0
+        clipboardLastChangedAt = nil
+        lastClipboardChangeCount = NSPasteboard.general.changeCount
     }
 
     // MARK: - Snapshot
@@ -180,6 +201,7 @@ final class PaceAmbientContextStore: ObservableObject {
     /// app, and a hung app would otherwise stall the MainActor every
     /// 3-second poll.
     private func refreshSnapshot(forcePublish: Bool = false) {
+        guard isRunning else { return }
         let frontmostApp = NSWorkspace.shared.frontmostApplication
         let appName = frontmostApp?.localizedName
         let bundleID = frontmostApp?.bundleIdentifier
@@ -224,6 +246,7 @@ final class PaceAmbientContextStore: ObservableObject {
         // Refresh the AX fields off the main actor.
         guard let frontmostProcessIdentifier, !isAXReadInFlight else { return }
         isAXReadInFlight = true
+        let generation = observationGeneration
         Task.detached(priority: .utility) { [weak self] in
             let windowTitle = Self.readFocusedWindowTitle(processIdentifier: frontmostProcessIdentifier)
             let axSummary = Self.readAXTreeSummary(processIdentifier: frontmostProcessIdentifier)
@@ -231,7 +254,7 @@ final class PaceAmbientContextStore: ObservableObject {
                 self?.applyAXReadResult(
                     windowTitle: windowTitle,
                     axSummary: axSummary,
-                    forBundleID: bundleID
+                    forBundleID: bundleID, generation: generation
                 )
             }
         }
@@ -239,9 +262,11 @@ final class PaceAmbientContextStore: ObservableObject {
 
     /// Merge a completed background AX read into the published
     /// snapshot — unless the frontmost app changed while the read ran.
-    private func applyAXReadResult(windowTitle: String?, axSummary: String?, forBundleID bundleID: String?) {
+    func applyAXReadResult(windowTitle: String?, axSummary: String?, forBundleID bundleID: String?, generation: Int) {
         isAXReadInFlight = false
-        guard let snapshot = currentSnapshot, snapshot.frontmostBundleID == bundleID else { return }
+        guard isRunning, observationGeneration == generation,
+            let snapshot = currentSnapshot, snapshot.frontmostBundleID == bundleID
+        else { return }
         let merged = PaceAmbientContextSnapshot(
             timestamp: snapshot.timestamp,
             frontmostAppName: snapshot.frontmostAppName,
@@ -349,7 +374,7 @@ final class PaceAmbientContextStore: ObservableObject {
     /// into the planner system prompt. Returns empty string if
     /// no snapshot is available.
     var ambientPromptFragment: String {
-        guard let snapshot = currentSnapshot else { return "" }
+        guard consumers.contains(.planner), let snapshot = currentSnapshot else { return "" }
         let fragment = snapshot.promptFragment
         return fragment.isEmpty ? "" : "<ambient_context>\(fragment)\n</ambient_context>"
     }

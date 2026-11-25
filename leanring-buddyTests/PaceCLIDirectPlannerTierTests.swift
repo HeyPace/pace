@@ -49,6 +49,54 @@ struct PaceCLIDirectPlannerTierTests {
             }, "Typing must wait for an observation of the new document")
     }
 
+    @Test @MainActor
+    func watchLocalTierDoesNotUseAnAcceptedLegacyBridge() throws {
+        let planner = PacePlannerTierConfiguration(
+            tier: .local, directAPIProvider: .openai, directAPIModelIdentifier: "",
+            directAPICustomEndpointURLString: "", fallsBackToLocalOnCloudFailure: false, cliDirectUpstream: .codex)
+
+        for mode: PaceCloudBridgeMode in [.hybrid, .alwaysBridge] {
+            let bridge = PaceCloudBridgeConfiguration(
+                mode: mode, upstream: .codex, model: "fixture-model",
+                baseURL: URL(string: "http://127.0.0.1:3456")!, hasUserAcceptedConsent: true, firstUsedAt: nil)
+            do {
+                let result = try BuddyPlannerClientFactory.makeScreenSuggestionClient(
+                    configuration: planner, bridgeConfiguration: bridge)
+                #expect(!result.isOffDevice)
+                #expect(!(result.client is CloudBridgePlannerClient))
+            } catch PaceScreenSuggestionBoundary.BoundaryError.plannerUnavailable {
+                // A cold in-process model pauses Watch instead of selecting the bridge.
+                #expect(PaceBundledModelsSettings.isUsingMLXInProcessPlanner())
+            }
+        }
+    }
+
+    @Test @MainActor
+    func watchSelectedBridgeRequiresConsentAndAnEnabledMode() throws {
+        let planner = PacePlannerTierConfiguration(
+            tier: .cliBridge, directAPIProvider: .openai, directAPIModelIdentifier: "",
+            directAPICustomEndpointURLString: "", fallsBackToLocalOnCloudFailure: false, cliDirectUpstream: .codex)
+        let address = URL(string: "http://127.0.0.1:3456")!
+
+        for (mode, consent) in [(PaceCloudBridgeMode.hybrid, false), (.off, true)] {
+            let bridge = PaceCloudBridgeConfiguration(
+                mode: mode, upstream: .codex, model: "fixture-model",
+                baseURL: address, hasUserAcceptedConsent: consent, firstUsedAt: nil)
+            #expect(throws: PaceScreenSuggestionBoundary.BoundaryError.self) {
+                try BuddyPlannerClientFactory.makeScreenSuggestionClient(
+                    configuration: planner, bridgeConfiguration: bridge)
+            }
+        }
+
+        let bridge = PaceCloudBridgeConfiguration(
+            mode: .hybrid, upstream: .codex, model: "fixture-model",
+            baseURL: address, hasUserAcceptedConsent: true, firstUsedAt: nil)
+        let result = try BuddyPlannerClientFactory.makeScreenSuggestionClient(
+            configuration: planner, bridgeConfiguration: bridge)
+        #expect(result.isOffDevice)
+        #expect(result.client is CloudBridgePlannerClient)
+    }
+
     // MARK: - Factory dispatch decision (pure gate)
 
     @Test

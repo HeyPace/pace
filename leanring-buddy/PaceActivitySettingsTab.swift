@@ -41,53 +41,14 @@ struct PaceActivitySettingsTab: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            threadSummarySection
-
-            Divider()
-                .background(DS.Colors.borderSubtle)
-
             VStack(alignment: .leading, spacing: 8) {
-                Text("local memory")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundColor(DS.Colors.textSecondary)
-                Text(companionManager.localMemorySummary)
-                    .font(.system(size: 12))
-                    .foregroundColor(DS.Colors.textTertiary)
-                    .fixedSize(horizontal: false, vertical: true)
-
-                Text(companionManager.localRetrievalSummary)
-                    .font(.system(size: 12))
-                    .foregroundColor(DS.Colors.textTertiary)
-                    .fixedSize(horizontal: false, vertical: true)
-
-                paceSettingsButton("reset retrieval", systemName: "arrow.counterclockwise") {
-                    companionManager.resetLocalRetrievalIndex()
-                }
-
-                localRetrievalFileRootsSection
-
-                VStack(alignment: .leading, spacing: 0) {
-                    Text("retrieval sources")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundColor(DS.Colors.textSecondary)
-                        .padding(.top, 8)
-
-                    ForEach(PaceRetrievalSource.allCases, id: \.rawValue) { source in
-                        retrievalSourceToggleRow(source)
-                    }
-                }
-            }
-
-            Divider()
-                .background(DS.Colors.borderSubtle)
-
-            VStack(alignment: .leading, spacing: 8) {
-                Text("recent actions")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundColor(DS.Colors.textSecondary)
+                Text("Recent actions")
+                    .font(DS.Typography.sectionTitle)
+                    .foregroundColor(DS.Colors.textPrimary)
+                    .accessibilityAddTraits(.isHeader)
 
                 if companionManager.recentActionResults.isEmpty {
-                    Text("No approved actions yet.")
+                    Text("Actions Pace runs in this session will appear here.")
                         .font(.system(size: 12))
                         .foregroundColor(DS.Colors.textTertiary)
                 } else {
@@ -106,6 +67,48 @@ struct PaceActivitySettingsTab: View {
                     }
                 }
             }
+
+            Divider()
+                .background(DS.Colors.borderSubtle)
+
+            threadSummarySection
+
+            Divider()
+                .background(DS.Colors.borderSubtle)
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Local memory")
+                    .font(DS.Typography.sectionTitle)
+                    .foregroundColor(DS.Colors.textPrimary)
+                    .accessibilityAddTraits(.isHeader)
+                Text(companionManager.localMemorySummary)
+                    .font(.system(size: 12))
+                    .foregroundColor(DS.Colors.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Text(companionManager.localRetrievalSummary)
+                    .font(.system(size: 12))
+                    .foregroundColor(DS.Colors.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                paceSettingsButton("Reset search index", systemName: "arrow.counterclockwise") {
+                    companionManager.resetLocalRetrievalIndex()
+                }
+
+                localRetrievalFileRootsSection
+
+                VStack(alignment: .leading, spacing: 0) {
+                    Text("Sources")
+                        .font(DS.Typography.sectionTitle)
+                        .foregroundColor(DS.Colors.textPrimary)
+                        .accessibilityAddTraits(.isHeader)
+                        .padding(.top, 8)
+
+                    ForEach(PaceRetrievalSource.allCases, id: \.rawValue) { source in
+                        retrievalSourceToggleRow(source)
+                    }
+                }
+            }
         }
     }
 
@@ -119,11 +122,14 @@ struct PaceActivitySettingsTab: View {
     /// facts.
     private var threadSummarySection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("thread summary")
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundColor(DS.Colors.textSecondary)
+            Text("Conversation summary")
+                .font(DS.Typography.sectionTitle)
+                .foregroundColor(DS.Colors.textPrimary)
+                .accessibilityAddTraits(.isHeader)
 
-            Text("Pace keeps the last few turns verbatim and rolls everything older into a one-paragraph summary so it stays coherent across a long conversation. This conversation only — never saved to disk.")
+            Text(
+                "Pace keeps recent turns and a summary of earlier messages on this Mac so you can resume the conversation."
+            )
                 .font(.system(size: 12))
                 .foregroundColor(DS.Colors.textTertiary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -143,7 +149,7 @@ struct PaceActivitySettingsTab: View {
             }
 
             HStack(spacing: 12) {
-                Text("Verbatim window")
+                Text("Turns to keep in full")
                     .font(.system(size: 12))
                     .foregroundColor(DS.Colors.textSecondary)
                 Picker("", selection: $threadMemoryVerbatimWindowSizeForSettings) {
@@ -161,7 +167,7 @@ struct PaceActivitySettingsTab: View {
             .help("How much exact context the planner sees before falling back to a summary.")
 
             HStack(spacing: 12) {
-                Text("Idle threshold")
+                Text("Summarize after inactivity")
                     .font(.system(size: 12))
                     .foregroundColor(DS.Colors.textSecondary)
                 Picker("", selection: $threadMemoryIdleMinutesForSettings) {
@@ -210,7 +216,7 @@ struct PaceActivitySettingsTab: View {
             }
 
             Toggle(isOn: $isThreadEndingEpisodicHandoffEnabledForSettings) {
-                Text("On session end, share summary with episodic memory")
+                Text("Save the summary to memory when the session ends")
                     .font(.system(size: 12))
                     .foregroundColor(DS.Colors.textPrimary)
             }
@@ -227,9 +233,10 @@ struct PaceActivitySettingsTab: View {
     private var localRetrievalFileRootsSection: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 10) {
-                Text("file folders")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundColor(DS.Colors.textSecondary)
+                Text("Search folders")
+                    .font(DS.Typography.sectionTitle)
+                    .foregroundColor(DS.Colors.textPrimary)
+                    .accessibilityAddTraits(.isHeader)
                 Spacer()
                 paceSettingsButton("add folder", systemName: "folder.badge.plus") {
                     chooseLocalRetrievalFileRoots()
@@ -242,7 +249,7 @@ struct PaceActivitySettingsTab: View {
             }
 
             if companionManager.localRetrievalFileRootPaths.isEmpty {
-                Text("No folders selected. File retrieval will stay skipped unless roots are set in the app bundle.")
+                Text("No folders selected. Pace searches only folders configured in the app bundle.")
                     .font(.system(size: 12))
                     .foregroundColor(DS.Colors.textTertiary)
                     .fixedSize(horizontal: false, vertical: true)

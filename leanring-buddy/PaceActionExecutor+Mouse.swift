@@ -16,8 +16,6 @@ extension PaceActionExecutor {
 
     // MARK: - Mouse
 
-    // MARK: - Mouse
-
     func clickBestCandidate(
         _ clickCandidateSet: PaceClickCandidateSet,
         screenCaptures: [CompanionScreenCapture]
@@ -31,7 +29,7 @@ extension PaceActionExecutor {
             coordinateConverter: { [weak self] location, captures in
                 self?.convertScreenshotPixelToDisplayGlobalPoint(
                     screenshotPixelLocation: location,
-                    screenCaptures: captures
+                    screenCaptures: captures, requiresExactLocation: true, resolvesClickScreen: true
                 )
             }
         )
@@ -40,7 +38,8 @@ extension PaceActionExecutor {
             print("⚠️ PaceActionExecutor: no click candidates available — skipping")
             return PaceActionExecutionObservation(
                 toolName: "click_candidates",
-                summary: "Click failed: no click candidates were available."
+                summary: "Click failed: no click candidates were available.",
+                userFacingSummary: "No matching control was available.", terminalReason: .inspectionInterrupted
             )
         }
 
@@ -82,7 +81,7 @@ extension PaceActionExecutor {
             case .cancelled:
                 return PaceActionExecutionObservation(
                     toolName: "click_candidates",
-                    summary: "Click failed: verification was cancelled."
+                    summary: "Click failed: verification was cancelled.", terminalReason: .inspectionInterrupted
                 )
             case .timedOut:
                 // Preserve the old full-tree verification at the edge of the
@@ -122,7 +121,8 @@ extension PaceActionExecutor {
         return PaceActionExecutionObservation(
             toolName: "click_candidates",
             summary: "Click failed after trying \(attemptedCandidates.count) of \(orderedCandidates.count) candidate\(orderedCandidates.count == 1 ? "" : "s"): \(attemptedCandidateSummary).\(skippedCandidateText)",
-            setOfMarkRecovery: recoveryRequest
+            userFacingSummary: "I couldn’t verify the click. Check the control before continuing.",
+            setOfMarkRecovery: recoveryRequest, terminalReason: .inspectionInterrupted
         )
     }
 
@@ -179,16 +179,46 @@ extension PaceActionExecutor {
         return PaceAXLabelPressResolver.pressBestMatch(for: candidate)
     }
 
+    func clickWithReceipt(
+        at location: ScreenshotPixelLocation, screenCaptures: [CompanionScreenCapture], clickCount: Int
+    ) async -> PaceActionExecutionObservation? {
+        guard actionsAreEnabled else { return nil }
+        let toolName = clickCount == 2 ? "double_click" : "click"
+        guard await clickAtScreenshotLocation(location, screenCaptures: screenCaptures, clickCount: clickCount) else {
+            guard !Task.isCancelled else {
+                return .init(
+                    toolName: toolName, summary: "Click interrupted.", userFacingSummary: "Stopped.",
+                    terminalReason: .inspectionInterrupted)
+            }
+            let canInspect = !hasAttemptedInspectionRecovery && readMyScreenIsEnabled()
+            if canInspect { hasAttemptedInspectionRecovery = true }
+            return .init(
+                toolName: toolName,
+                summary:
+                    "Could not click the requested point. Inspect the current window before issuing another input.",
+                userFacingSummary: canInspect ? "" : "I couldn’t click that target.",
+                terminalReason: canInspect ? .recoverableInspectionFailure : .inspectionInterrupted)
+        }
+        return .init(
+            toolName: toolName,
+            summary:
+                "Dispatched \(toolName) at \(location.approvalDescription). Verify the resulting view. If the requested conversation or control is already open, finish or proceed to the next requested step. If the target is missing, inspect the window by label before trying another click.",
+            userFacingSummary: clickCount == 2 ? "Double-click sent." : "Click sent.",
+            didDispatchCoordinateClick: true)
+    }
+
     @discardableResult
     func clickAtScreenshotLocation(
         _ screenshotPixelLocation: ScreenshotPixelLocation,
         screenCaptures: [CompanionScreenCapture],
         clickCount: Int
     ) async -> Bool {
-        guard let displayGlobalPoint = convertScreenshotPixelToDisplayGlobalPoint(
-            screenshotPixelLocation: screenshotPixelLocation,
-            screenCaptures: screenCaptures
-        ) else {
+        guard
+            let displayGlobalPoint = convertScreenshotPixelToDisplayGlobalPoint(
+                screenshotPixelLocation: screenshotPixelLocation,
+                screenCaptures: screenCaptures, requiresExactLocation: true, resolvesClickScreen: true
+            )
+        else {
             print("⚠️ PaceActionExecutor: could not resolve display coordinates for click — skipping")
             return false
         }
@@ -221,25 +251,25 @@ extension PaceActionExecutor {
         try? await Task.sleep(nanoseconds: 30_000_000) // 30ms hover settle
 
         for clickIndex in 0..<clickCount {
+            guard !Task.isCancelled else { return false }
             let downEvent = CGEvent(
                 mouseEventSource: nil,
                 mouseType: .leftMouseDown,
                 mouseCursorPosition: displayGlobalPoint,
                 mouseButton: .left
             )
-            downEvent?.setIntegerValueField(.mouseEventClickState, value: Int64(clickIndex + 1))
-            downEvent?.post(tap: .cghidEventTap)
-
-            try? await Task.sleep(nanoseconds: 20_000_000) // 20ms hold
-
             let upEvent = CGEvent(
                 mouseEventSource: nil,
                 mouseType: .leftMouseUp,
                 mouseCursorPosition: displayGlobalPoint,
                 mouseButton: .left
             )
-            upEvent?.setIntegerValueField(.mouseEventClickState, value: Int64(clickIndex + 1))
-            upEvent?.post(tap: .cghidEventTap)
+            guard let downEvent, let upEvent else { return false }
+            downEvent.setIntegerValueField(.mouseEventClickState, value: Int64(clickIndex + 1))
+            upEvent.setIntegerValueField(.mouseEventClickState, value: Int64(clickIndex + 1))
+            downEvent.post(tap: .cghidEventTap)
+            try? await Task.sleep(nanoseconds: 20_000_000)
+            upEvent.post(tap: .cghidEventTap)
 
             if clickIndex < clickCount - 1 {
                 try? await Task.sleep(nanoseconds: 40_000_000) // 40ms between clicks of a double-click
@@ -436,26 +466,67 @@ extension PaceActionExecutor {
         return positionResult == .success && sizeResult == .success
     }
 
-    func scroll(direction: PaceScrollDirection, amountInLines: Int) async {
-        print("🖱️  Scroll \(direction) by \(amountInLines) lines (enabled: \(actionsAreEnabled))")
-        guard actionsAreEnabled else { return }
+    /// An unqualified scroll can skip inspection only over the active app's front window.
+    func frontmostWindowNumberUnderPointer() -> Int? {
+        guard let frontmostApp = NSWorkspace.shared.frontmostApplication,
+            frontmostApp.processIdentifier != ProcessInfo.processInfo.processIdentifier,
+            let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID)
+                as? [[String: Any]],
+            let frontWindow = windows.first(where: {
+                ($0[kCGWindowOwnerPID as String] as? Int32) == frontmostApp.processIdentifier
+                    && ($0[kCGWindowLayer as String] as? Int) == 0
+            }),
+            let frontWindowNumber = frontWindow[kCGWindowNumber as String] as? Int
+        else { return nil }
+        let windowUnderPointer = NSWindow.windowNumber(at: NSEvent.mouseLocation, belowWindowWithWindowNumber: 0)
+        return windowUnderPointer == frontWindowNumber ? frontWindowNumber : nil
+    }
 
-        let verticalDelta: Int32 = {
-            switch direction {
-            case .up: return Int32(amountInLines)
-            case .down: return -Int32(amountInLines)
+    func scroll(
+        direction: PaceScrollDirection, amountInLines: Int, location: ScreenshotPixelLocation?,
+        screenCaptures: [CompanionScreenCapture]
+    ) -> PaceActionExecutionObservation {
+        let operation = "Scroll \(direction.rawValue) \(amountInLines) lines"
+        guard actionsAreEnabled else { return .init(toolName: "scroll", summary: "Would: \(operation).") }
+        guard !Task.isCancelled else { return .init(toolName: "scroll", summary: "Scroll cancelled.") }
+
+        var targetPoint: CGPoint?
+        if let location {
+            guard readMyScreenIsEnabled() else {
+                return .init(
+                    toolName: "scroll",
+                    summary: "Could not target the requested pane because Read My Screen is off.",
+                    userFacingSummary: "Turn on Read My Screen to scroll a specific pane.",
+                    terminalReason: .inspectionInterrupted)
             }
-        }()
-
-        if let scrollEvent = CGEvent(
-            scrollWheelEvent2Source: nil,
-            units: .line,
-            wheelCount: 1,
-            wheel1: verticalDelta,
-            wheel2: 0,
-            wheel3: 0
-        ) {
-            scrollEvent.post(tap: .cghidEventTap)
+            guard
+                let point = convertScreenshotPixelToDisplayGlobalPoint(
+                    screenshotPixelLocation: location, screenCaptures: screenCaptures, requiresExactLocation: true)
+            else {
+                let canInspectAgain = !hasAttemptedInspectionRecovery
+                if canInspectAgain { hasAttemptedInspectionRecovery = true }
+                return .init(
+                    toolName: "scroll",
+                    summary: canInspectAgain
+                        ? "Could not locate the requested scroll area. Inspect the current view again before scrolling."
+                        : "Could not locate the requested scroll area.",
+                    userFacingSummary: canInspectAgain ? "" : "I couldn’t locate that pane. Please try again.",
+                    terminalReason: canInspectAgain ? .recoverableInspectionFailure : .inspectionInterrupted)
+            }
+            targetPoint = point
         }
+
+        let verticalDelta = Int32(amountInLines) * (direction == .up ? 1 : -1)
+        guard
+            let event = CGEvent(
+                scrollWheelEvent2Source: nil, units: .line, wheelCount: 1, wheel1: verticalDelta, wheel2: 0, wheel3: 0)
+        else {
+            return .init(toolName: "scroll", summary: "Could not send the scroll event.")
+        }
+        if let targetPoint { event.location = targetPoint }
+        event.post(tap: .cghidEventTap)
+        return .init(
+            toolName: "scroll", summary: "Scroll event sent. Inspect the pane for the result.",
+            userFacingSummary: "Scroll \(direction.rawValue) sent.")
     }
 }

@@ -308,7 +308,7 @@ final class PaceMorningTriageSchedulerTests: XCTestCase {
         await scheduler.handleScheduledFire()
 
         XCTAssertEqual(recorderInvocations.count, 1)
-        XCTAssertEqual(recorderInvocations.first?.0, "morning brief")
+        XCTAssertEqual(recorderInvocations.first?.0, "")
         XCTAssertTrue(recorderInvocations.first?.1.contains("good morning") == true)
     }
 

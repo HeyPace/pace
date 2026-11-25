@@ -19,6 +19,7 @@ struct PaceTurnHUDView: View {
     @ObservedObject var companionManager: CompanionManager
 
     var body: some View {
+        let powerClarificationIdentifier = companionManager.pendingSpokenPowerClarification?.identifier
         SMCard(padding: 10) {
             HStack(alignment: .top, spacing: 8) {
                 Image(systemName: turnHUDSymbol)
@@ -56,7 +57,9 @@ struct PaceTurnHUDView: View {
                             HStack(spacing: 6) {
                                 ForEach(companionManager.currentTurnHUDState.options, id: \.self) { option in
                                     Button(action: {
-                                        companionManager.resolveClarification(option: option)
+                                        companionManager.resolveClarification(
+                                            option: option,
+                                            powerClarificationIdentifier: powerClarificationIdentifier)
                                     }) {
                                         Text(option)
                                             .font(.system(size: 10, weight: .semibold))

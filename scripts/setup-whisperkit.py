@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Provision Pace's small, local WhisperKit model outside protected Documents."""
+import argparse
 import concurrent.futures
 import json
 import pathlib
@@ -26,21 +27,28 @@ def download(url, destination, expected_size=None):
 
 
 def main():
-    url = f"https://huggingface.co/api/models/{REPOSITORY}/tree/{REVISION}/{MODEL}?recursive=true"
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--multilingual", action="store_true", help="Install the optional Japanese/English practice model")
+    arguments = parser.parse_args()
+    model = "openai_whisper-base" if arguments.multilingual else MODEL
+    tokenizer_repository = "openai/whisper-base" if arguments.multilingual else "openai/whisper-base.en"
+    tokenizer_revision = "e37978b90ca9030d5170a5c07aadb050351a65bb" if arguments.multilingual else TOKENIZER_REVISION
+    destination = DESTINATION.parent / model
+    url = f"https://huggingface.co/api/models/{REPOSITORY}/tree/{REVISION}/{model}?recursive=true"
     with urllib.request.urlopen(url, timeout=30) as response:
         entries = json.load(response)
     files = [entry for entry in entries if entry["type"] == "file"]
     with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
         futures = [executor.submit(download,
             f"https://huggingface.co/{REPOSITORY}/resolve/{REVISION}/{entry['path']}",
-            DESTINATION / entry["path"].removeprefix(MODEL + "/"), entry["size"])
+            destination / entry["path"].removeprefix(model + "/"), entry["size"])
             for entry in files]
         for future in futures:
             future.result()
     # Bundle tokenizer inputs locally; recognition never needs a network fetch.
     for name in ("tokenizer.json", "tokenizer_config.json", "vocab.json", "merges.txt", "special_tokens_map.json"):
-        download(f"https://huggingface.co/openai/whisper-base.en/resolve/{TOKENIZER_REVISION}/{name}", DESTINATION / name)
-    print(f"WhisperKit base.en ready: {DESTINATION}")
+        download(f"https://huggingface.co/{tokenizer_repository}/resolve/{tokenizer_revision}/{name}", destination / name)
+    print(f"WhisperKit {model} ready: {destination}")
 
 
 if __name__ == "__main__":

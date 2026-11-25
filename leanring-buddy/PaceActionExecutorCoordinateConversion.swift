@@ -23,12 +23,20 @@ extension PaceActionExecutor {
     /// user sees the cursor *point at* is exactly where a click would land.
     func convertScreenshotPixelToDisplayGlobalPoint(
         screenshotPixelLocation: ScreenshotPixelLocation,
-        screenCaptures: [CompanionScreenCapture]
+        screenCaptures: [CompanionScreenCapture],
+        requiresExactLocation: Bool = false, resolvesClickScreen: Bool = false
     ) -> CGPoint? {
         let targetCapture: CompanionScreenCapture? = {
+            if resolvesClickScreen {
+                return CompanionScreenCapture.clickScreenIndex(screenshotPixelLocation.screenNumber, in: screenCaptures)
+                    .map { screenCaptures[$0] }
+            }
             if let screenNumber = screenshotPixelLocation.screenNumber,
                screenNumber >= 1 && screenNumber <= screenCaptures.count {
                 return screenCaptures[screenNumber - 1]
+            }
+            if requiresExactLocation, screenshotPixelLocation.screenNumber != nil || screenCaptures.count != 1 {
+                return nil
             }
             return screenCaptures.first(where: { $0.isCursorScreen }) ?? screenCaptures.first
         }()
@@ -40,6 +48,20 @@ extension PaceActionExecutor {
         let displayWidth = CGFloat(capture.displayWidthInPoints)
         let displayHeight = CGFloat(capture.displayHeightInPoints)
         let displayFrame = capture.displayFrame
+
+        if requiresExactLocation {
+            guard screenshotWidth > 0, screenshotHeight > 0,
+                (0..<capture.screenshotWidthInPixels).contains(screenshotPixelLocation.xInScreenshotPixels),
+                (0..<capture.screenshotHeightInPixels).contains(screenshotPixelLocation.yInScreenshotPixels)
+            else { return nil }
+            if capture.displayIdentifier != 0 {
+                let displayIsUnchanged = NSScreen.screens.contains { screen in
+                    let displayID = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? UInt32
+                    return displayID == capture.displayIdentifier && screen.frame == displayFrame
+                }
+                guard displayIsUnchanged else { return nil }
+            }
+        }
 
         let clampedScreenshotX = max(0, min(CGFloat(screenshotPixelLocation.xInScreenshotPixels), screenshotWidth))
         let clampedScreenshotY = max(0, min(CGFloat(screenshotPixelLocation.yInScreenshotPixels), screenshotHeight))

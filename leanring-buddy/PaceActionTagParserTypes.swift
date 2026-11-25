@@ -57,24 +57,87 @@ nonisolated struct PaceSetOfMarkRecoveryRequest {
     /// The screenshot/display the failed click targeted, if known. Lets the
     /// loop pick the matching capture + cached element map.
     let screenNumber: Int?
+    var unattemptedActionCount = 0
+
+    var verifiedClickObservation: PaceActionExecutionObservation {
+        let target = targetDescription.isEmpty ? "the requested control" : "“\(targetDescription)”"
+        let clickSummary = "I verified the click on \(target)."
+        guard unattemptedActionCount > 0 else {
+            return .init(toolName: "click_candidates", summary: clickSummary)
+        }
+        let remaining = unattemptedActionCount == 1 ? "one action" : "\(unattemptedActionCount) actions"
+        return .init(
+            toolName: "click_candidates",
+            summary: "\(clickSummary) I stopped with \(remaining) left. Check the current screen before continuing.",
+            terminalReason: .incompleteActionPlan)
+    }
+}
+
+nonisolated enum PaceApplicationTargetResolution: Equatable, Sendable {
+    case discovering
+    case retryingInspection
+    case clarification(String)
+    case interrupted(String)
+
+    var userFacingSummary: String {
+        switch self {
+        case .discovering: return "Checking which window you mean."
+        case .retryingInspection: return "Checking that again."
+        case .clarification(let question), .interrupted(let question): return question
+        }
+    }
 }
 
 nonisolated struct PaceActionExecutionObservation {
+    enum TerminalReason: Equatable, Sendable {
+        case ambiguousApplicationTarget
+        case ambiguousInspectionTarget
+        case recoverableInspectionFailure
+        case staleApplicationTarget
+        case inspectionInterrupted
+        case managedWorkflowUnavailable
+        case incompleteActionPlan
+    }
+
     let toolName: String
     let summary: String
+    let userFacingSummary: String?
+    let terminalReason: TerminalReason?
+    var stopsActionPlan: Bool { terminalReason != nil }
+    var requiresFreshInspectionPlan: Bool {
+        terminalReason == .ambiguousInspectionTarget || terminalReason == .recoverableInspectionFailure
+    }
+    var stopsAgentLoop: Bool { terminalReason != nil && !requiresFreshInspectionPlan }
+    var targetResolution: PaceApplicationTargetResolution? {
+        switch terminalReason {
+        case .ambiguousInspectionTarget: return .discovering
+        case .recoverableInspectionFailure: return .retryingInspection
+        case .ambiguousApplicationTarget: return .clarification(userFacingSummary ?? "Which app window do you mean?")
+        case .staleApplicationTarget, .inspectionInterrupted:
+            return .interrupted(userFacingSummary ?? "I stopped checking that window.")
+        case nil, .managedWorkflowUnavailable, .incompleteActionPlan: return nil
+        }
+    }
+    let didDispatchCoordinateClick: Bool
     /// Non-nil only on an all-fail click, to request Set-of-Mark recovery.
-    let setOfMarkRecovery: PaceSetOfMarkRecoveryRequest?
+    var setOfMarkRecovery: PaceSetOfMarkRecoveryRequest?
 
     /// Explicit init (a defaulted `let` is excluded from the synthesized
     /// memberwise init), so the recovery field is optional at every call site.
     init(
         toolName: String,
         summary: String,
-        setOfMarkRecovery: PaceSetOfMarkRecoveryRequest? = nil
+        userFacingSummary: String? = nil,
+        setOfMarkRecovery: PaceSetOfMarkRecoveryRequest? = nil,
+        terminalReason: TerminalReason? = nil,
+        didDispatchCoordinateClick: Bool = false
     ) {
+        self.didDispatchCoordinateClick = didDispatchCoordinateClick
         self.toolName = toolName
         self.summary = summary
+        self.userFacingSummary = userFacingSummary
         self.setOfMarkRecovery = setOfMarkRecovery
+        self.terminalReason = terminalReason
     }
 
     static func formatForPlanner(_ observations: [PaceActionExecutionObservation]) -> String {
@@ -87,8 +150,9 @@ nonisolated struct PaceActionExecutionObservation {
     }
 
     static func formatForUserFeedback(_ observations: [PaceActionExecutionObservation]) -> String? {
-        let userVisibleSummaries = observations
-            .map(\.summary)
+        let userVisibleSummaries =
+            observations
+            .map { $0.userFacingSummary ?? $0.summary }
             .map { summary in
                 // Producer metadata belongs to the planner, not speech or
                 // conversation indexing (snapshots can be very large).
@@ -115,6 +179,11 @@ nonisolated struct PaceActionExecutionObservation {
         // app launch or mutation behind the first successful action.
         return userVisibleSummaries.joined(separator: "\n")
     }
+}
+
+nonisolated struct PaceActionExecutionReceipt {
+    let observations: [PaceActionExecutionObservation]
+    let executedPlan: PaceActionExecutionPlan
 }
 
 nonisolated struct PaceActionExecutionPlan {
@@ -168,12 +237,13 @@ nonisolated enum PaceParsedAction {
     case pressKey(name: String, modifiers: [PaceKeyboardModifier])
     case readClipboard
     case snapWindow(PaceWindowSnapRequest)
-    case scroll(PaceScrollDirection, amountInLines: Int)
+    case scroll(PaceScrollDirection, amountInLines: Int, location: ScreenshotPixelLocation? = nil)
     case openApplication(String)
     case openURL(String)
     case openBrowser(PaceBrowserOpenRequest)
     case screenCapture(PaceScreenCaptureKind)
     case meeting(PaceMeetingModeCommand)
+    case codingSession(PaceCodingSessionCommand)
     case codexSession(PaceCodexSessionRequest)
     case controlMusic(PaceMusicCommand)
     case adjustVolume(PaceSystemAdjustment)
@@ -190,6 +260,8 @@ nonisolated enum PaceParsedAction {
     case runShortcut(String)
     case openMessages(PaceMessageRequest)
     case downloadFile(PaceFileDownloadRequest)
+    case presentMedia(PaceMediaPresentationRequest)
+    case speak(PaceSpeechRequest)
     case startTimer(PaceTimerRequest)
     case recordFlow(PaceFlowActionRequest)
     case runFlow(PaceFlowActionRequest)
@@ -225,6 +297,7 @@ nonisolated enum PaceParsedAction {
         case .openBrowser: return "open_browser"
         case .screenCapture: return "screen_capture"
         case .meeting: return "meeting"
+        case .codingSession: return "coding_session"
         case .codexSession: return "codex_session"
         case .controlMusic: return "music"
         case .adjustVolume: return "volume"
@@ -241,6 +314,8 @@ nonisolated enum PaceParsedAction {
         case .runShortcut: return "shortcut_run"
         case .openMessages: return "messages_open"
         case .downloadFile: return "download_file"
+        case .presentMedia: return "present_media"
+        case .speak: return "speak"
         case .startTimer: return "start_timer"
         case .recordFlow: return "record_flow"
         case .runFlow: return "run_flow"
@@ -265,6 +340,7 @@ nonisolated enum PaceParsedAction {
             return request.browserName
         case .screenCapture(let kind):
             return kind.rawValue
+        case .codingSession: return "codex.app-server"
         case .codexSession(let request):
             return request.directory
         case .meeting:
@@ -289,6 +365,8 @@ nonisolated enum PaceParsedAction {
             return String(request.path.prefix(120))
         case .downloadFile(let request):
             return String(request.url.absoluteString.prefix(120))
+        case .presentMedia(let request): return request.assetID
+        case .speak: return "local speech"
         case .startTimer(let request):
             return String(request.label.prefix(60))
         case .recordFlow(let request), .runFlow(let request):
@@ -296,7 +374,8 @@ nonisolated enum PaceParsedAction {
         case .mcp(let toolCall):
             return "\(toolCall.serverName).\(toolCall.toolName)"
         case .pressKey(let keyName, let modifiers):
-            let modifierPrefix = modifiers.isEmpty
+            let modifierPrefix =
+                modifiers.isEmpty
                 ? ""
                 : modifiers.map(\.rawValue).joined(separator: "+") + "+"
             return "\(modifierPrefix)\(keyName)"
@@ -304,7 +383,7 @@ nonisolated enum PaceParsedAction {
             return command.rawValue
         case .adjustVolume, .adjustBrightness:
             return auditOperationName
-        case .scroll(let direction, _):
+        case .scroll(let direction, _, _):
             return direction.rawValue
         case .snapWindow(let request):
             return request.position.rawValue
@@ -339,7 +418,8 @@ nonisolated enum PaceParsedAction {
         case .undoLastMutation:
             return "Undo last editable text change"
         case .pressKey(let keyName, let modifiers):
-            let modifierPrefix = modifiers.isEmpty
+            let modifierPrefix =
+                modifiers.isEmpty
                 ? ""
                 : modifiers.map(\.rawValue).joined(separator: "+") + "+"
             return "Press \(modifierPrefix)\(keyName)"
@@ -347,8 +427,9 @@ nonisolated enum PaceParsedAction {
             return "Read clipboard text"
         case .snapWindow(let snapWindowRequest):
             return "Snap focused window: \(snapWindowRequest.position.displayName)"
-        case .scroll(let direction, let amountInLines):
-            return "Scroll \(direction.rawValue) \(amountInLines) lines"
+        case .scroll(let direction, let amountInLines, let location):
+            let target = location.map { " at \($0.xInScreenshotPixels), \($0.yInScreenshotPixels)" } ?? ""
+            return "Scroll \(direction.rawValue) \(amountInLines) lines\(target)"
         case .openApplication(let applicationName):
             return "Open app: \(applicationName)"
         case .openURL(let urlString):
@@ -358,6 +439,7 @@ nonisolated enum PaceParsedAction {
                 "Open \(request.browserName)\(request.chromeProfile.map { " (\($0) profile)" } ?? "")\(request.url.map { ": \($0)" } ?? "")"
         case .screenCapture(let kind):
             return kind.actionDescription
+        case .codingSession(let command): return command.summary
         case .codexSession(let request):
             return "Start Codex in Warp at \(request.directory)"
         case .meeting:
@@ -373,7 +455,7 @@ nonisolated enum PaceParsedAction {
         case .createCalendarEvent(let calendarEventRequest):
             return "Create calendar event: \(calendarEventRequest.title)"
         case .createReminder(let reminderRequest):
-            return "Create reminder: \(reminderRequest.title)"
+            return "Create reminder: \(reminderRequest.displayTitle)"
         case .finder(let finderRequest):
             return "Finder \(finderRequest.action.rawValue): \(finderRequest.path)"
         case .createNote(let noteRequest):
@@ -399,6 +481,11 @@ nonisolated enum PaceParsedAction {
             return "Open Messages"
         case .downloadFile(let downloadRequest):
             return "Download file to ~/Downloads: \(downloadRequest.url.absoluteString)"
+        case .presentMedia(let request):
+            return "Present \(request.presentationSummary) for \(request.durationSeconds) seconds"
+        case .speak(let request):
+            return
+                "Speak\(request.profile.map { " [" + $0.rawValue + "]" } ?? ""): \(Self.truncatedForApproval(request.text))\(request.englishSubtitle.map { " · English subtitles: " + Self.truncatedForApproval($0) } ?? "")"
         case .startTimer(let timerRequest):
             let durationMinutes = Int((timerRequest.durationInSeconds / 60.0).rounded())
             if durationMinutes >= 1, !timerRequest.label.isEmpty {
@@ -635,8 +722,26 @@ nonisolated enum PaceCalendarRange: String, Equatable {
 }
 
 nonisolated struct PaceReminderRequest {
+    struct Schedule: Equatable {
+        let date: Date
+        let isDateOnly: Bool
+    }
+
     let title: String
     let notes: String?
+    var schedule: Schedule? = nil
+    var listName: String? = nil
+
+    var displayTitle: String {
+        let destination = listName.map { " in \($0)" } ?? ""
+        guard let schedule else { return title + destination }
+        let due = schedule.date.formatted(date: .abbreviated, time: schedule.isDateOnly ? .omitted : .shortened)
+        return "\(title)\(destination) (due \(due))"
+    }
+
+    static func comparisonTitle(_ title: String) -> String {
+        title.split(whereSeparator: \.isWhitespace).joined(separator: " ").lowercased()
+    }
 }
 
 nonisolated struct PaceTimerRequest {
@@ -697,6 +802,10 @@ nonisolated struct PaceMessageRequest {
 
 // MARK: - Action tag parser
 
+nonisolated struct PaceTeachingDelivery {
+    let handlesSpeech: Bool
+}
+
 /// Result of pulling all action tags out of Claude's response.
 nonisolated struct PaceActionTagParseResult {
     /// The assistant text with every recognised action tag stripped.
@@ -711,16 +820,24 @@ nonisolated struct PaceActionTagParseResult {
     /// existing cursor-flight visualization so the user sees pace
     /// move to the target before it executes.
     let firstClickVisualisationLocation: ScreenshotPixelLocation?
+    var teachingDelivery: PaceTeachingDelivery? = nil
+    var rejectedScreenClick = false
 }
 
 nonisolated struct PaceFastActionParseResult {
     let spokenText: String
     let executionPlan: PaceActionExecutionPlan
+
+    var scrollsAtPointer: Bool {
+        let actions = executionPlan.flattenedActions
+        guard actions.count == 1, case .scroll(_, _, nil) = actions[0] else { return false }
+        return true
+    }
 }
 
 /// Deterministic parser for no-screen, no-reasoning commands that are common
 /// enough to execute without burning a VLM/planner turn. It intentionally
-/// avoids clicks, typing, scrolling, and open-ended app names; those stay on
+/// avoids clicks, typing, pane-targeted scrolling, and open-ended app names; those stay on
 /// the normal planner path where screen context and approval copy are richer.
 nonisolated enum PaceFastActionCommandParser {
     private static let knownApplicationAliases: [String: String] = [
@@ -760,12 +877,20 @@ nonisolated enum PaceFastActionCommandParser {
         "vs code": "Visual Studio Code",
         "vscode": "Visual Studio Code",
         "xcode": "Xcode",
-        "zoom": "zoom.us"
+        "zoom": "zoom.us",
     ]
 
-    static func parse(transcript: String) -> PaceFastActionParseResult? {
+    static func parse(transcript: String, isFinalTranscript: Bool = true) -> PaceFastActionParseResult? {
         let normalizedTranscript = normalizeTranscript(transcript)
         guard !normalizedTranscript.isEmpty else { return nil }
+
+        if isFinalTranscript, normalizedTranscript.hasPrefix("scroll "),
+            let direction = PaceScrollDirection(rawValue: String(normalizedTranscript.dropFirst("scroll ".count)))
+        {
+            return PaceFastActionParseResult(
+                spokenText: "Scrolling \(direction.rawValue).",
+                executionPlan: .serial(actions: [.scroll(direction, amountInLines: 3)]))
+        }
 
         if let musicCommand = parseMusicCommand(from: normalizedTranscript) {
             let spokenText = spokenTextForMusicCommand(musicCommand)
@@ -884,7 +1009,8 @@ nonisolated enum PaceFastActionCommandParser {
     }
 
     private static func normalizeTranscript(_ transcript: String) -> String {
-        var normalizedTranscript = transcript
+        var normalizedTranscript =
+            transcript
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()
 
@@ -895,7 +1021,8 @@ nonisolated enum PaceFastActionCommandParser {
             }
         }
 
-        return normalizedTranscript
+        return
+            normalizedTranscript
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .trimmingCharacters(in: CharacterSet(charactersIn: ".?!"))
     }
@@ -917,7 +1044,8 @@ nonisolated enum PaceFastActionCommandParser {
 
     private static func parseKeyPressCommand(from normalizedTranscript: String) -> FastKeyPressCommand? {
         switch normalizedTranscript {
-        case "save", "save this", "save file", "save the file", "press command s", "press cmd s", "command s", "cmd s", "hit command s":
+        case "save", "save this", "save file", "save the file", "press command s", "press cmd s", "command s", "cmd s",
+            "hit command s":
             return FastKeyPressCommand(
                 keyName: "s",
                 modifiers: [.command],
@@ -935,7 +1063,8 @@ nonisolated enum PaceFastActionCommandParser {
                 modifiers: [.command],
                 spokenText: "closing the tab."
             )
-        case "reopen closed tab", "reopen the closed tab", "reopen last closed tab", "press command shift t", "press cmd shift t", "command shift t", "cmd shift t":
+        case "reopen closed tab", "reopen the closed tab", "reopen last closed tab", "press command shift t",
+            "press cmd shift t", "command shift t", "cmd shift t":
             return FastKeyPressCommand(
                 keyName: "t",
                 modifiers: [.command, .shift],
@@ -998,7 +1127,8 @@ nonisolated enum PaceFastActionCommandParser {
                 modifiers: [.command],
                 spokenText: "find ready."
             )
-        case "refresh", "refresh page", "reload", "reload page", "reload this page", "command r", "cmd r", "press command r":
+        case "refresh", "refresh page", "reload", "reload page", "reload this page", "command r", "cmd r",
+            "press command r":
             return FastKeyPressCommand(
                 keyName: "r",
                 modifiers: [.command],
@@ -1012,13 +1142,18 @@ nonisolated enum PaceFastActionCommandParser {
     private static func parseWindowSnapCommand(from normalizedTranscript: String) -> PaceWindowSnapRequest? {
         let position: PaceWindowSnapPosition
         switch normalizedTranscript {
-        case "snap window left", "move window left", "put window left", "put the window left", "move the window left", "snap the window left", "resize window left", "left half window", "window left half":
+        case "snap window left", "move window left", "put window left", "put the window left", "move the window left",
+            "snap the window left", "resize window left", "left half window", "window left half":
             position = .left
-        case "snap window right", "move window right", "put window right", "put the window right", "move the window right", "snap the window right", "resize window right", "right half window", "window right half":
+        case "snap window right", "move window right", "put window right", "put the window right",
+            "move the window right", "snap the window right", "resize window right", "right half window",
+            "window right half":
             position = .right
-        case "snap window top", "move window top", "put window top", "put the window top", "move the window top", "snap the window top", "top half window", "window top half":
+        case "snap window top", "move window top", "put window top", "put the window top", "move the window top",
+            "snap the window top", "top half window", "window top half":
             position = .top
-        case "snap window bottom", "move window bottom", "put window bottom", "put the window bottom", "move the window bottom", "snap the window bottom", "bottom half window", "window bottom half":
+        case "snap window bottom", "move window bottom", "put window bottom", "put the window bottom",
+            "move the window bottom", "snap the window bottom", "bottom half window", "window bottom half":
             position = .bottom
         case "maximize window", "maximize the window", "make window full size", "make the window full size":
             position = .maximize
@@ -1036,7 +1171,8 @@ nonisolated enum PaceFastActionCommandParser {
 
         if normalizedTranscript == "open messages"
             || normalizedTranscript == "open messages app"
-            || normalizedTranscript == "launch messages" {
+            || normalizedTranscript == "launch messages"
+        {
             return PaceMessageRequest(recipient: nil, text: nil)
         }
 
@@ -1045,7 +1181,7 @@ nonisolated enum PaceFastActionCommandParser {
             "open message to ",
             "open messages with ",
             "open message with ",
-            "message "
+            "message ",
         ]
 
         for recipientPrefix in recipientPrefixes {
@@ -1071,7 +1207,7 @@ nonisolated enum PaceFastActionCommandParser {
             " body ",
             "send message",
             "send a message",
-            "text "
+            "text ",
         ]
         return blockedFragments.contains { normalizedTranscript.contains($0) }
     }
@@ -1082,7 +1218,8 @@ nonisolated enum PaceFastActionCommandParser {
             return nil
         }
 
-        let words = rawRecipientName
+        let words =
+            rawRecipientName
             .split(separator: " ")
             .map { word in
                 let lowercasedWord = word.lowercased()
@@ -1139,7 +1276,8 @@ nonisolated enum PaceFastActionCommandParser {
             || normalizedTranscript == "make the \(noun) louder"
             || normalizedTranscript.hasPrefix("\(noun) up ")
             || normalizedTranscript.hasPrefix("turn \(noun) up ")
-            || normalizedTranscript.hasPrefix("turn the \(noun) up ") {
+            || normalizedTranscript.hasPrefix("turn the \(noun) up ")
+        {
             direction = .up
         } else if normalizedTranscript == "\(noun) down"
             || normalizedTranscript == "turn \(noun) down"
@@ -1150,7 +1288,8 @@ nonisolated enum PaceFastActionCommandParser {
             || normalizedTranscript == "make the \(noun) quieter"
             || normalizedTranscript.hasPrefix("\(noun) down ")
             || normalizedTranscript.hasPrefix("turn \(noun) down ")
-            || normalizedTranscript.hasPrefix("turn the \(noun) down ") {
+            || normalizedTranscript.hasPrefix("turn the \(noun) down ")
+        {
             direction = .down
         } else {
             return nil
@@ -1163,7 +1302,8 @@ nonisolated enum PaceFastActionCommandParser {
     }
 
     private static func parseStepCount(from normalizedTranscript: String) -> Int {
-        let tokens = normalizedTranscript
+        let tokens =
+            normalizedTranscript
             .split(whereSeparator: { !$0.isNumber })
             .compactMap { Int($0) }
         guard let requestedStepCount = tokens.first else { return 2 }
@@ -1195,7 +1335,7 @@ nonisolated enum PaceFastActionCommandParser {
         "wikipedia": "https://wikipedia.org",
         "stack overflow": "https://stackoverflow.com",
         "stackoverflow": "https://stackoverflow.com",
-        "product hunt": "https://producthunt.com"
+        "product hunt": "https://producthunt.com",
     ]
 
     private static func parseURLCommand(from normalizedTranscript: String) -> String? {
@@ -1237,7 +1377,7 @@ nonisolated enum PaceFastActionCommandParser {
     private static func strippingBrowserSuffix(from target: String) -> String {
         let browserNames: Set<String> = [
             "chrome", "google chrome", "safari", "arc", "firefox",
-            "edge", "brave", "the browser", "my browser", "browser"
+            "edge", "brave", "the browser", "my browser", "browser",
         ]
         for connector in [" on ", " in ", " using "] {
             guard let connectorRange = target.range(of: connector, options: .backwards) else {
@@ -1280,7 +1420,7 @@ nonisolated enum PaceFastActionCommandParser {
         "netflix.com": "Netflix",
         "wikipedia.org": "Wikipedia",
         "stackoverflow.com": "Stack Overflow",
-        "producthunt.com": "Product Hunt"
+        "producthunt.com": "Product Hunt",
     ]
 
     /// A speakable name for an opened URL: the curated product name when the
@@ -1317,7 +1457,8 @@ nonisolated enum PaceFastActionCommandParser {
         }
 
         guard let candidateApplicationName else { return nil }
-        let normalizedCandidate = candidateApplicationName
+        let normalizedCandidate =
+            candidateApplicationName
             .trimmingCharacters(in: .whitespacesAndNewlines)
         return knownApplicationAliases[normalizedCandidate]
     }

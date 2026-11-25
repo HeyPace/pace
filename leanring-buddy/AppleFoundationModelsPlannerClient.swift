@@ -319,13 +319,21 @@ final class AppleFoundationModelsPlannerClient: BuddyPlannerClient {
     ) -> Transcript {
         var transcriptEntries: [Transcript.Entry] = []
         for (userPlaceholder, assistantResponse) in conversationHistory {
-            transcriptEntries.append(.prompt(Transcript.Prompt(
-                segments: [.text(Transcript.TextSegment(content: userPlaceholder))]
-            )))
-            transcriptEntries.append(.response(Transcript.Response(
-                assetIDs: [],
-                segments: [.text(Transcript.TextSegment(content: assistantResponse))]
-            )))
+            if !userPlaceholder.isEmpty {
+                transcriptEntries.append(
+                    .prompt(
+                        Transcript.Prompt(
+                            segments: [.text(Transcript.TextSegment(content: userPlaceholder))]
+                        )))
+            }
+            if !assistantResponse.isEmpty {
+                transcriptEntries.append(
+                    .response(
+                        Transcript.Response(
+                            assetIDs: [],
+                            segments: [.text(Transcript.TextSegment(content: assistantResponse))]
+                        )))
+            }
         }
         return Transcript(entries: transcriptEntries)
     }

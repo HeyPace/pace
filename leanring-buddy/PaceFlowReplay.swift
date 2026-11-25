@@ -102,7 +102,7 @@ enum PaceFlowCommand: Equatable {
 }
 
 enum PaceFlowCommandParser {
-    static func parse(_ transcript: String) -> PaceFlowCommand? {
+    static func parse(_ transcript: String, isRecordedFlow: (String) -> Bool = { _ in false }) -> PaceFlowCommand? {
         let trimmedTranscript = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
         let normalizedTranscript = trimmedTranscript.lowercased()
         guard !normalizedTranscript.isEmpty else { return nil }
@@ -113,30 +113,36 @@ enum PaceFlowCommandParser {
 
         for prefix in ["remember this flow as ", "remember this as ", "save this as a flow called "] {
             if normalizedTranscript.hasPrefix(prefix) {
-                let name = String(trimmedTranscript.dropFirst(prefix.count)).trimmingCharacters(in: .whitespacesAndNewlines)
+                let name = String(trimmedTranscript.dropFirst(prefix.count)).trimmingCharacters(
+                    in: .whitespacesAndNewlines)
                 return name.isEmpty ? nil : .startRecording(name: name)
             }
         }
 
         for prefix in ["delete the flow ", "forget the flow "] {
             if normalizedTranscript.hasPrefix(prefix) {
-                let name = String(trimmedTranscript.dropFirst(prefix.count)).trimmingCharacters(in: .whitespacesAndNewlines)
+                let name = String(trimmedTranscript.dropFirst(prefix.count)).trimmingCharacters(
+                    in: .whitespacesAndNewlines)
                 return name.isEmpty ? nil : .delete(name: name)
             }
         }
 
-        // "run <name>" runs a recorded flow — but an utterance that mentions
-        // "skill" ("run the cat search skill") belongs to the teachable-skill
-        // parser, which runs AFTER this one in the agent loop. Without this
-        // deferral the bare "run " prefix greedily swallows every skill-run
-        // command and answers "i couldn't find a flow named …", so taught
-        // skills can never be run by voice.
+        // Explicit replay requests can report a missing flow. Bare aliases
+        // require a saved match so questions such as "Do you see my screen?"
+        // and general tasks such as "run the tests" reach the assistant.
+        // Skill requests continue to the later skill parser.
         if !normalizedTranscript.contains("skill") {
-            for prefix in ["run ", "play back ", "do "] {
+            for prefix in ["run the flow ", "run flow ", "do the flow ", "play back "] {
                 if normalizedTranscript.hasPrefix(prefix) {
-                    let name = String(trimmedTranscript.dropFirst(prefix.count)).trimmingCharacters(in: .whitespacesAndNewlines)
+                    let name = String(trimmedTranscript.dropFirst(prefix.count)).trimmingCharacters(
+                        in: .whitespacesAndNewlines)
                     return name.isEmpty ? nil : .run(name: name)
                 }
+            }
+            for prefix in ["run ", "do "] where normalizedTranscript.hasPrefix(prefix) {
+                let name = String(trimmedTranscript.dropFirst(prefix.count)).trimmingCharacters(
+                    in: .whitespacesAndNewlines)
+                return !name.isEmpty && isRecordedFlow(name) ? .run(name: name) : nil
             }
         }
 
@@ -145,8 +151,7 @@ enum PaceFlowCommandParser {
 }
 
 enum PaceFlowReplayPlanner {
-    static func shouldPauseBeforeSend(step: PaceRecordedStep, isLastStep: Bool) -> Bool {
-        guard isLastStep else { return false }
+    static func shouldPauseBeforeSend(step: PaceRecordedStep) -> Bool {
         guard case .axPress(_, let label) = step else { return false }
         let normalizedLabel = label.lowercased()
         return ["send", "submit", "post", "reply"].contains { sendWord in
@@ -155,8 +160,8 @@ enum PaceFlowReplayPlanner {
     }
 
     static func replayObservations(for flow: PaceRecordedFlow) -> [String] {
-        flow.steps.enumerated().map { index, step in
-            if shouldPauseBeforeSend(step: step, isLastStep: index == flow.steps.count - 1) {
+        flow.steps.map { step in
+            if shouldPauseBeforeSend(step: step) {
                 return "ready to send - say go ahead"
             }
             switch step {

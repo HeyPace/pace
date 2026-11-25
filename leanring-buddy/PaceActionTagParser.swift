@@ -52,6 +52,7 @@ nonisolated enum PaceActionTagParser {
         let mcpTool: String?
         let arguments: [String: PaceMCPJSONValue]
         let extraArguments: [String: PaceMCPJSONValue]
+        let strictArguments: [String: PaceMCPJSONValue]?
         let steps: Int?
         let amount: Int?
         let x: Int?
@@ -197,6 +198,17 @@ nonisolated enum PaceActionTagParser {
             self.candidates = (try? container.decodeIfPresent([ClickCandidateDTO].self, forKey: .candidates)) ?? []
             self.expectStateChange = try? container.decodeIfPresent(Bool.self, forKey: .expectStateChange)
             self.extraArguments = Self.decodeExtraArguments(from: rawContainer)
+            if container.contains(.arguments),
+                (try? container.decode([String: PaceMCPJSONValue].self, forKey: .arguments)) == nil
+            {
+                self.strictArguments = nil
+            } else {
+                var strictArguments = self.arguments
+                for key in rawContainer.allKeys where !["tool", "arguments"].contains(key.stringValue) {
+                    strictArguments[key.stringValue] = try rawContainer.decode(PaceMCPJSONValue.self, forKey: key)
+                }
+                self.strictArguments = strictArguments
+            }
         }
 
         private static func decodeStringIfPresent(
@@ -394,6 +406,29 @@ nonisolated enum PaceActionTagParser {
             PaceImageGenerationRequest.parse(arguments: objectValue(for: "args", in: $0) ?? [:]) == nil
         }) {
             envelopeValidationIssues.append("generate_image requires a valid image request")
+        }
+        if strictStringValue(for: "intent", in: plannerResponseObject)?.lowercased() == "action",
+            let payload = objectValue(for: "payload", in: plannerResponseObject)
+        {
+            let clickCalls = (actionCallObjects(from: payload) ?? [payload]).filter { call in
+                guard let name = strictStringValue(for: "name", in: call) else { return false }
+                return ["ax.press", "click", "mouse.click", "ax.doublepress", "double.click", "mouse.doubleclick"]
+                    .contains(normalizedParameterizedActionName(name))
+            }
+            let invalidClick = clickCalls.contains { parsePlannerActionCall($0) == nil }
+            if !clickCalls.isEmpty, !envelopeValidationIssues.isEmpty || invalidClick {
+                let hasMixedClickFields =
+                    plannerResponseObject["clickElementId"] != nil
+                    || plannerResponseObject["pointAtElementId"] != nil
+                let message =
+                    invalidClick || hasMixedClickFields
+                    ? "I couldn’t use those click instructions. Bring the control into view and ask me to click it again."
+                    : "I couldn’t read the action plan. Ask me to try the action again."
+                return PaceActionTagParseResult(
+                    spokenText: message,
+                    actions: [], executionPlan: .serial(actions: []), firstClickVisualisationLocation: nil,
+                    rejectedScreenClick: true)
+            }
         }
         guard envelopeValidationIssues.isEmpty else {
             print("⚠️ Rejected invalid v10 planner response before execution: \(envelopeValidationIssues.joined(separator: "; "))")
@@ -666,10 +701,16 @@ nonisolated enum PaceActionTagParser {
                 return .openBrowser(.init(browserName: "Google Chrome", url: urlString, chromeProfile: profile))
             }
             return .openURL(urlString)
+        case "coding.session":
+            return PaceCodingSessionCommand.parse(arguments).map { .codingSession($0) }
         case "codex.session":
             return parseCodexSessionArguments(arguments)
         case "screen.capture":
             return parseScreenCaptureArguments(arguments)
+        case "speak":
+            return PaceSpeechRequest.parse(arguments: arguments).map { .speak($0) }
+        case "present.media":
+            return PaceMediaPresentationRequest.parse(arguments: arguments).map { .presentMedia($0) }
         case "meeting":
             return parseMeetingArguments(arguments)
         case "ax.press", "click", "mouse.click":
@@ -717,7 +758,8 @@ nonisolated enum PaceActionTagParser {
             let amount = intValue(for: "amount", in: arguments)
                 ?? intValue(for: "steps", in: arguments)
                 ?? 3
-            return parseScrollPayload("\(direction):\(amount)")
+            return parseScrollPayload(
+                "\(direction):\(amount)", location: screenshotPixelLocation(from: arguments))
         case "music.control", "music":
             let command = firstStringValue(for: ["command", "name"], in: arguments) ?? ""
             return parseMusicPayload(command)
@@ -734,12 +776,7 @@ nonisolated enum PaceActionTagParser {
             return parseCalendarEventRequest(from: arguments)
                 .map { .createCalendarEvent($0) }
         case "reminders.add", "reminder.add":
-            let title = firstStringValue(for: ["title", "text", "name"], in: arguments)
-            guard let title, !title.isEmpty else { return nil }
-            return .createReminder(PaceReminderRequest(
-                title: title,
-                notes: stringValue(for: "notes", in: arguments)
-            ))
+            return parseReminderRequest(from: arguments).map { .createReminder($0) }
         case "notes.create", "note.create":
             let title = firstStringValue(for: ["title", "name"], in: arguments) ?? "Pace note"
             let body = firstStringValue(for: ["body", "text", "notes"], in: arguments) ?? ""
@@ -795,8 +832,9 @@ nonisolated enum PaceActionTagParser {
             guard let serverName, !serverName.isEmpty,
                   let toolName, !toolName.isEmpty else { return nil }
             let mcpArguments = objectValue(for: "arguments", in: arguments) ?? arguments
-            return .mcp(PaceMCPToolCall(
-                serverName: serverName,
+            return action(
+                for: PaceMCPToolCall(
+                    serverName: serverName,
                 toolName: toolName,
                 arguments: mcpArguments
             ))
@@ -850,11 +888,23 @@ nonisolated enum PaceActionTagParser {
             if !hasNonEmptyString(for: ["url", "text"], in: arguments) {
                 issues.append("requires url")
             }
+        case "coding.session":
+            if PaceCodingSessionCommand.parse(arguments) == nil { issues.append("requires a strict coding command") }
         case "codex.session":
             if parseCodexSessionArguments(arguments) == nil { issues.append("requires directory path") }
         case "screen.capture":
             if parseScreenCaptureArguments(arguments) == nil {
                 issues.append("requires a supported screen capture mode")
+            }
+        case "speak":
+            if PaceSpeechRequest.parse(arguments: arguments) == nil {
+                issues.append("requires bounded local speech text and an optional supported profile")
+            }
+        case "present.media":
+            if PaceMediaPresentationRequest.parse(arguments: arguments) == nil {
+                issues.append(
+                    "requires either a catalog assetID with optional supported motion or a validated generated svg, and durationSeconds from one to thirty"
+                )
             }
         case "meeting":
             if parseMeetingArguments(arguments) == nil { issues.append("requires action start, stop, or status") }
@@ -884,6 +934,9 @@ nonisolated enum PaceActionTagParser {
                !["up", "down"].contains(direction.lowercased()) {
                 issues.append("direction must be up or down")
             }
+            if !scrollLocationArgumentsAreValid(arguments) {
+                issues.append("requires both scroll coordinates and a positive screen number if specified")
+            }
         case "music.control", "music":
             let command = firstStringValue(for: ["command", "name"], in: arguments) ?? ""
             if parseMusicPayload(command) == nil {
@@ -903,8 +956,8 @@ nonisolated enum PaceActionTagParser {
                 issues.append("requires title and start date")
             }
         case "reminders.add", "reminder.add":
-            if !hasNonEmptyString(for: ["title", "text", "name"], in: arguments) {
-                issues.append("requires reminder title")
+            if parseReminderRequest(from: arguments) == nil {
+                issues.append("requires reminder title and a valid due date when supplied")
             }
         case "notes.create", "note.create", "notes.append", "note.append":
             if !hasNonEmptyString(for: ["title", "name", "body", "text", "notes"], in: arguments) {
@@ -976,6 +1029,14 @@ nonisolated enum PaceActionTagParser {
             .lowercased()
             .replacingOccurrences(of: "_", with: ".")
             .replacingOccurrences(of: "-", with: ".")
+    }
+
+    private static func scrollLocationArgumentsAreValid(_ arguments: [String: PaceMCPJSONValue]) -> Bool {
+        guard ["x", "y", "screen"].contains(where: { arguments[$0] != nil }) else { return true }
+        guard let location = screenshotPixelLocation(from: arguments),
+            location.xInScreenshotPixels >= 0, location.yInScreenshotPixels >= 0
+        else { return false }
+        return arguments["screen"] == nil || (location.screenNumber ?? 0) > 0
     }
 
     private static func screenshotPixelLocation(from arguments: [String: PaceMCPJSONValue]) -> ScreenshotPixelLocation? {
@@ -1101,7 +1162,7 @@ nonisolated enum PaceActionTagParser {
         guard let value = object[key] else { return nil }
         switch value {
         case .number(let numberValue):
-            return Int(numberValue)
+            return Int(exactly: numberValue.rounded(.towardZero))
         case .string(let stringValue):
             return Int(stringValue.trimmingCharacters(in: .whitespacesAndNewlines))
         case .bool, .array, .object, .null:
@@ -1321,7 +1382,7 @@ nonisolated enum PaceActionTagParser {
 
     private static func parseToolCall(_ toolCall: ToolCallDTO) -> PaceParsedAction? {
         if let mcpToolCall = parseMCPToolCall(toolCall) {
-            return .mcp(mcpToolCall)
+            return action(for: mcpToolCall)
         }
 
         guard let toolKind = PaceToolRegistry.kind(forToolName: toolCall.tool) else {
@@ -1373,7 +1434,8 @@ nonisolated enum PaceActionTagParser {
                     (toolCall.amount ?? toolCall.steps).map(String.init)
                 ]
                 .compactMap { $0 }
-                .joined(separator: ":")
+                .joined(separator: ":"),
+                location: screenshotPixelLocation(from: mergeMCPArguments(from: toolCall))
             )
         case .openApp:
             if let profile = firstStringValue(for: ["profile"], in: mergeMCPArguments(from: toolCall)) {
@@ -1391,6 +1453,8 @@ nonisolated enum PaceActionTagParser {
                     .init(browserName: browser, url: toolCall.url ?? toolCall.text, chromeProfile: profile))
             }
             return parseOpenURLPayload(toolCall.url ?? toolCall.text ?? "")
+        case .codingSession:
+            return PaceCodingSessionCommand.parse(mergeMCPArguments(from: toolCall)).map { .codingSession($0) }
         case .codexSession:
             return parseCodexSessionArguments(mergeMCPArguments(from: toolCall))
         case .screenCapture:
@@ -1425,7 +1489,7 @@ nonisolated enum PaceActionTagParser {
         case .calendarCreate:
             return parseCalendarEventToolCall(toolCall)
         case .reminder:
-            return parseReminderPayload(toolCall.title ?? toolCall.text ?? "")
+            return parseReminderRequest(from: mergeMCPArguments(from: toolCall)).map { .createReminder($0) }
         case .finder:
             return parseFinderToolCall(toolCall)
         case .notes:
@@ -1440,6 +1504,12 @@ nonisolated enum PaceActionTagParser {
             return parseMessagesToolCall(toolCall)
         case .downloadFile:
             return parseDownloadFileToolCall(toolCall)
+        case .presentMedia:
+            return toolCall.strictArguments.flatMap(PaceMediaPresentationRequest.parse(arguments:)).map {
+                .presentMedia($0)
+            }
+        case .speak:
+            return toolCall.strictArguments.flatMap(PaceSpeechRequest.parse(arguments:)).map { .speak($0) }
         case .startTimer:
             return parseStartTimerToolCall(toolCall)
         case .recordFlow:
@@ -1548,6 +1618,9 @@ nonisolated enum PaceActionTagParser {
                     issues.append("direction must be up or down")
                 }
             }
+            if !scrollLocationArgumentsAreValid(mergedArguments) {
+                issues.append("requires both scroll coordinates and a positive screen number if specified")
+            }
         case .openApp:
             if !hasNonEmptyString(for: ["app", "name"], in: mergedArguments) {
                 issues.append("requires app")
@@ -1589,8 +1662,8 @@ nonisolated enum PaceActionTagParser {
                 issues.append("requires title and start date")
             }
         case .reminder:
-            if !hasNonEmptyString(for: ["title", "text", "name"], in: mergedArguments) {
-                issues.append("requires reminder title")
+            if parseReminderRequest(from: mergedArguments) == nil {
+                issues.append("requires reminder title and a valid due date when supplied")
             }
         case .finder:
             if !hasNonEmptyString(for: ["path", "text"], in: mergedArguments) {
@@ -1625,6 +1698,16 @@ nonisolated enum PaceActionTagParser {
             if PaceFileDownloadURLValidator.validatedDownloadURL(from: rawURLString) == nil {
                 issues.append("requires a valid http(s) download url")
             }
+        case .presentMedia:
+            if toolCall.strictArguments.flatMap(PaceMediaPresentationRequest.parse(arguments:)) == nil {
+                issues.append(
+                    "requires either a catalog assetID with optional supported motion or a validated generated svg, and durationSeconds from one to thirty"
+                )
+            }
+        case .speak:
+            if toolCall.strictArguments.flatMap(PaceSpeechRequest.parse(arguments:)) == nil {
+                issues.append("requires bounded local speech text and an optional supported profile")
+            }
         case .startTimer:
             let rawDurationText = firstStringValue(
                 for: ["duration", "time", "for", "interval", "seconds", "minutes"],
@@ -1650,6 +1733,10 @@ nonisolated enum PaceActionTagParser {
         case .drawAnnotation:
             if parseDrawAnnotationRequest(from: mergedArguments) == nil {
                 issues.append("requires at least one valid shape")
+            }
+        case .codingSession:
+            if PaceCodingSessionCommand.parse(mergedArguments) == nil {
+                issues.append("requires a strict coding start/resume/status/cancel command")
             }
         case .codexSession:
             if parseCodexSessionArguments(mergedArguments) == nil { issues.append("requires directory path") }
@@ -2040,7 +2127,9 @@ nonisolated enum PaceActionTagParser {
     }
 
     /// Parses `up:3` / `down:5` into a scroll action.
-    private static func parseScrollPayload(_ payload: String) -> PaceParsedAction? {
+    private static func parseScrollPayload(
+        _ payload: String, location: ScreenshotPixelLocation? = nil
+    ) -> PaceParsedAction? {
         let payloadComponents = payload.split(separator: ":", omittingEmptySubsequences: true)
         guard let directionString = payloadComponents.first,
               let direction = PaceScrollDirection(rawValue: directionString.trimmingCharacters(in: .whitespaces).lowercased()) else {
@@ -2055,7 +2144,7 @@ nonisolated enum PaceActionTagParser {
             return 3
         }()
 
-        return .scroll(direction, amountInLines: amountInLines)
+        return .scroll(direction, amountInLines: amountInLines, location: location)
     }
 
     private static func parseOpenApplicationPayload(_ payload: String) -> PaceParsedAction? {
@@ -2236,7 +2325,7 @@ nonisolated enum PaceActionTagParser {
             return ParsedCalendarDate(date: date, isDateOnly: false)
         }
 
-        for format in ["yyyy-MM-dd HH:mm", "yyyy-MM-dd h:mm a"] {
+        for format in ["yyyy-MM-dd'T'HH:mm:ss", "yyyy-MM-dd'T'HH:mm", "yyyy-MM-dd HH:mm", "yyyy-MM-dd h:mm a"] {
             let formatter = DateFormatter()
             formatter.locale = Locale(identifier: "en_US_POSIX")
             formatter.dateFormat = format
@@ -2253,6 +2342,46 @@ nonisolated enum PaceActionTagParser {
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.dateFormat = "yyyy-MM-dd"
         return formatter.date(from: rawDate).map { Calendar.current.startOfDay(for: $0) }
+    }
+
+    private static func action(for mcpToolCall: PaceMCPToolCall) -> PaceParsedAction {
+        if mcpToolCall.createsAppleReminder, let request = parseAppleReminderCreation(mcpToolCall) {
+            return .createReminder(request)
+        }
+        // The executor reports invalid Apple reminder arguments without forwarding the write.
+        return .mcp(mcpToolCall)
+    }
+
+    static func parseAppleReminderCreation(_ mcpToolCall: PaceMCPToolCall) -> PaceReminderRequest? {
+        let supportedArguments: Set<String> = [
+            "operation", "title", "text", "name", "notes", "due", "dueDate", "dueAt", "listName",
+        ]
+        guard Set(mcpToolCall.arguments.keys).isSubset(of: supportedArguments) else { return nil }
+        return parseReminderRequest(from: mcpToolCall.arguments)
+    }
+
+    static func parseReminderRequest(from arguments: [String: PaceMCPJSONValue]) -> PaceReminderRequest? {
+        guard let title = firstStringValue(for: ["title", "text", "name"], in: arguments) else { return nil }
+        var schedule: PaceReminderRequest.Schedule?
+        for key in ["due", "dueDate", "dueAt"] {
+            guard let value = arguments[key], value != .null else { continue }
+            guard case .string(let rawDate) = value, let parsedDate = parseCalendarDate(rawDate) else { return nil }
+            let parsedSchedule = PaceReminderRequest.Schedule(date: parsedDate.date, isDateOnly: parsedDate.isDateOnly)
+            guard schedule == nil || schedule == parsedSchedule else { return nil }
+            schedule = parsedSchedule
+        }
+        let listName: String?
+        if let value = arguments["listName"], value != .null {
+            guard case .string(let rawListName) = value else { return nil }
+            let trimmedListName = rawListName.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmedListName.isEmpty else { return nil }
+            listName = trimmedListName
+        } else {
+            listName = nil
+        }
+        return PaceReminderRequest(
+            title: title, notes: stringValue(for: "notes", in: arguments), schedule: schedule, listName: listName
+        )
     }
 
     private static func parseReminderPayload(_ payload: String) -> PaceParsedAction? {

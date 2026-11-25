@@ -8,6 +8,8 @@
 //  remain in the main file — Swift extensions cannot hold stored properties.
 //
 
+import AppKit
+import ApplicationServices
 import Foundation
 
 @MainActor
@@ -64,8 +66,20 @@ extension CompanionManager {
         guard !trimmedFlowName.isEmpty else {
             return "flow recording needs a name."
         }
-        flowRecorder.start(flowName: trimmedFlowName)
-        return "recording \(trimmedFlowName). say stop recording when you're done."
+        switch flowRecorder.start(flowName: trimmedFlowName) {
+        case .success:
+            let recordingTurnIdentifier = activeConversationUserEvent?.eventID
+            flowRecorder.onAutomaticStop = { [weak self] reason, flow in
+                guard let self else { return }
+                let feedback = Self.finishAutomaticRecording(
+                    reason, flow: flow, recorder: flowRecorder, savingTo: flowStore)
+                recordAssistantNarration(feedback, turnIdentifier: recordingTurnIdentifier, recordsDerivedMemory: false)
+                revealRequestFeedback()
+            }
+            return "recording \(trimmedFlowName). say stop recording when you're done."
+        case .failure(let error):
+            return error.localizedDescription
+        }
     }
 
     /// Stop the live recorder and persist whatever was captured. Public
@@ -73,15 +87,53 @@ extension CompanionManager {
     /// voice command parser can all share one save site.
     @discardableResult
     func stopFlowRecordingFromVoiceCommand() -> String {
-        let assembledFlow = flowRecorder.stop(reason: .userCommand)
-        guard let assembledFlow else {
+        Self.stopFlowRecording(flowRecorder, savingTo: flowStore)
+    }
+
+    static func stopFlowRecording(_ recorder: PaceFlowRecorder, savingTo store: PaceFlowStore) -> String {
+        let wasRecording = recorder.isRecording
+        let flow = wasRecording ? recorder.stop(reason: .userCommand) : recorder.unsavedRecording
+        guard let flow else {
+            if let summary = recorder.lastAutomaticStopSummary {
+                recorder.lastAutomaticStopSummary = nil
+                return summary
+            }
             return "no recording was in progress."
         }
+        recorder.lastAutomaticStopSummary = nil
+        return saveFlowRecording(flow, recorder: recorder, savingTo: store, replacingExisting: wasRecording)
+    }
+
+    static func finishAutomaticRecording(
+        _ reason: PaceFlowRecorderStopReason, flow: PaceRecordedFlow, recorder: PaceFlowRecorder,
+        savingTo store: PaceFlowStore
+    ) -> String {
+        let cause = reason == .idleTimeout ? "Recording stopped after inactivity." : "Input capture was interrupted."
+        let result = saveFlowRecording(flow, recorder: recorder, savingTo: store, replacingExisting: false)
+        let feedback = cause + " " + result
+        recorder.lastAutomaticStopSummary = feedback
+        return feedback
+    }
+
+    private static func saveFlowRecording(
+        _ flow: PaceRecordedFlow, recorder: PaceFlowRecorder, savingTo store: PaceFlowStore,
+        replacingExisting: Bool
+    ) -> String {
+        guard !flow.steps.isEmpty else {
+            return "No steps were captured, so \(flow.name) wasn’t saved. Start recording again and perform the steps."
+        }
         do {
-            try flowStore.save(assembledFlow)
-            return "saved \(assembledFlow.name) with \(assembledFlow.steps.count) step\(assembledFlow.steps.count == 1 ? "" : "s")."
+            let savedName: String
+            if replacingExisting {
+                try store.save(flow)
+                savedName = flow.name
+            } else {
+                savedName = try store.saveRecoveredRecording(flow)
+            }
+            recorder.markSaved(flow)
+            return "saved \(savedName) with \(flow.steps.count) step\(flow.steps.count == 1 ? "" : "s")."
         } catch {
-            return "i recorded \(assembledFlow.name) but couldn't save it: \(error.localizedDescription)"
+            return "Could not save \(flow.name). Its captured steps are still in Pace. Say stop recording to retry."
         }
     }
 
@@ -93,6 +145,32 @@ extension CompanionManager {
             guard let self else { return }
             await self.flowReplayer.play(
                 storedFlow,
+                confirmSensitivePress: { [weak self] resolution, stepIndex in
+                    guard let self, let element = resolution.element,
+                        let target = NSWorkspace.shared.frontmostApplication
+                    else { return false }
+                    var targetPID: pid_t = 0
+                    guard AXUIElementGetPid(element, &targetPID) == .success, targetPID == target.processIdentifier,
+                        let approval = PaceActionApprovalRequest(
+                            approvalSummary:
+                                "Press “\(resolution.debugLabel)” in \(target.localizedName ?? "the current app") for step \(stepIndex + 1) of “\(storedFlow.name)”.",
+                            requiresActionApproval: true),
+                        self.presentActionApproval(approval)
+                    else { return false }
+                    // The modal brings Pace forward. Restore only the original app, and
+                    // leave a newly selected third-party app alone.
+                    if target.isActive { return true }
+                    guard
+                        NSWorkspace.shared.frontmostApplication?.processIdentifier
+                            == ProcessInfo.processInfo.processIdentifier,
+                        target.activate(options: [])
+                    else { return false }
+                    for _ in 0..<20 {
+                        if target.isActive { return true }
+                        try? await Task.sleep(for: .milliseconds(25))
+                    }
+                    return target.isActive
+                },
                 onProgress: { stepIndex in
                     print("🔁 PaceFlowReplayer: completed step \(stepIndex + 1) of \(storedFlow.steps.count)")
                 },
@@ -104,7 +182,7 @@ extension CompanionManager {
                 }
             )
         }
-        _ = replayTask // task lifetime is tied to MainActor; no need to retain
+        _ = replayTask  // task lifetime is tied to MainActor; no need to retain
     }
 
     /// Compose + speak the per-outcome line. Failure paths route
@@ -119,7 +197,7 @@ extension CompanionManager {
         case .completed:
             spokenText = "done with \(flowName)."
         case .stoppedBeforeSendStep:
-            spokenText = "ready to send the \(flowName) flow — say go ahead."
+            spokenText = "Stopped \(flowName) before sending. The step needs your approval."
         case .failedToFindTarget(let stepIndex, let axLabel):
             // Reuse the click-missed narration shape so the user hears
             // the same "I couldn't find X" phrasing they get from a
@@ -128,11 +206,14 @@ extension CompanionManager {
                 .clickMissed(targetLabel: axLabel)
             )
             spokenText = "\(narration.spokenText) (step \(stepIndex + 1) of \(flowName))"
+        case .failedToPressTarget(let stepIndex, let axLabel):
+            spokenText = "I couldn't press \(axLabel) at step \(stepIndex + 1) of \(flowName)."
         case .userCancelled:
             spokenText = "stopped \(flowName)."
         }
+        recordAssistantNarration(spokenText)
         Task { @MainActor in
-            try? await self.ttsClient.speakText(spokenText)
+            try? await self.speakStandardNarration(spokenText)
         }
     }
 

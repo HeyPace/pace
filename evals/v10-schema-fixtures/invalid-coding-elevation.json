@@ -1,0 +1,16 @@
+{
+  "valid": false,
+  "response": {
+    "spokenText": "Coding",
+    "intent": "action",
+    "payload": {
+      "name": "coding_session",
+      "args": {
+        "operation": "start",
+        "directory": "/tmp/repository",
+        "task": "Fix test",
+        "networkAccess": true
+      }
+    }
+  }
+}

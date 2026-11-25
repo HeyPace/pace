@@ -92,7 +92,13 @@ nonisolated enum PaceToolPreflight {
     ) -> [PaceToolPreflightIssue] {
         var issues: [PaceToolPreflightIssue] = []
 
-        if !environment.actionsAreEnabled {
+        let onlyCodingControls =
+            !actionExecutionPlan.flattenedActions.isEmpty
+            && actionExecutionPlan.flattenedActions.allSatisfy {
+                if case .codingSession(let command) = $0 { return !command.requiresExecutionConsent }
+                return false
+            }
+        if !environment.actionsAreEnabled && !onlyCodingControls {
             issues.append(PaceToolPreflightIssue(
                 severity: .blocking,
                 title: "Actions are disabled",
@@ -176,12 +182,13 @@ nonisolated enum PaceToolPreflight {
         case .click, .doubleClick, .clickCandidates, .type, .setTextValue, .editSelectedText,
              .undoLastMutation, .pressKey, .snapWindow, .scroll:
             return true
-        case .readClipboard, .openApplication, .openBrowser, .screenCapture, .meeting, .codexSession, .openURL,
+        case .readClipboard, .openApplication, .openBrowser, .screenCapture, .meeting, .codexSession, .codingSession,
+            .openURL,
             .controlMusic, .adjustVolume, .adjustBrightness,
              .listCalendarEvents, .createCalendarEvent, .createReminder, .finder, .createNote, .appendNote,
              .searchNotes, .composeMail, .createThingsToDo, .runShortcut, .openMessages, .downloadFile,
              .startTimer, .recordFlow, .runFlow, .mcp,
-            .generateImage, .showDiagram, .dismissDiagram, .drawAnnotation, .clearAnnotations:
+            .generateImage, .showDiagram, .dismissDiagram, .drawAnnotation, .clearAnnotations, .presentMedia, .speak:
             return false
         }
     }
@@ -209,10 +216,11 @@ nonisolated enum PaceToolPreflight {
             return true
         case .click, .doubleClick, .clickCandidates, .type, .setTextValue, .editSelectedText,
              .undoLastMutation, .pressKey, .snapWindow, .scroll,
-            .readClipboard, .openApplication, .openBrowser, .screenCapture, .meeting, .codexSession, .openURL,
-             .adjustVolume, .adjustBrightness, .listCalendarEvents, .createCalendarEvent,
+            .readClipboard, .openApplication, .openBrowser, .screenCapture, .meeting, .codexSession, .codingSession,
+            .openURL,
+            .adjustVolume, .adjustBrightness, .listCalendarEvents, .createCalendarEvent,
              .createReminder, .finder, .downloadFile, .startTimer, .recordFlow, .runFlow,
-            .generateImage, .showDiagram, .dismissDiagram, .drawAnnotation, .clearAnnotations:
+            .generateImage, .showDiagram, .dismissDiagram, .drawAnnotation, .clearAnnotations, .presentMedia, .speak:
             return false
         }
     }

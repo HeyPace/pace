@@ -37,7 +37,9 @@ camera housing and adds compact state and signal wings beside it on hover or
 while Pace is active. On click, the same clipped surface extends equally left,
 right, and downward to reveal the complete quick panel. Pace
 does not draw a fake notch on other displays; the global shortcut still opens
-the centered quick panel. Everyday use stays in the notch and present-turn quick panel. Durable work,
+the centered quick panel. The physical camera-notch controls remain available
+when work moves to an external display; chat follows the selected working display.
+Everyday use stays in the notch and present-turn quick panel. Durable work,
 history, privacy, customization, and help live in one searchable, resizable
 Command Center that shows at most four primary choices per group and places
 advanced integrations behind progressive disclosure. It remembers the last destination. Blue means the active turn
@@ -52,7 +54,16 @@ OCR + AX tree (`PaceScreenContextService`).
 **Interactive visual explanations** — ask “show a rotatable 3D airplane and
 explain its parts” for a detailed native conceptual aircraft directly over the
 desktop. Drag to orbit, zoom, select physical surfaces and move its flight
-controls. Other objects can be authored by the planner using bounded solid and
+controls. Native conceptual templates also cover the F-35B lift system and a
+Raspberry Pi 5 camera connector, including selectable assemblies and illustrative
+nozzle/latch/ribbon movement. These models teach mechanisms and are not exact CAD.
+For token and matrix explanations, bounded native arrays show the actual authored
+values rather than a screenshot. Optional guided lessons reveal parts or rows,
+focus a precise assembly and narrate one step at a time using the selected local
+Apple or Kokoro voice. Back, Play/Pause and Next remain available; dragging,
+zooming or selecting a part pauses. Play restarts the current step. Muted lessons
+are manually stepped. Other selected voice backends keep ordinary speech and manual steps when exact playback completion is unavailable. Written captions and spoken steps share conversation history; iPad-originated explanations stay silent on the Mac and retain their written reply.
+Other objects can be authored by the planner using bounded solid and
 triangle-mesh geometry. Explicit flowchart requests retain the 2D node-and-connection
 renderer. Click a part to read its
 local explanation; “Explain this” continues through the normal selected-planner
@@ -69,6 +80,12 @@ Self-contained questions do not capture the screen. Explanations of a page,
 image or code on screen require Read My Screen and use the existing screen path.
 Codex/cloud planning still requires the selected tier's consent and audit path;
 rendering, selection and saved conversation storage remain local.
+
+**To-do List** — say or type “Show my to-do list,” “Add task Renew passport,” or
+“Complete task Renew passport.” Pace uses Apple Reminders. New tasks go to the
+default Reminders list. Qualify a name shared across lists with “in list [name].”
+Pace asks macOS for Reminders access on first use. If you previously declined,
+change access in Pace Settings → Permissions.
 
 **Image generation** — with Codex selected and its existing off-device consent
 accepted, ask “generate an image of a blue mug.” Pace uses the authenticated
@@ -131,7 +148,7 @@ call / when you're actively typing).
 
 **External integrations (MCP)** — Peekaboo provides optional OSS Mac observation and app-scoped computer control through the existing MCP settings catalog. Its own macOS permissions and Pace’s Read My Screen setting gate screen control. Beyond that, anything a configured Model Context Protocol
 server exposes. Configured via `~/.config/pace/mcp-servers.json` or the one-tap
-catalog in Settings → MCP (Peekaboo, Playwright, filesystem, fetch, applescript, composio, and Linear read-only OAuth; custom servers use live tool schemas).
+catalog in Settings → Connected apps & tools (Peekaboo, Playwright, filesystem, fetch, applescript, composio, and Linear read-only OAuth; custom servers use live tool schemas).
 
 **Automation (all default OFF)** — four opt-in automation surfaces in Settings →
 General → Automation:
@@ -144,11 +161,41 @@ General → Automation:
   of failed commands (`PaceDynamicToolRegistry`).
 - *Background agents* — persistent read-only summaries, drafts, and cited research. Tasks exposes results, cancellation, and retry from the beginning after interruption. Text or voice: "in the background, draft a reply to..." (`PaceBackgroundAgentRunner`).
 
+**Powers** — Settings → Powers shows built-in capabilities, saved programs, taught powers, and bundled workflows. Connections are listed separately under Settings → Connected apps & tools. For the full catalog of built-in powers, saved powers, and installed workflows, say “list powers”. Say “list powers”, “show power Thank You”, “create a
+power called Thank You that presents thank-you-dance for four seconds and says
+thank you”, “update power Thank You: say welcome”, “disable power Thank You”,
+“enable power Thank You”, “run power Thank You”, or “remove power Thank You”.
+Saved custom automations, programs and flexible skills support these controls;
+updates retain a recovery revision and removal archives their owned definition.
+Compiled powers and provider-owned workflows show their existing configuration
+controls and remain protected. Disabling applies to exact and natural run aliases
+and persists across restarts. Enabling keeps all existing permission gates.
+
+**Local expressive media** — Say “show me the thank you dance” or “run power
+Thank You Dance” for the protected bundled starter, which keeps its original
+animation and configured default voice saying “thank you”. Say “show me the
+Japanese greeting” for the separate Japanese Greeting starter with an adult anime
+woman and Japanese female speech. That starter requires Kokoro and explicit
+Japanese setup with `scripts/start-tts-server.sh --install-japanese`, followed by
+restarting a running sidecar using the installer's printed instructions; unavailable
+Japanese speech reports failure. Saved custom workflows can
+present the same original `thank-you-dance` animation and speak requested text
+with local TTS. The animation
+preserves keyboard and mouse control, stays visible for one to thirty seconds,
+and has an explicit close/“stop media” path that cancels its owned speech. Import
+a personal GIF or PNG with “import power media /absolute/file.gif as my-dance”,
+then reference `my-dance` while creating a power. Imports are validated and copied
+locally; planners receive asset IDs, never arbitrary media URLs or file access.
+
 **Skills** — `.skill.md` files in `Resources/skills/` define reusable multi-step
 workflows that are parsed into planner prompts. Voice: "run the standup skill"
 (`PaceSkillLoader`).
+The app bundles Use Apps, Use Browser, Teach on Screen, Coding Session,
+Research and Standup Notes. They reuse the shared planner, tools, approvals
+and conversation. Additional user skills load from the local Pace skills folder.
+A user skill with the same slug takes precedence over its bundled default.
 
-**Local automation reuse** — “list my automations” builds a non-persisted local
+**Saved powers and installed workflows** — “list my automations” builds a non-persisted local
 catalog over bundled typed automations, bounded Pace Programs, recorded flows,
 planner-grounded skills, and installed macOS Shortcuts. Each entry discloses
 its execution mode. “Run
@@ -164,7 +211,7 @@ interpretation. Every program branch validates before persistence; runs flatten
 into the typed action pipeline without invoking a model. Raw Lua, JavaScript,
 shell, network, arbitrary file, and direct Accessibility authority are not
 available. User typed definitions and programs live in separate Application
-Support directories. The 17 bundled
+Support directories. The 19 bundled
 entries span Notes templates, Calendar reads, timers, Finder folders,
 current-window layouts, bounded media control, weekly review, and end-of-day
 reset. Recorded flows, skills, Shortcuts, cron, and background agents keep their

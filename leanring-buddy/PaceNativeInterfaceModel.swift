@@ -8,6 +8,20 @@
 import CoreGraphics
 import Foundation
 
+nonisolated enum PaceNotchTapAction {
+    case microphone, conversation
+
+    /// Point coordinates start at the top-left, matching the visible mic wing.
+    static func resolve(
+        point: CGPoint, surfaceWidth: CGFloat, housingWidth: CGFloat,
+        housingHeight: CGFloat
+    ) -> Self {
+        let wingWidth = max(0, (surfaceWidth - housingWidth) / 2)
+        return point.x >= 0 && point.x < wingWidth && point.y >= 0 && point.y < housingHeight
+            ? .microphone : .conversation
+    }
+}
+
 nonisolated enum PaceQuickPanelMetrics {
     static let width: CGFloat = 520
     static let height: CGFloat = 540
@@ -21,6 +35,11 @@ nonisolated enum PaceConversationPanelPresentationIntent: Equatable, Sendable {
     var requestsKeyboardFocus: Bool {
         self == .interactive
     }
+}
+
+nonisolated enum PaceExplanationDismissalIntent: Equatable, Sendable {
+    case automatic
+    case userInitiated
 }
 
 nonisolated enum PaceConversationPanelPresentation: Equatable {
@@ -76,26 +95,32 @@ nonisolated enum PaceConversationPanelPlacement: Equatable {
         notchGeometry: PaceLivingNotchGeometry?,
         anchorFrame: CGRect,
         screenFrame: CGRect,
-        contentSize: CGSize
+        contentSize: CGSize,
+        notchContentSize: CGSize = CGSize(
+            width: PaceQuickPanelMetrics.width, height: PaceQuickPanelMetrics.seamlessContentHeight)
     ) -> PaceConversationPanelPlacement {
         if let notchGeometry {
             let housing = notchGeometry.physicalHousingFrame
-            let width = min(max(PaceQuickPanelMetrics.width, housing.width + 180), screenFrame.width - 16)
-            let height = min(housing.height + PaceQuickPanelMetrics.seamlessContentHeight, screenFrame.height - 16)
+            let width = min(max(notchContentSize.width, housing.width + 180), screenFrame.width - 16)
+            let height = min(housing.height + notchContentSize.height, screenFrame.height - 16)
             return .physicalNotch(
                 PaceLivingNotchGeometry(
                     physicalHousingFrame: housing,
                     presentationFrame: CGRect(
                         x: housing.midX - width / 2, y: housing.maxY - height, width: width, height: height)))
         }
+        let width = min(contentSize.width, max(0, screenFrame.width - 16))
+        let height = min(contentSize.height, max(0, screenFrame.height - 16))
         let minimumX = screenFrame.minX + 8
-        let maximumX = max(minimumX, screenFrame.maxX - contentSize.width - 8)
+        let maximumX = max(minimumX, screenFrame.maxX - width - 8)
+        let minimumY = screenFrame.minY + 8
+        let maximumY = max(minimumY, screenFrame.maxY - height - 8)
         return .anchored(
             CGRect(
-                x: min(max(anchorFrame.midX - contentSize.width / 2, minimumX), maximumX),
-                y: anchorFrame.minY - contentSize.height - 10,
-                width: contentSize.width,
-                height: contentSize.height))
+                x: min(max(anchorFrame.midX - width / 2, minimumX), maximumX),
+                y: min(max(anchorFrame.minY - height - 10, minimumY), maximumY),
+                width: width,
+                height: height))
     }
 }
 
@@ -694,7 +719,6 @@ nonisolated enum PaceCommandCenterGroup: String, CaseIterable, Identifiable {
 }
 
 nonisolated enum PaceCommandCenterDestination: String, CaseIterable, Identifiable {
-    case conversations
     case skills
     case flows
     case tasks
@@ -716,11 +740,13 @@ nonisolated enum PaceCommandCenterDestination: String, CaseIterable, Identifiabl
     case debug
     case doctor
 
+    static let everydayDestinations: [Self] = [.skills, .mcp, .usage, .activity]
+
     var id: String { rawValue }
 
     var group: PaceCommandCenterGroup {
         switch self {
-        case .conversations, .skills, .flows, .tasks:
+        case .skills, .flows, .tasks:
             return .work
         case .usage, .activity, .privacy, .permissions:
             return .observe
@@ -734,9 +760,8 @@ nonisolated enum PaceCommandCenterDestination: String, CaseIterable, Identifiabl
 
     var title: String {
         switch self {
-        case .conversations: return "Conversations"
-        case .skills: return "Automations"
-        case .flows: return "Multi-step automations"
+        case .skills: return "Powers"
+        case .flows: return "Recorded workflows"
         case .tasks: return "Scheduled tasks"
         case .usage: return "Local usage"
         case .activity: return "Activity history"
@@ -760,12 +785,11 @@ nonisolated enum PaceCommandCenterDestination: String, CaseIterable, Identifiabl
 
     var subtitle: String {
         switch self {
-        case .conversations: return "Review what you and Pace have discussed."
-        case .skills: return "Browse and teach reusable actions in plain language."
-        case .flows: return "Build repeatable sequences from several actions."
+        case .skills: return "Browse, teach, and manage powers."
+        case .flows: return "Replay and manage sequences you recorded on this Mac."
         case .tasks: return "Review work Pace runs on a schedule."
-        case .usage: return "See local model and feature usage on this Mac."
-        case .activity: return "Inspect actions, outcomes, and approvals in order."
+        case .usage: return "Event counts, error rates, and latency."
+        case .activity: return "Recent actions, results, and approvals."
         case .memory: return "Choose what Pace may remember between conversations."
         case .privacy: return "See where processing happened and what data was used."
         case .permissions: return "Control the macOS access behind each capability."
@@ -775,7 +799,7 @@ nonisolated enum PaceCommandCenterDestination: String, CaseIterable, Identifiabl
         case .research: return "Control deeper, multi-source research behavior."
         case .proactive: return "Decide when Pace may offer help without being asked."
         case .companion: return "Configure optional background awareness."
-        case .mcp: return "Connect additional tools while keeping boundaries visible."
+        case .mcp: return "Manage MCP servers and their tools."
         case .voice: return "Choose listening, transcription, and spoken-response behavior."
         case .cloudBridge: return "Configure an explicitly off-device reasoning option."
         case .about: return "Version information and Pace’s local-first promise."
@@ -789,7 +813,7 @@ nonisolated enum PaceCommandCenterDestination: String, CaseIterable, Identifiabl
         case .usage, .planner, .research, .proactive, .companion, .mcp,
              .cloudBridge, .debug:
             return true
-        case .conversations, .skills, .flows, .tasks, .activity, .memory,
+        case .skills, .flows, .tasks, .activity, .memory,
              .privacy, .permissions, .general, .models, .voice, .about, .doctor:
             return false
         }
@@ -797,7 +821,6 @@ nonisolated enum PaceCommandCenterDestination: String, CaseIterable, Identifiabl
 
     var symbolName: String {
         switch self {
-        case .conversations: return "bubble.left.and.bubble.right"
         case .skills: return "square.grid.2x2"
         case .flows: return "play.square.stack"
         case .tasks: return "clock.arrow.circlepath"
@@ -848,6 +871,6 @@ nonisolated enum PaceCommandCenterDestination: String, CaseIterable, Identifiabl
             return storedDestination
         }
 
-        return .conversations
+        return .general
     }
 }

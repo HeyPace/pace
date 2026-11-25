@@ -26,16 +26,49 @@ import SwiftUI
 // MARK: - PaceSkillsView
 
 struct PaceSkillsView: View {
+    let companionManager: CompanionManager
+    let openConnection: (PacePowerConnection) -> Void
+    var onManageConnections: (() -> Void)? = nil
+    @State private var showsBuiltInPowers = false
     @State private var searchQuery: String = ""
-    @State private var configuredMCPServerNames: [String] = []
+    @State private var connections: [PacePowerConnection] = []
+    @State private var showsActions = false
     @State private var lastCopiedExampleUtteranceSlug: String? = nil
 
-    // Taught skills (the `.skill.md` layer). `userTaughtSkills` are the ones
-    // the user created — editable + deletable; `bundledSkills` ship with Pace
-    // and are read-only.
-    @State private var userTaughtSkills: [PaceSkillFile] = []
-    @State private var bundledSkills: [PaceSkillFile] = []
-    @State private var userPrograms: [PaceProgramDefinition] = []
+    @State private var pendingDeletion: SavedPowerDeletion?
+    @State private var deletionError: String?
+
+    private enum SavedPowerDeletion: Identifiable {
+        case skill(PaceSkillFile)
+        case program(PaceProgramDefinition)
+
+        var id: String {
+            switch self {
+            case .skill(let skill): "skill:" + skill.slug
+            case .program(let program): "program:" + program.identifier
+            }
+        }
+
+        var name: String {
+            switch self {
+            case .skill(let skill): skill.name
+            case .program(let program): program.name
+            }
+        }
+    }
+
+    private struct WorkflowRow: Identifiable {
+        let entry: PaceChatPowerCatalog.Entry
+        let catalogEntry: PaceAutomationCatalogEntry
+        let program: PaceProgramDefinition?
+        let skill: PaceSkillFile?
+
+        var id: String { entry.id }
+    }
+
+    @State private var workflows: [WorkflowRow] = []
+    @State private var catalogRevision = 0
+    @State private var catalogLoaded = false
 
     // "Teach a skill" form draft state (the typed sibling of the voice path).
     @State private var isTeachFormExpanded: Bool = false
@@ -47,12 +80,19 @@ struct PaceSkillsView: View {
     var body: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 18) {
-                sectionHeader
                 searchField
-                yourSkillsSection
-                localSkillsSection
-                if !configuredMCPServerNames.isEmpty {
-                    mcpSkillsSection
+                if !searching || !matchingPowers.isEmpty { builtInPowersSection }
+                if !searching || isTeachFormExpanded || !savedRows.isEmpty {
+                    yourSkillsSection
+                }
+                if !installedRows.isEmpty { installedWorkflowsSection }
+                if !searching || !matchingConnections.isEmpty { mcpSkillsSection }
+                if !searching || !filteredLocalTools().isEmpty { localSkillsSection }
+                if !catalogLoaded { ProgressView("Loading workflows…").controlSize(.small) }
+                if catalogLoaded && searching && matchingPowers.isEmpty && savedRows.isEmpty && installedRows.isEmpty
+                    && matchingConnections.isEmpty && filteredLocalTools().isEmpty
+                {
+                    ContentUnavailableView.search(text: searchQuery)
                 }
             }
             .padding(24)
@@ -60,30 +100,159 @@ struct PaceSkillsView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(DS.Colors.surface)
-        .onAppear {
-            configuredMCPServerNames = Array(PaceMCPServerRegistry
-                .loadConfiguredServers()
-                .keys)
-                .sorted()
-            reloadTaughtSkills()
+        .safeAreaInset(edge: .bottom) {
+            if let deletionError {
+                HStack(alignment: .top, spacing: 10) {
+                    Label(deletionError, systemImage: "exclamationmark.triangle")
+                        .font(.callout).fixedSize(horizontal: false, vertical: true)
+                    Spacer()
+                    Button("Dismiss") { self.deletionError = nil }.pointerCursor()
+                }
+                .padding(12)
+                .background(DS.Colors.controlFill)
+            }
         }
+        .alert(item: $pendingDeletion) { selected in
+            Alert(
+                title: Text("Delete “\(selected.name)”?"),
+                message: Text("This removes the saved power from this Mac."),
+                primaryButton: .cancel(),
+                secondaryButton: .destructive(Text("Delete")) { deleteConfirmedPower(selected) })
+        }
+        .onAppear {
+            connections = PacePowerConnection.configured()
+        }
+        .task(id: catalogRevision) {
+            let needsShortcuts = PaceShortcutsAutomationProvider.shared.cachedCatalogIfFresh() == nil
+            await updateWorkflows(refreshShortcuts: false, keepPriorShortcuts: needsShortcuts)
+            if needsShortcuts && !Task.isCancelled {
+                await updateWorkflows(refreshShortcuts: true, keepPriorShortcuts: false)
+            }
+        }
+    }
+
+    private func updateWorkflows(refreshShortcuts: Bool, keepPriorShortcuts: Bool) async {
+        let discovered = await companionManager.discoverAutomationCatalog(
+            refreshShortcutCatalog: refreshShortcuts, warmShortcutCache: false)
+        guard !Task.isCancelled else { return }
+        let byIdentifier = Dictionary(
+            discovered.catalog.entries.map { (PaceManagedPowerStore.identifier(for: $0), $0) },
+            uniquingKeysWith: { first, _ in first })
+        let skills = Dictionary(discovered.skills.map { ($0.slug, $0) }, uniquingKeysWith: { first, _ in first })
+        let programs = Dictionary(
+            discovered.programs.map { ($0.identifier, $0) }, uniquingKeysWith: { first, _ in first })
+        var seen = Set<String>()
+        let discoveredRows: [WorkflowRow] = companionManager.managedPowerStore.list(catalog: discovered.catalog)
+            .compactMap { power in
+                guard let reference = power.reference, let catalogEntry = byIdentifier[power.identifier],
+                    seen.insert(power.identifier).inserted
+                else { return nil }
+                var program: PaceProgramDefinition?
+                var skill: PaceSkillFile?
+                switch reference {
+                case .program(let identifier): program = programs[identifier]
+                case .skill(let slug, _): skill = skills[slug]
+                default: break
+                }
+                return WorkflowRow(
+                    entry: .init(power: power), catalogEntry: catalogEntry, program: program, skill: skill)
+            }
+        let priorShortcuts =
+            keepPriorShortcuts
+            ? workflows.filter { row in
+                if case .shortcut = row.catalogEntry.reference { return !seen.contains(row.id) }
+                return false
+            } : []
+        workflows = discoveredRows + priorShortcuts
+        catalogLoaded = true
     }
 
     // MARK: - Header + search
 
-    private var sectionHeader: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            SMSectionHeader("", accent: "automations", size: 28)
-            Text("Teach Pace a repeatable action in plain language, or browse what it can already run on this Mac.")
-                .font(DS.Typography.body)
-                .foregroundStyle(DS.Colors.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
+    private var query: String { searchQuery.trimmingCharacters(in: .whitespacesAndNewlines) }
+    private var searching: Bool { !query.isEmpty }
+
+    private var matchingPowers: [PacePowerDefinition] {
+        PacePowerCatalog.preinstalled.powers.filter { power in
+            !searching || ([power.title, power.summary] + power.tools.map(\.canonicalName)).contains { matches($0) }
         }
     }
 
+    private func matches(_ value: String) -> Bool {
+        value.localizedStandardContains(query)
+            || value.replacingOccurrences(of: "_", with: " ").localizedStandardContains(query)
+    }
+
+    @FocusState private var searchFieldIsFocused: Bool
+
     private var searchField: some View {
-        TextField("Search automations…", text: $searchQuery)
-            .textFieldStyle(.roundedBorder)
+        HStack(spacing: 8) {
+            Image(systemName: "magnifyingglass")
+                .foregroundStyle(.secondary)
+                .accessibilityHidden(true)
+            TextField("Search powers, workflows, actions, and connections…", text: $searchQuery)
+                .textFieldStyle(.plain)
+                .focused($searchFieldIsFocused)
+                .accessibilityLabel("Search powers, workflows, actions, and connections")
+            if !searchQuery.isEmpty {
+                Button {
+                    searchQuery = ""
+                    searchFieldIsFocused = true
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .frame(width: 24, height: 24)
+                }
+                .buttonStyle(.plain)
+                .paceControlHoverHighlight(cornerRadius: 4)
+                .pointerCursor()
+                .accessibilityLabel("Clear search")
+                .help("Clear search")
+            }
+        }
+        .padding(.horizontal, 10)
+        .frame(minHeight: 34)
+        .background(DS.Colors.surfaceRaised, in: RoundedRectangle(cornerRadius: 7))
+        .overlay {
+            RoundedRectangle(cornerRadius: 7)
+                .strokeBorder(searchFieldIsFocused ? Color.accentColor : DS.Colors.textTertiary.opacity(0.35))
+                .allowsHitTesting(false)
+        }
+    }
+
+    private var builtInPowersSection: some View {
+        let powers = PacePowerCatalog.preinstalled.powers
+        let matching = matchingPowers
+        return VStack(alignment: .leading, spacing: 8) {
+            if query.isEmpty {
+                Button {
+                    showsBuiltInPowers.toggle()
+                } label: {
+                    Label(
+                        "Built-in powers (\(powers.count))",
+                        systemImage: showsBuiltInPowers ? "chevron.down" : "chevron.right"
+                    )
+                    .font(DS.Typography.sectionTitle)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.vertical, 5)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .paceControlHoverHighlight(cornerRadius: 5)
+                .pointerCursor()
+                .accessibilityValue(showsBuiltInPowers ? "Expanded" : "Collapsed")
+            } else if !matching.isEmpty {
+                Text("Built-in powers (\(matching.count) of \(powers.count))").font(DS.Typography.sectionTitle)
+            }
+            if showsBuiltInPowers || !query.isEmpty {
+                ForEach(matching) { power in
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(power.title).font(.callout.weight(.semibold))
+                        Text(power.summary).font(.callout).foregroundStyle(.secondary)
+                    }
+                    .padding(.vertical, 3)
+                }
+            }
+        }
     }
 
     // MARK: - Your skills (taught .skill.md skills)
@@ -92,14 +261,12 @@ struct PaceSkillsView: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .firstTextBaseline) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("your automations")
-                        .font(.system(size: 14, weight: .semibold))
-                    Text("Repeatable actions you taught Pace. Say a saved trigger phrase to run one.")
-                        .font(.system(size: 12))
-                        .foregroundColor(.secondary)
+                    Text(workflowHeading(.saved, matches: savedRows.count))
+                        .font(DS.Typography.sectionTitle)
+                        .accessibilityAddTraits(.isHeader)
                 }
                 Spacer()
-                Button(isTeachFormExpanded ? "cancel" : "teach an automation") {
+                Button(isTeachFormExpanded ? "Cancel" : "Teach a power") {
                     withAnimation { isTeachFormExpanded.toggle() }
                     if !isTeachFormExpanded { clearTeachDraft() }
                 }
@@ -112,49 +279,63 @@ struct PaceSkillsView: View {
             }
 
             VStack(spacing: 0) {
-                ForEach(filteredUserPrograms(), id: \.identifier) { program in
-                    programmedSkillRow(program: program)
-                    Divider().opacity(0.25)
-                }
-                ForEach(filteredUserSkills(), id: \.slug) { skill in
-                    taughtSkillRow(skill: skill, isDeletable: true)
-                    Divider().opacity(0.25)
-                }
-                if filteredUserPrograms().isEmpty
-                    && filteredUserSkills().isEmpty
-                    && !isTeachFormExpanded {
-                    Text(searchQuery.isEmpty
-                         ? "No taught automations yet. Describe one here or ask Pace to create one."
-                         : "No taught automations match \u{201C}\(searchQuery)\u{201D}.")
+                workflowList(savedRows)
+                if catalogLoaded && savedRows.isEmpty && !isTeachFormExpanded && !searching {
+                    Text("Teach Pace a step-by-step workflow to save it here.")
                         .font(.system(size: 12))
                         .foregroundColor(.secondary)
                         .padding(.vertical, 12)
                 }
             }
 
-            if !filteredBundledSkills().isEmpty {
-                Text("built-in automations")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundColor(.secondary)
-                    .padding(.top, 6)
-                VStack(spacing: 0) {
-                    ForEach(filteredBundledSkills(), id: \.slug) { skill in
-                        taughtSkillRow(skill: skill, isDeletable: false)
-                        Divider().opacity(0.25)
+        }
+    }
+
+    private var installedWorkflowsSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(workflowHeading(.installed, matches: installedRows.count))
+                .font(DS.Typography.sectionTitle).accessibilityAddTraits(.isHeader)
+            workflowList(installedRows)
+        }
+    }
+
+    private func workflowList(_ rows: [WorkflowRow]) -> some View {
+        ForEach(rows) { row in
+            if let program = row.program, row.entry.actions.contains(.archive) {
+                programmedSkillRow(program: program)
+            } else if let skill = row.skill {
+                taughtSkillRow(skill: skill, isDeletable: row.entry.actions.contains(.archive))
+            } else {
+                DisclosureGroup {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(row.entry.summary)
+                        Text(row.catalogEntry.invocationPhrases.joined(separator: " · "))
+                        Text(row.entry.isEnabled ? "Enabled" : "Disabled")
+                    }
+                    .font(.callout).foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                } label: {
+                    HStack {
+                        Text(row.entry.name)
+                        Spacer()
+                        Text(row.entry.source).font(.caption).foregroundStyle(.secondary)
                     }
                 }
+                .pointerCursor()
+                .padding(.vertical, 6)
             }
+            Divider().opacity(0.25)
         }
     }
 
     private var teachSkillForm: some View {
         SMCard(padding: 12) {
             VStack(alignment: .leading, spacing: 8) {
-                TextField("Automation name (e.g. Start My Day)", text: $teachDraftName)
+                TextField("Power name (e.g. Start My Day)", text: $teachDraftName)
                     .textFieldStyle(.roundedBorder)
                 TextField("Trigger phrase — optional (e.g. start my day)", text: $teachDraftTrigger)
                     .textFieldStyle(.roundedBorder)
-                Text("steps — one per line")
+                Text("Steps, one per line")
                     .font(.system(size: 11))
                     .foregroundColor(.secondary)
                 TextEditor(text: $teachDraftSteps)
@@ -171,7 +352,7 @@ struct PaceSkillsView: View {
                             .foregroundColor(.secondary)
                     }
                     Spacer()
-                    Button("save automation") { saveTaughtSkillFromForm() }
+                    Button("Save power") { saveTaughtSkillFromForm() }
                         .buttonStyle(.borderedProminent)
                         .pointerCursor()
                         .disabled(
@@ -218,13 +399,15 @@ struct PaceSkillsView: View {
             Spacer()
             if isDeletable {
                 Button(role: .destructive) {
-                    deleteTaughtSkill(skill)
+                    deletionError = nil
+                    pendingDeletion = .skill(skill)
                 } label: {
                     Image(systemName: "trash")
                 }
                 .buttonStyle(.plain)
                 .pointerCursor()
-                .help("Delete this automation")
+                .accessibilityLabel("Delete " + skill.name)
+                .help("Delete this saved power")
             }
         }
         .padding(.vertical, 10)
@@ -238,7 +421,7 @@ struct PaceSkillsView: View {
                 HStack(spacing: 6) {
                     Text(program.name)
                         .font(.system(size: 13, weight: .medium))
-                    Text("deterministic program")
+                    Text("Program")
                         .font(.system(size: 10, weight: .medium))
                         .padding(.horizontal, 6)
                         .padding(.vertical, 2)
@@ -269,64 +452,38 @@ struct PaceSkillsView: View {
             }
             Spacer()
             Button(role: .destructive) {
-                deleteProgrammedSkill(program)
+                deletionError = nil
+                pendingDeletion = .program(program)
             } label: {
                 Image(systemName: "trash")
             }
             .buttonStyle(.plain)
             .pointerCursor()
-            .help("Delete this programmed automation")
+            .accessibilityLabel("Delete " + program.name)
+            .help("Delete this saved program")
         }
         .padding(.vertical, 10)
     }
 
     // MARK: - Your-skills data + actions
 
-    private func filteredUserSkills() -> [PaceSkillFile] {
-        filterTaughtSkills(userTaughtSkills)
-    }
+    private var savedRows: [WorkflowRow] { filteredWorkflows(.saved) }
+    private var installedRows: [WorkflowRow] { filteredWorkflows(.installed) }
 
-    private func filteredUserPrograms() -> [PaceProgramDefinition] {
-        let normalizedQuery = searchQuery
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-        guard !normalizedQuery.isEmpty else { return userPrograms }
-        return userPrograms.filter { program in
-            program.name.lowercased().contains(normalizedQuery)
-                || program.description.lowercased().contains(normalizedQuery)
-                || program.invocationPhrases.contains(where: {
-                    $0.lowercased().contains(normalizedQuery)
-                })
+    private func filteredWorkflows(_ category: PaceChatPowerCatalog.Category) -> [WorkflowRow] {
+        workflows.filter { row in
+            guard row.entry.category == category else { return false }
+            let terms =
+                [row.entry.name, row.entry.source, row.entry.summary, row.catalogEntry.category]
+                + row.catalogEntry.invocationPhrases
+            return !searching || terms.contains(where: matches)
         }
     }
 
-    private func filteredBundledSkills() -> [PaceSkillFile] {
-        filterTaughtSkills(bundledSkills)
-    }
-
-    private func filterTaughtSkills(_ skills: [PaceSkillFile]) -> [PaceSkillFile] {
-        let normalizedQuery = searchQuery
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-        guard !normalizedQuery.isEmpty else { return skills }
-        return skills.filter { skill in
-            skill.name.lowercased().contains(normalizedQuery)
-                || skill.description.lowercased().contains(normalizedQuery)
-                || (skill.trigger?.lowercased().contains(normalizedQuery) ?? false)
-        }
-    }
-
-    private func reloadTaughtSkills() {
-        userPrograms = PaceUserProgramStore().listValidPrograms()
-        let loadedUserSkills = PaceSkillLoader.listUserSkills()
-        let userSkillSlugs = Set(loadedUserSkills.map(\.slug))
-        userTaughtSkills = loadedUserSkills
-            .sorted { $0.name.lowercased() < $1.name.lowercased() }
-        // Bundled = everything loadAllSkills() sees minus anything the user has
-        // taught (a user file with the same slug shadows the bundled one).
-        bundledSkills = PaceSkillLoader.loadAllSkills()
-            .filter { !userSkillSlugs.contains($0.slug) }
-            .sorted { $0.name.lowercased() < $1.name.lowercased() }
+    private func workflowHeading(_ category: PaceChatPowerCatalog.Category, matches: Int) -> String {
+        guard catalogLoaded else { return category.title }
+        let total = workflows.filter { $0.entry.category == category }.count
+        return searching ? "\(category.title) (\(matches) of \(total))" : "\(category.title) (\(total))"
     }
 
     private func clearTeachDraft() {
@@ -347,8 +504,8 @@ struct PaceSkillsView: View {
             return
         }
         do {
-            try PaceSkillLoader.save(skill)
-            reloadTaughtSkills()
+            try PaceSkillLoader.save(skill, to: companionManager.managedPowerStore.skillDirectoryURL)
+            catalogRevision += 1
             clearTeachDraft()
             withAnimation { isTeachFormExpanded = false }
         } catch {
@@ -356,36 +513,70 @@ struct PaceSkillsView: View {
         }
     }
 
-    private func deleteTaughtSkill(_ skill: PaceSkillFile) {
-        try? PaceSkillLoader.deleteUserSkill(slug: skill.slug)
-        reloadTaughtSkills()
-    }
-
-    private func deleteProgrammedSkill(_ program: PaceProgramDefinition) {
-        try? PaceUserProgramStore().delete(identifier: program.identifier)
-        reloadTaughtSkills()
+    private func deleteConfirmedPower(_ selected: SavedPowerDeletion) {
+        defer { catalogRevision += 1 }
+        do {
+            // Recheck the selected version in case another window or process replaced it during confirmation.
+            switch selected {
+            case .skill(let skill):
+                guard !skill.slug.contains("/") else {
+                    deletionError = "Couldn’t identify the saved file for “\(skill.name)”."
+                    return
+                }
+                let filename = skill.slug + ".skill.md"
+                let url = companionManager.managedPowerStore.skillDirectoryURL.appendingPathComponent(filename)
+                let contents = try String(contentsOf: url, encoding: .utf8)
+                guard
+                    PaceSkillLoader.parse(
+                        skillMarkdown: contents, fallbackSlug: url.deletingPathExtension().lastPathComponent) == skill
+                else {
+                    deletionError = "“\(skill.name)” changed. Review the current power before deleting it."
+                    return
+                }
+                try PaceSkillLoader.deleteUserSkill(
+                    slug: skill.slug, in: companionManager.managedPowerStore.skillDirectoryURL)
+            case .program(let program):
+                let store = PaceUserProgramStore(directoryURL: companionManager.managedPowerStore.programDirectoryURL)
+                guard store.listValidPrograms().contains(program) else {
+                    deletionError =
+                        "Couldn’t verify the current version of “\(program.name)”. Review the list before trying again."
+                    return
+                }
+                try store.delete(identifier: program.identifier)
+            }
+            deletionError = nil
+        } catch {
+            deletionError = "Couldn’t delete “\(selected.name)”. " + error.localizedDescription
+        }
     }
 
     // MARK: - Local skills
 
     private var localSkillsSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("built-in actions")
-                .font(.system(size: 14, weight: .semibold))
-            Text("On-device. No network. Always available.")
-                .font(.system(size: 12))
-                .foregroundColor(.secondary)
-
-            VStack(spacing: 0) {
-                ForEach(filteredLocalTools(), id: \.canonicalName) { definition in
+        let tools = filteredLocalTools()
+        return VStack(alignment: .leading, spacing: 8) {
+            if searching {
+                Text("Built-in actions (\(tools.count) of \(PaceToolRegistry.localTools.count))")
+                    .font(DS.Typography.sectionTitle).accessibilityAddTraits(.isHeader)
+            } else {
+                Button {
+                    showsActions.toggle()
+                } label: {
+                    Label(
+                        "Built-in actions (\(tools.count))",
+                        systemImage: showsActions ? "chevron.down" : "chevron.right"
+                    )
+                    .font(DS.Typography.sectionTitle)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.vertical, 5).contentShape(Rectangle())
+                }
+                .buttonStyle(.plain).paceControlHoverHighlight(cornerRadius: DS.Radius.control).pointerCursor()
+                .accessibilityValue(showsActions ? "Expanded" : "Collapsed")
+            }
+            if searching || showsActions {
+                ForEach(tools, id: \.canonicalName) { definition in
                     localSkillRow(definition: definition)
                     Divider().opacity(0.25)
-                }
-                if filteredLocalTools().isEmpty {
-                    Text("No actions match \"\(searchQuery)\".")
-                        .font(.system(size: 12))
-                        .foregroundColor(.secondary)
-                        .padding(.vertical, 12)
                 }
             }
         }
@@ -395,8 +586,8 @@ struct PaceSkillsView: View {
         let isCopiedRecently = lastCopiedExampleUtteranceSlug == definition.canonicalName
         return HStack(alignment: .top, spacing: 12) {
             VStack(alignment: .leading, spacing: 4) {
-                Text(definition.canonicalName)
-                    .font(.system(size: 13, weight: .medium, design: .monospaced))
+                Text(PaceChatTranscriptModel.toolDisplayName(fromRawToolName: definition.canonicalName))
+                    .font(.system(size: 13, weight: .medium))
                 Text(definition.description)
                     .font(.system(size: 12))
                     .foregroundColor(.secondary)
@@ -425,7 +616,9 @@ struct PaceSkillsView: View {
                     Image(systemName: isCopiedRecently ? "checkmark" : "doc.on.doc")
                 }
                 .buttonStyle(.plain)
-                .help(isCopiedRecently ? "Copied" : "Copy example utterance")
+                .paceControlHoverHighlight(cornerRadius: DS.Radius.control).pointerCursor()
+                .accessibilityLabel(isCopiedRecently ? "Copied" : "Copy example")
+                .help(isCopiedRecently ? "Copied" : "Copy example")
             }
         }
         .padding(.vertical, 10)
@@ -447,17 +640,10 @@ struct PaceSkillsView: View {
     }
 
     private func filteredLocalTools() -> [PaceLocalToolDefinition] {
-        let normalizedQuery = searchQuery
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-        guard !normalizedQuery.isEmpty else {
-            return PaceToolRegistry.localTools
-        }
+        guard searching else { return PaceToolRegistry.localTools }
         return PaceToolRegistry.localTools.filter { definition in
-            definition.canonicalName.lowercased().contains(normalizedQuery)
-                || definition.description.lowercased().contains(normalizedQuery)
-                || definition.exampleUtterance.lowercased().contains(normalizedQuery)
-                || definition.aliases.contains { alias in alias.lowercased().contains(normalizedQuery) }
+            ([definition.canonicalName, definition.description, definition.exampleUtterance] + definition.aliases)
+                .contains { matches($0) }
         }
     }
 
@@ -479,55 +665,50 @@ struct PaceSkillsView: View {
 
     private var mcpSkillsSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("mcp servers")
-                .font(.system(size: 14, weight: .semibold))
-            Text("Configured at ~/.config/pace/mcp-servers.json. Each server adds external actions through the Model Context Protocol.")
-                .font(.system(size: 12))
-                .foregroundColor(.secondary)
-
-            VStack(spacing: 0) {
-                ForEach(filteredMCPServerNames(), id: \.self) { serverName in
-                    mcpServerRow(serverName: serverName)
-                    Divider().opacity(0.25)
+            HStack {
+                Text(
+                    searching
+                        ? "Connections (\(matchingConnections.count) of \(connections.count))"
+                        : "Connections (\(connections.count))"
+                )
+                .font(DS.Typography.sectionTitle).accessibilityAddTraits(.isHeader)
+                Spacer()
+                if let onManageConnections {
+                    Button("Manage connections", action: onManageConnections)
+                        .buttonStyle(.bordered).pointerCursor()
                 }
-                if filteredMCPServerNames().isEmpty {
-                    Text("No MCP servers match \"\(searchQuery)\".")
-                        .font(.system(size: 12))
-                        .foregroundColor(.secondary)
-                        .padding(.vertical, 12)
+            }
+            if connections.isEmpty {
+                Text("No connections configured yet.").font(.callout).foregroundStyle(.secondary)
+            }
+            ForEach(matchingConnections, id: \.id) { connection in
+                Button {
+                    openConnection(connection)
+                } label: {
+                    HStack(spacing: 8) {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(connection.name).font(.callout.weight(.medium))
+                            Text(connection.summary).font(.callout).foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                    .padding(.vertical, 5)
+                    .contentShape(Rectangle())
                 }
+                .buttonStyle(.plain)
+                .paceControlHoverHighlight(cornerRadius: DS.Radius.control)
+                .pointerCursor()
+                .help("Open connection settings")
             }
         }
     }
 
-    private func mcpServerRow(serverName: String) -> some View {
-        HStack(alignment: .top, spacing: 12) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(serverName)
-                    .font(.system(size: 13, weight: .medium, design: .monospaced))
-                Text("MCP server registered in ~/.config/pace/mcp-servers.json. Pace calls it via stdio JSON-RPC when the planner emits an mcp tool call targeting this server.")
-                    .font(.system(size: 12))
-                    .foregroundColor(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            Spacer()
-            Text(PaceToolRiskLevel.externalIntegration.displayName.lowercased())
-                .font(.system(size: 10, weight: .medium))
-                .padding(.horizontal, 6)
-                .padding(.vertical, 2)
-                .background(Color.purple.opacity(0.18))
-                .clipShape(Capsule())
-        }
-        .padding(.vertical, 10)
-    }
-
-    private func filteredMCPServerNames() -> [String] {
-        let normalizedQuery = searchQuery
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-        guard !normalizedQuery.isEmpty else { return configuredMCPServerNames }
-        return configuredMCPServerNames.filter { serverName in
-            serverName.lowercased().contains(normalizedQuery)
+    private var matchingConnections: [PacePowerConnection] {
+        guard searching else { return connections }
+        return connections.filter { connection in
+            ([connection.id, connection.name, connection.summary] + connection.searchTerms).contains { matches($0) }
         }
     }
 }

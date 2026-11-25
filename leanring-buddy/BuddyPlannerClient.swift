@@ -238,6 +238,59 @@ enum BuddyPlannerClientFactory {
         }
     }
 
+    /// Background observations must never silently substitute a different selected tier.
+    @MainActor
+    static func hasScreenSuggestionPlannerConsent(
+        tier: PacePlannerTier = PacePlannerTierStore.loadConfiguration().tier,
+        bridgeConfiguration: PaceCloudBridgeConfiguration = PaceCloudBridgeConsent.loadConfiguration()
+    ) -> Bool {
+        switch tier {
+        case .cliDirect:
+            return PaceCloudBridgeConsent.hasAcceptedDirectSpawnConsent()
+                && PaceCloudBridgeConsent.canRunDirectSpawnTurn(now: Date())
+        case .cliBridge:
+            return bridgeConfiguration.hasUserAcceptedConsent && bridgeConfiguration.mode != .off
+        case .local, .appleFoundationModels, .directAPI:
+            return true
+        }
+    }
+
+    @MainActor
+    static func makeScreenSuggestionClient(
+        configuration: PacePlannerTierConfiguration,
+        bridgeConfiguration: PaceCloudBridgeConfiguration
+    ) throws -> (client: any BuddyPlannerClient, isOffDevice: Bool) {
+        guard hasScreenSuggestionPlannerConsent(tier: configuration.tier, bridgeConfiguration: bridgeConfiguration)
+        else {
+            throw PaceScreenSuggestionBoundary.BoundaryError.plannerUnavailable
+        }
+        switch configuration.tier {
+        case .cliDirect:
+            return (makeCLIDirectPlannerOrLocalFallback(configuration: configuration), true)
+        case .cliBridge:
+            return (CloudBridgePlannerClient(configuration: bridgeConfiguration), true)
+        case .directAPI:
+            guard let client = makeDirectAPIPlannerOrNil(configuration: configuration) else {
+                throw PaceScreenSuggestionBoundary.BoundaryError.plannerUnavailable
+            }
+            return (client, true)
+        case .appleFoundationModels:
+            guard PacePlannerTierStore.isAppleIntelligenceAvailableOnThisDevice() else {
+                throw PaceScreenSuggestionBoundary.BoundaryError.plannerUnavailable
+            }
+            return (AppleFoundationModelsPlannerClient(), false)
+        case .local:
+            // Legacy foreground bridge preferences do not authorize background screen text.
+            guard
+                !PaceBundledModelsSettings.isUsingMLXInProcessPlanner()
+                    || PaceMLXPlannerClient.hasResidentModelContainer
+            else {
+                throw PaceScreenSuggestionBoundary.BoundaryError.plannerUnavailable
+            }
+            return (makeLocalOrFoundationModelsPlanner(requestsStructuredActionOutput: false), false)
+        }
+    }
+
     /// Builds the Direct-API client when the user has a stored key + a
     /// valid endpoint URL. Returns nil in either of two cases:
     ///   - No key in Keychain for the configured provider.

@@ -61,14 +61,31 @@ nonisolated struct PaceFlowStore {
 
     // MARK: - Public API
 
-    func save(_ flow: PaceRecordedFlow) throws {
+    func save(_ flow: PaceRecordedFlow, replacingExisting: Bool = true) throws {
         try FileManager.default.createDirectory(
             at: directoryURL,
             withIntermediateDirectories: true
         )
         let encodedFlowJSON = try Self.jsonEncoder.encode(flow)
         let destinationFileURL = fileURL(for: flow.name)
-        try writeAtomically(data: encodedFlowJSON, to: destinationFileURL)
+        try writeAtomically(data: encodedFlowJSON, to: destinationFileURL, replacingExisting: replacingExisting)
+    }
+
+    /// Keep interrupted captures alongside any previously saved workflow with the same slug.
+    func saveRecoveredRecording(_ flow: PaceRecordedFlow) throws -> String {
+        var candidate = flow
+        var recoveryNumber = 1
+        while true {
+            do {
+                try save(candidate, replacingExisting: false)
+                return candidate.name
+            } catch PaceFlowStoreError.destinationFlowAlreadyExists {
+                // Prefix the number so even long names remain distinct after slug truncation.
+                candidate = PaceRecordedFlow(
+                    name: "Recovery \(recoveryNumber) of \(flow.name)", createdAt: flow.createdAt, steps: flow.steps)
+                recoveryNumber += 1
+            }
+        }
     }
 
     func load(named name: String) -> PaceRecordedFlow? {
@@ -237,12 +254,22 @@ nonisolated struct PaceFlowStore {
     /// Atomic temp-file + rename write. Mirrors the pattern in
     /// `PaceMCPCatalogInstaller` so the implementation looks the same
     /// to a reviewer who has already read that file.
-    private func writeAtomically(data: Data, to destinationFileURL: URL) throws {
+    private func writeAtomically(data: Data, to destinationFileURL: URL, replacingExisting: Bool) throws {
         let parentDirectoryURL = destinationFileURL.deletingLastPathComponent()
         let temporaryFileURL = parentDirectoryURL.appendingPathComponent(
             ".\(destinationFileURL.lastPathComponent).pace.tmp.\(UUID().uuidString)"
         )
         try data.write(to: temporaryFileURL, options: [.atomic])
+        if !replacingExisting {
+            // Publish the complete file only if the name is still free, including across processes.
+            defer { try? FileManager.default.removeItem(at: temporaryFileURL) }
+            do {
+                try FileManager.default.linkItem(at: temporaryFileURL, to: destinationFileURL)
+            } catch let error as CocoaError where error.code == .fileWriteFileExists {
+                throw PaceFlowStoreError.destinationFlowAlreadyExists(destinationFileURL.lastPathComponent)
+            }
+            return
+        }
         do {
             if FileManager.default.fileExists(atPath: destinationFileURL.path) {
                 _ = try FileManager.default.replaceItemAt(

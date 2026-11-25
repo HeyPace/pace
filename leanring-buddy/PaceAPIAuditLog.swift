@@ -23,6 +23,7 @@ nonisolated struct PaceAPIAuditEntry: Codable, Equatable {
     let operation: String
     let target: String
     let durationMilliseconds: Int
+    let durationWasMeasured: Bool?
     let outcome: String
     let inputCharacterCount: Int?
     let outputCharacterCount: Int?
@@ -37,6 +38,22 @@ nonisolated struct PaceAPIAuditEntry: Codable, Equatable {
     /// `usage.output_tokens` / OpenAI `usage.completion_tokens`).
     let outputTokenCount: Int?
 
+    static func isRecordedFailure(_ outcome: String) -> Bool {
+        if outcome.hasPrefix("http_"), let code = Int(outcome.dropFirst(5)) {
+            return !(200..<300).contains(code)
+        }
+        if outcome.hasPrefix("httpFailure="), let code = Int(outcome.dropFirst("httpFailure=".count)) {
+            return !(200..<300).contains(code)
+        }
+        switch outcome {
+        case "error", "failed", "bad_response", "non_http_response", "non_2xx",
+            "invalid_structured_json", "count_mismatch", "invalidResponse":
+            return true
+        default:
+            return outcome.hasSuffix("_error") || outcome.hasSuffix("_failed") || outcome.hasPrefix("failed_")
+        }
+    }
+
     /// Backwards-compatible decoder: older audit lines on disk don't
     /// carry the token fields. They decode to nil.
     init(
@@ -46,6 +63,7 @@ nonisolated struct PaceAPIAuditEntry: Codable, Equatable {
         operation: String,
         target: String,
         durationMilliseconds: Int,
+        durationWasMeasured: Bool? = nil,
         outcome: String,
         inputCharacterCount: Int? = nil,
         outputCharacterCount: Int? = nil,
@@ -59,6 +77,7 @@ nonisolated struct PaceAPIAuditEntry: Codable, Equatable {
         self.operation = operation
         self.target = target
         self.durationMilliseconds = durationMilliseconds
+        self.durationWasMeasured = durationWasMeasured
         self.outcome = outcome
         self.inputCharacterCount = inputCharacterCount
         self.outputCharacterCount = outputCharacterCount
@@ -113,6 +132,7 @@ nonisolated final class PaceAPIAuditLog: @unchecked Sendable {
         operation: String,
         target: String,
         durationMilliseconds: Int,
+        durationWasMeasured: Bool? = nil,
         outcome: String,
         inputCharacterCount: Int? = nil,
         outputCharacterCount: Int? = nil,
@@ -128,6 +148,7 @@ nonisolated final class PaceAPIAuditLog: @unchecked Sendable {
             operation: operation,
             target: target,
             durationMilliseconds: durationMilliseconds,
+            durationWasMeasured: durationWasMeasured,
             outcome: outcome,
             inputCharacterCount: inputCharacterCount,
             outputCharacterCount: outputCharacterCount,
@@ -143,6 +164,13 @@ nonisolated final class PaceAPIAuditLog: @unchecked Sendable {
     /// Synchronously flushes pending writes — for tests.
     func waitForPendingWrites() {
         queue.sync {}
+    }
+
+    /// Capture both generations on the writer queue so rotation cannot split a usage snapshot.
+    func retainedLogData() -> [Data] {
+        queue.sync {
+            [logFileURL.appendingPathExtension("1"), logFileURL].compactMap { try? Data(contentsOf: $0) }
+        }
     }
 
     /// Read-only API used by the Privacy dashboard to surface the
@@ -209,7 +237,14 @@ nonisolated final class PaceAPIAuditLog: @unchecked Sendable {
         try? fileManager.moveItem(at: logFileURL, to: rotatedURL)
     }
 
-    private static func defaultLogFileURL() -> URL {
+    static func defaultLogFileURL(environment: [String: String] = ProcessInfo.processInfo.environment) -> URL {
+        if environment["XCTestConfigurationFilePath"] != nil {
+            return URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+                .appendingPathComponent(
+                    "pace-unit-audit-\(ProcessInfo.processInfo.processIdentifier)", isDirectory: true
+                )
+                .appendingPathComponent("api-audit.jsonl")
+        }
         let applicationSupportURL = FileManager.default.urls(
             for: .applicationSupportDirectory,
             in: .userDomainMask

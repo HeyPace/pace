@@ -21,6 +21,12 @@ import SwiftUI
 final class PaceCommandCenterRouter: ObservableObject {
     static let storedDestinationKey = "paceCommandCenterDestination"
 
+    struct ConnectionFocus: Equatable {
+        let serverName: String
+        let requestID = UUID()
+    }
+
+    @Published private(set) var connectionFocus: ConnectionFocus?
     @Published var selectedDestination: PaceCommandCenterDestination {
         didSet {
             userDefaults.set(selectedDestination.rawValue, forKey: Self.storedDestinationKey)
@@ -40,7 +46,8 @@ final class PaceCommandCenterRouter: ObservableObject {
         )
     }
 
-    func select(_ destination: PaceCommandCenterDestination) {
+    func select(_ destination: PaceCommandCenterDestination, focusedMCPServer: String? = nil) {
+        connectionFocus = focusedMCPServer.map { ConnectionFocus(serverName: $0) }
         selectedDestination = destination
     }
 }
@@ -49,8 +56,8 @@ final class PaceCommandCenterRouter: ObservableObject {
 final class PaceMainWindowManager {
     static let shared = PaceMainWindowManager()
 
-    private let defaultContentSize = NSSize(width: 1040, height: 700)
-    private let minimumContentSize = NSSize(width: 820, height: 540)
+    private let defaultContentSize = NSSize(width: 900, height: 650)
+    private let minimumContentSize = NSSize(width: 680, height: 540)
     private var window: NSWindow?
     private var router: PaceCommandCenterRouter?
 
@@ -58,11 +65,13 @@ final class PaceMainWindowManager {
 
     func show(
         companionManager: CompanionManager,
-        destination: PaceCommandCenterDestination? = nil
+        destination: PaceCommandCenterDestination? = nil, focusedMCPServer: String? = nil
     ) {
+        NotificationCenter.default.post(name: .paceDismissPanel, object: nil)
+        companionManager.responseOverlayManager.hideOverlay()
         if let existingWindow = window {
             if let destination {
-                router?.select(destination)
+                router?.select(destination, focusedMCPServer: focusedMCPServer)
             }
             ensureUsableContentSize(for: existingWindow)
             existingWindow.makeKeyAndOrderFront(nil)
@@ -73,6 +82,7 @@ final class PaceMainWindowManager {
         let commandCenterRouter = PaceCommandCenterRouter(
             requestedDestination: destination
         )
+        if let focusedMCPServer { commandCenterRouter.select(.mcp, focusedMCPServer: focusedMCPServer) }
         router = commandCenterRouter
         let rootView = PaceMainView(
             companionManager: companionManager,
@@ -86,8 +96,9 @@ final class PaceMainWindowManager {
             backing: .buffered,
             defer: false
         )
-        newWindow.title = "Pace Command Center"
-        newWindow.titlebarAppearsTransparent = false
+        newWindow.title = "Pace Settings"
+        newWindow.titlebarAppearsTransparent = true
+        newWindow.backgroundColor = .black
         newWindow.isMovableByWindowBackground = true
         newWindow.contentMinSize = minimumContentSize
         newWindow.contentViewController = hostingController

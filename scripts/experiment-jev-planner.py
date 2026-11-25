@@ -40,6 +40,7 @@ import json
 import os
 import re
 import statistics
+import sys
 import threading
 import time
 import urllib.error
@@ -47,8 +48,10 @@ import urllib.request
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(REPO_ROOT / "evals"))
+from pace_tool_source import read_tool_definitions
+
 REGISTRY_JSON_PATH = REPO_ROOT / "leanring-buddy/Resources/v10-actions/registry.json"
-REGISTRY_SWIFT_PATH = REPO_ROOT / "leanring-buddy/PaceToolRegistry.swift"
 DEFAULT_FIXTURE_DIRECTORIES = [
     "fm-fixtures", "fm-fixtures-actions", "fm-fixtures-ambig", "fm-fixtures-compose",
     "fm-fixtures-destructive", "fm-fixtures-holdout", "fm-fixtures-oos", "fm-fixtures-v2",
@@ -78,11 +81,11 @@ COMPOSE_BODY_ARGUMENT_NAMES = ("body", "text", "notes")
 # ---------------------------------------------------------------- tool catalog
 
 def load_tool_catalog():
-    """Tools come from the bundled registry.json (schemas) + PaceToolRegistry.swift (descriptions)."""
+    """Tools come from the bundled registry.json and preinstalled power definitions."""
     registry_actions = json.loads(REGISTRY_JSON_PATH.read_text())["actions"]
-    swift_source = REGISTRY_SWIFT_PATH.read_text()
-    description_by_tool_name = dict(re.findall(
-        r'canonicalName:\s*"([^"]+)".*?description:\s*"([^"]*)"', swift_source, flags=re.DOTALL))
+    description_by_tool_name = {
+        name: description for name, _, description in read_tool_definitions(REPO_ROOT)
+    }
     tool_catalog = {}
     for action in registry_actions:
         tool_name = action["tool"]

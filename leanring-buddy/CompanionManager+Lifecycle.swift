@@ -21,6 +21,25 @@ extension CompanionManager {
 
     // MARK: - Lifecycle & permissions
 
+    func revealRequestFeedback() {
+        guard activePacePadTurnIdentifier == nil else { return }
+        conversationPanelPresentationRequests.send(.preview)
+    }
+
+    func handleMicrophoneButtonTapped() {
+        revealRequestFeedback()
+        guard !buddyDictationManager.isFinalizingTranscript else {
+            currentTurnHUDState = .understanding("Transcribing…")
+            return
+        }
+        if buddyDictationManager.isDictationInProgress || globalPushToTalkShortcutMonitor.isSimulatedPressActive {
+            globalPushToTalkShortcutMonitor.simulateShortcutReleased()
+        } else {
+            currentDictationTrigger = .microphoneButton
+            globalPushToTalkShortcutMonitor.simulateShortcutPressed()
+        }
+    }
+
     func handleAvatarTapped() {
         switch voiceState {
         case .idle:
@@ -58,20 +77,17 @@ extension CompanionManager {
         globalPushToTalkShortcutMonitor.simulateShortcutPressed()
     }
 
-    /// Entry point for the in-window chat surface. Snapshots the chat
-    /// session's mute flag for THIS turn, then forwards to the same
-    /// pipeline as the `pace://chat` deeplink so chat and voice share
-    /// one planning + execution path. Doing the snapshot here (not
-    /// inside the pipeline) keeps the mute decision tied to the moment
-    /// of submission — toggling mute mid-stream affects the NEXT turn.
+    /// The composer sends a text turn. Voice capture enters the same
+    /// planning pipeline with speech enabled.
     func submitChatTranscriptFromChatSession(
         _ transcript: String,
         optimisticMessageIdentifier: String
     ) {
-        isChatModeMutedForCurrentTurn = chatSession.isChatTTSMuted
         submitChatTranscript(
             transcript,
-            optimisticMessageIdentifier: optimisticMessageIdentifier
+            optimisticMessageIdentifier: optimisticMessageIdentifier,
+            shouldMuteTTS: true,
+            allowsPermissionPrompt: true
         )
     }
 
@@ -80,26 +96,61 @@ extension CompanionManager {
     /// retrieval injection, and — critically — the same action-approval
     /// policy, so a deeplink can do nothing the user's own voice couldn't.
     func submitChatTranscriptFromDeepLink(_ transcript: String) {
-        submitChatTranscript(transcript, optimisticMessageIdentifier: nil)
+        submitChatTranscript(transcript, optimisticMessageIdentifier: nil, shouldMuteTTS: true)
+    }
+
+    func submitScreenSuggestionRequest(_ transcript: String, suggestion: PaceScreenSuggestion) {
+        submitChatTranscript(
+            transcript, optimisticMessageIdentifier: nil,
+            shouldMuteTTS: chatSession.isChatTTSMuted, screenSuggestionContext: .notification(suggestion))
+    }
+
+    func submitChatPowerCatalogAction(_ action: PaceChatPowerCatalog.Action, entry: PaceChatPowerCatalog.Entry) {
+        let selection = PaceChatPowerCatalog.Selection(action: action, entry: entry)
+        guard selection.command != nil else { return }
+        pendingSpokenPowerClarification = nil
+        let label = action == .run ? "Run power" : "Show power"
+        submitChatTranscript(
+            "\(label) \(entry.name)", optimisticMessageIdentifier: nil, shouldMuteTTS: true,
+            allowsPermissionPrompt: true, catalogSelection: selection)
     }
 
     private func submitChatTranscript(
         _ transcript: String,
-        optimisticMessageIdentifier: String?
+        optimisticMessageIdentifier: String?,
+        shouldMuteTTS: Bool,
+        allowsPermissionPrompt: Bool = false,
+        screenSuggestionContext: PaceScreenSuggestionRequestContext? = nil,
+        catalogSelection: PaceChatPowerCatalog.Selection? = nil
     ) {
+        revealRequestFeedback()
+        let acceptedEvent = acceptConversationRequest(
+            transcript, origin: .typed,
+            eventIdentifier: optimisticMessageIdentifier ?? UUID().uuidString,
+            threadRootID: catalogSelection == nil
+                ? optimisticMessageIdentifier.flatMap { chatSession.threadRootID(forTurnID: $0) }
+                : chatSession.activeThreadRootID)
         let queuedTurn = PaceQueuedChatTurn(
             transcript: transcript,
-            shouldMuteTTS: isChatModeMutedForCurrentTurn,
-            optimisticMessageIdentifier: optimisticMessageIdentifier
+            shouldMuteTTS: shouldMuteTTS,
+            allowsPermissionPrompt: allowsPermissionPrompt,
+            optimisticMessageIdentifier: acceptedEvent.eventID,
+            screenSuggestionContext: screenSuggestionContext
+                ?? (catalogSelection == nil && acceptedEvent.threadRootID == nil
+                    ? screenSuggestionCoordinator.followUpSuggestion(for: transcript).map(
+                        PaceScreenSuggestionRequestContext.followUp) : nil),
+            catalogSelection: catalogSelection
         )
-        isChatModeMutedForCurrentTurn = false
 
         // A permission prompt can suspend meeting startup. Its stop command
         // must cancel that lifecycle rather than queue behind the pending start.
-        if PaceMeetingModeController.shared.state == .starting,
+        if catalogSelection == nil, PaceMeetingModeController.shared.state == .starting,
             PaceMeetingModeCommandParser.parse(transcript) == .stop
         {
-            isChatModeMutedForCurrentTurn = queuedTurn.shouldMuteTTS
+            cancelActiveTurnTasks()
+            pendingTypedConversationEventIdentifier = acceptedEvent.eventID
+            beginConversationRequest(transcript)
+            streamingSentenceTTSPipeline.setMutedForCurrentTurn(queuedTurn.shouldMuteTTS)
             handleMeetingModeCommand(.stop, transcript: transcript)
             return
         }
@@ -118,6 +169,13 @@ extension CompanionManager {
     }
 
     private func startQueuedChatTurn(_ queuedTurn: PaceQueuedChatTurn) {
+        currentRequestStartedAt = Date()
+        let screenSuggestionContext = screenSuggestionContextForCurrentPrivacyGate(queuedTurn.screenSuggestionContext)
+        guard
+            !discardScreenSuggestionRequestIfUnavailable(
+                screenSuggestionContext,
+                eventIdentifier: queuedTurn.optimisticMessageIdentifier)
+        else { return }
         let transcript = queuedTurn.transcript
         // The notch chat input lives in the same panel as the turn HUD,
         // so as soon as a turn is committed the input collapses and
@@ -132,11 +190,6 @@ extension CompanionManager {
         // New turn began — hide the reply-replay button so it doesn't
         // linger past the next push-to-talk press.
         clearLastSpokenReplyState()
-        // Apply the chat-mode mute snapshot for this turn AFTER reset
-        // (reset clears the pipeline's flag). When the deeplink path
-        // is hit directly the snapshot is false, matching voice-turn
-        // behaviour. Clear the manager-side flag immediately after so
-        // subsequent voice turns can never inherit a stale mute.
         streamingSentenceTTSPipeline.setMutedForCurrentTurn(queuedTurn.shouldMuteTTS)
         clearDetectedElementLocation()
 
@@ -151,10 +204,10 @@ extension CompanionManager {
         lastTranscript = transcript
         _ = PaceAPIAuditLog.shared.beginTurn()
         PaceAnalytics.trackUserMessageSent(transcript: transcript)
-        currentTurnHUDState = .understanding("classifying intent")
+        currentTurnHUDState = .understanding("Message received · Working…")
         responseOverlayManager.setAnchor(.belowRightOfCursor)
         responseOverlayManager.showOverlayAndBeginStreaming()
-        responseOverlayManager.updateStreamingText(transcript)
+        responseOverlayManager.updateStreamingText("Message received")
 
         // Stamp intent-commit now so TTFSW latency logging stays meaningful
         // for deeplink turns (there is no PTT release to stamp it).
@@ -165,7 +218,18 @@ extension CompanionManager {
         PaceLatencyBudget.shared.startTurn(trigger: .deeplink)
         PaceLatencyBudget.shared.mark(.sttComplete)
         voiceState = .processing
-        sendTranscriptToPlannerWithScreenshot(transcript: transcript)
+        pendingTypedConversationEventIdentifier = queuedTurn.optimisticMessageIdentifier
+        sendTranscriptToPlannerWithScreenshot(
+            transcript: transcript, screenSuggestionContext: screenSuggestionContext,
+            allowsPermissionPrompt: queuedTurn.allowsPermissionPrompt, catalogSelection: queuedTurn.catalogSelection)
+    }
+
+    func cancelQueuedChatTurns(eventIdentifiers: Set<String>) {
+        let removedTurns = chatTurnQueue.removeTurns(eventIdentifiers: eventIdentifiers)
+        queuedChatTurnCount = chatTurnQueue.count
+        for eventIdentifier in removedTurns.compactMap(\.optimisticMessageIdentifier) {
+            conversationRecorder.updateDeliveryState(.cancelled, eventIdentifier: eventIdentifier)
+        }
     }
 
     func clearQueuedChatTurns() {
@@ -174,9 +238,9 @@ extension CompanionManager {
         )
         chatTurnQueue.removeAll()
         queuedChatTurnCount = 0
-        chatSession.removePendingUserMessages(
-            withIdentifiers: optimisticMessageIdentifiers
-        )
+        for eventIdentifier in optimisticMessageIdentifiers {
+            conversationRecorder.updateDeliveryState(.cancelled, eventIdentifier: eventIdentifier)
+        }
         print("🧾 Cleared queued typed turns")
     }
 
@@ -194,59 +258,32 @@ extension CompanionManager {
             }
     }
 
-    private func drainNextQueuedChatTurnIfPossible() {
-        guard voiceState == .idle,
+    func drainNextQueuedChatTurnIfPossible() {
+        while voiceState == .idle,
             !buddyDictationManager.isRecordingFromKeyboardShortcut,
             !buddyDictationManager.isRecordingFromMicrophoneButton,
             !buddyDictationManager.isPreparingToRecord,
             !buddyDictationManager.isFinalizingTranscript,
             let nextQueuedTurn = chatTurnQueue.dequeue()
-        else {
-            return
+        {
+            queuedChatTurnCount = chatTurnQueue.count
+            print("🧾 Starting queued typed turn; \(queuedChatTurnCount) remaining")
+            startQueuedChatTurn(nextQueuedTurn)
         }
-
-        queuedChatTurnCount = chatTurnQueue.count
-        print("🧾 Starting queued typed turn; \(queuedChatTurnCount) remaining")
-        startQueuedChatTurn(nextQueuedTurn)
     }
 
-    func start() {
-        diagramOverlayController.onDidPresent = { [weak self] in
-            self?.imageOverlayController.hideForDiagramReplacement()
-            NotificationCenter.default.post(name: .paceDismissPanel, object: nil)
-        }
-        imageOverlayController.authorizationCheck = { [weak self] in
-            guard let self else { return false }
-            return self.canGenerateImagesWithCodex
-        }
-        imageOverlayController.onWillGenerate = { [weak self] in
-            self?.diagramOverlayController.hideForImageReplacement()
-            NotificationCenter.default.post(name: .paceDismissPanel, object: nil)
-        }
-        imageOverlayController.onGenerationProgress = { [weak self] message in
-            self?.currentTurnHUDState = .acting(message)
-            self?.responseOverlayManager.updateStreamingText(message)
-        }
-        diagramOverlayController.onAskAboutPart = { [weak self] transcript in
-            self?.submitChatTranscriptFromDeepLink(transcript)
-        }
-        refreshAllPermissions()
-        loadPersistedToolCallDebugRecords()
-        // Warm the local Shortcuts names asynchronously. Natural transcript
-        // routing reads only the fresh cache so a first utterance can never
-        // inherit the CLI's ten-second timeout.
-        Task { @MainActor in
-            _ = await PaceShortcutsAutomationProvider.shared.catalog()
-        }
-        // Mascot mode suppresses the whole cursor overlay window — but the
-        // tuition-annotation layer LIVES in that window, so a planner
-        // `draw_annotation` would render into a hidden panel and the user
-        // would see nothing (live-diagnosed 2026-07-12: the entire draw
-        // pipeline worked; only the window was hidden). Transiently reveal
-        // the overlay while annotations are present, and re-suppress when
-        // they clear (next user turn / 30 s auto-fade / explicit clear).
+    func bindVisualExplanationCallbacks() {
+        var diagramPresentationTurnLease: PaceTurnLease?
+        var diagramRequestIdentifiers: Set<String> = []
+        var imageGenerationTurnID: String?
+        var imageGenerationTurnLease: PaceTurnLease?
         annotationOverlayController.onActiveAnnotationsPresenceChanged = { [weak self] annotationsArePresent in
-            guard let self, self.mascotModeActive else { return }
+            guard let self else { return }
+            if annotationsArePresent {
+                NotificationCenter.default.post(
+                    name: .paceDismissPanel, object: PaceExplanationDismissalIntent.automatic)
+            }
+            guard self.mascotModeActive else { return }
             if annotationsArePresent || detectedElementScreenLocation != nil {
                 overlayWindowManager.isSuppressed = false
                 overlayWindowManager.hasShownOverlayBefore = true
@@ -258,6 +295,80 @@ extension CompanionManager {
                 isOverlayVisible = false
             }
         }
+        diagramOverlayController.onUserDismissed = { [weak self] in
+            self?.handleVisualExplanationDismissal(
+                ownedTurnLease: diagramPresentationTurnLease,
+                ownedRequestIdentifiers: diagramRequestIdentifiers)
+            diagramRequestIdentifiers.removeAll()
+        }
+        imageOverlayController.onUserDismissed = { [weak self] in
+            self?.handleVisualExplanationDismissal(ownedTurnLease: imageGenerationTurnLease)
+        }
+        diagramOverlayController.onDidPresent = { [weak self] in
+            diagramPresentationTurnLease = self?.turnLeaseRegistry.currentLease
+            self?.imageOverlayController.hideForDiagramReplacement()
+            NotificationCenter.default.post(name: .paceDismissPanel, object: nil)
+        }
+        imageOverlayController.authorizationCheck = { [weak self] in
+            guard let self else { return false }
+            return self.canGenerateImagesWithCodex
+        }
+        imageOverlayController.onWillGenerate = { [weak self] in
+            imageGenerationTurnID = self?.activeConversationUserEvent?.eventID
+            imageGenerationTurnLease = self?.turnLeaseRegistry.currentLease
+            self?.diagramOverlayController.hideForImageReplacement()
+        }
+        imageOverlayController.onDidGenerate = { [weak self] artifact, previewData in
+            guard let self else { return }
+            do {
+                guard let previewData else { throw PaceImageGenerationError.invalidArtifact }
+                try PaceGeneratedImageStore.saveChatPreview(previewData, identifier: artifact.id)
+                self.recordAssistantNarration(
+                    artifact.request.title, eventIdentifier: "image-" + artifact.id.uuidString,
+                    turnIdentifier: imageGenerationTurnID, recordsDerivedMemory: false,
+                    generatedImagePreviewID: artifact.id)
+            } catch {
+                PaceAPIAuditLog.shared.record(
+                    subsystem: "images", operation: "chat_preview",
+                    target: "local", durationMilliseconds: 0, outcome: "failed")
+            }
+        }
+        imageOverlayController.onGenerationProgress = { [weak self] message in
+            self?.currentTurnHUDState = .acting(message)
+            self?.recordAssistantNarration(
+                message, origin: .progress, turnIdentifier: imageGenerationTurnID)
+            self?.responseOverlayManager.updateStreamingText(message)
+        }
+        diagramOverlayController.onWrittenLessonStep = { [weak self] step in
+            guard let self else { return }
+            self.recordTeachingStep(
+                step, turnIdentifier: self.diagramOverlayController.lessonConversationTurnIdentifier)
+        }
+        diagramOverlayController.onPlayLessonRequested = { [weak self] in self?.playTeachingLessonFromControls() }
+        diagramOverlayController.onAskAboutPart = { [weak self] transcript in
+            guard let self else { return }
+            let eventIdentifier = UUID().uuidString
+            let lessonTurnID = self.diagramOverlayController.lessonConversationTurnIdentifier
+            let rootID = lessonTurnID.flatMap { self.conversationRecorder.event(withIdentifier: $0)?.threadRootID }
+            self.acceptConversationRequest(
+                transcript, origin: .typed, eventIdentifier: eventIdentifier, threadRootID: rootID)
+            diagramRequestIdentifiers.insert(eventIdentifier)
+            self.submitChatTranscript(
+                transcript, optimisticMessageIdentifier: eventIdentifier,
+                shouldMuteTTS: self.chatSession.isChatTTSMuted)
+        }
+    }
+
+    func start() {
+        bindVisualExplanationCallbacks()
+        refreshAllPermissions()
+        loadPersistedToolCallDebugRecords()
+        // Warm the local Shortcuts names asynchronously. Natural transcript
+        // routing reads only the fresh cache so a first utterance can never
+        // inherit the CLI's ten-second timeout.
+        Task { @MainActor in
+            _ = await PaceShortcutsAutomationProvider.shared.catalog()
+        }
         // Meeting recordings launch sweep, off the main actor (file IO):
         // repair any `.part` WAVs a force-quit left behind, then prune
         // recording directories past the retention window — continuous
@@ -268,13 +379,14 @@ extension CompanionManager {
             PaceMeetingAudioRecorder.crashRepairAllMeetingRecordings()
             PaceMeetingAudioRecorder.pruneMeetingRecordings(olderThanDays: meetingRecordingRetentionDays)
         }
-        // Start the always-on ambient context store. Polls the system
-        // every 3s for frontmost app, window title, AX tree summary,
-        // clipboard metadata, and time-of-day — all permission-free
-        // and <1ms per poll. The snapshot is injected into the planner
-        // system prompt so the planner has instant context without a
-        // VLM round-trip.
-        PaceAmbientContextStore.shared.start()
+        ambientContextPermissionCancellable = $useLocalVLMForScreenContext.removeDuplicates().sink {
+            [ambientContextStore] enabled in
+            if enabled {
+                ambientContextStore.start()
+            } else {
+                ambientContextStore.stop()
+            }
+        }
         // Default-off observe-only companion runtime. This reads the explicit
         // companion/source preferences and remains inert on every existing
         // installation until the user opts in.
@@ -309,6 +421,7 @@ extension CompanionManager {
         // was quit speaks the moment we come back up.
         actionExecutor.setTimerOnFireSpeakCallback { [weak self] spokenReminderText in
             guard let self else { return }
+            self.recordAssistantNarration(spokenReminderText, origin: .reminder)
             Task { @MainActor in
                 try? await self.ttsClient.speakText(spokenReminderText)
             }
@@ -320,6 +433,11 @@ extension CompanionManager {
         // parser does. Defaults are no-ops; we set them once here per
         // CompanionManager lifecycle so dry-run/unit-test code stays
         // unaffected.
+        bindPowerToolCallbacks()
+        actionExecutor.executeCodingSession = { [weak self] command in
+            guard let self else { return .init(toolName: "coding_session", summary: "Coding is unavailable.") }
+            return await self.executeRetainedCoding(command)
+        }
         actionExecutor.startFlowRecordingCallback = { [weak self] flowName in
             guard let self else {
                 return "Ready to record flow \"\(flowName)\"."
@@ -336,7 +454,7 @@ extension CompanionManager {
         // Direct API and Cloud Bridge planner turns.
         actionExecutor.setOffDeviceTurnInFlightCallback = { [weak self] isOffDeviceCallInFlight in
             Task { @MainActor [weak self] in
-                self?.isOffDeviceTurnInFlight = isOffDeviceCallInFlight
+                self?.hostedMCPOffDeviceTurnInFlight = isOffDeviceCallInFlight
             }
         }
         startPermissionPolling()
@@ -502,7 +620,7 @@ extension CompanionManager {
         PaceBackgroundAgentRunner.shared.speakResult = { [weak self] result in
             guard let self else { return }
             // Store completion in the conversation even when speech is unavailable.
-            self.recordConversationTurn(userTranscript: "Background task completed", assistantResponse: result)
+            self.recordAssistantNarration(result)
             if self.voiceState == .idle {
                 self.responseOverlayManager.showOverlayAndBeginStreaming()
                 self.responseOverlayManager.updateStreamingText(result)
@@ -523,8 +641,7 @@ extension CompanionManager {
                     }
                     let systemPrompt = CompanionSystemPrompt.build(
                         includeAgentMode: false,
-                        threadSummaryInjection: nil,
-                        ambientContextInjection: PaceAmbientContextStore.shared.ambientPromptFragment
+                        threadSummaryInjection: nil
                     )
                     let acquiredIndicator = self.beginHeadlessOffDeviceIndicatorIfNeeded()
                     defer { if acquiredIndicator { self.endHeadlessOffDeviceIndicatorIfNeeded() } }
@@ -579,27 +696,18 @@ extension CompanionManager {
         //     wraps itself in begin/end so the capsule tints amber for
         //     off-device planner traffic the user didn't just speak.)
         PaceDictationFastPath.shared.typeTextCallback = { [weak self] text in
-            guard let self else { return }
-            await self.actionExecutor.typeText(text)
+            guard let self else { return false }
+            return await self.actionExecutor.typeText(text)
         }
         // Apple FM cleanup callback for disfluency removal. Only set
         // when Apple Intelligence is available.
         if SystemLanguageModel.default.availability == .available {
             PaceDictationFastPath.shared.appleFMCleanupCallback = { text in
-                await withCheckedContinuation { continuation in
-                    Task { @MainActor in
-                        do {
-                            let session = LanguageModelSession(
-                                instructions:
-                                    "Remove filler words (um, uh, like), repeated words, and false starts from the following dictated text. Preserve the original meaning, tone, and language. Output ONLY the cleaned text, no explanation."
-                            )
-                            let response = try await session.respond(to: text)
-                            continuation.resume(returning: response.content)
-                        } catch {
-                            continuation.resume(returning: nil)
-                        }
-                    }
-                }
+                let session = LanguageModelSession(
+                    instructions:
+                        "Remove filler words, accidental repetitions and false starts. Preserve the meaning, tone and language. Output only the cleaned text."
+                )
+                return try? await session.respond(to: text).content
             }
         }
 
@@ -709,6 +817,8 @@ extension CompanionManager {
         // the pre-extraction startup order — input/call monitors
         // first, drain timer + orchestrator second.
         proactivityPipeline.start()
+        startWatchRuntime()
+        chatSession.loadHistoryWithoutBlockingInterface()
     }
 
     /// 5-minute idle sweep that drops thread-memory state when the
@@ -753,6 +863,13 @@ extension CompanionManager {
     }
 
     func stop() {
+        ambientContextPermissionCancellable?.cancel()
+        ambientContextPermissionCancellable = nil
+        ambientContextStore.stop()
+        invalidateFastAnswerCredentialPrewarm()
+        dismissCodingApprovals()
+        Task { await codingSessionCoordinator.shutdown() }
+        stopWatchRuntime()
         imageOverlayController.dismiss()
         diagramOverlayController.dismiss()
         PaceScreenRecordingController.shared.shutdown()
@@ -827,7 +944,7 @@ extension CompanionManager {
             globalPushToTalkShortcutMonitor.start()
             globalChatShortcutMonitor.start()
         } else {
-            globalPushToTalkShortcutMonitor.stop()
+            globalPushToTalkShortcutMonitor.stop(preservingSimulatedPress: true)
             globalChatShortcutMonitor.stop()
         }
 
@@ -888,6 +1005,21 @@ extension CompanionManager {
         if !previouslyHadAll && allPermissionsGranted {
             PaceAnalytics.trackAllPermissionsGranted()
         }
+        if isWatchRuntimeStarted { reconcileWatchRuntime() }
+    }
+
+    func requestMicrophoneAccess() {
+        switch AVCaptureDevice.authorizationStatus(for: .audio) {
+        case .authorized: refreshAllPermissions()
+        case .notDetermined:
+            AVCaptureDevice.requestAccess(for: .audio) { [weak self] _ in
+                Task { @MainActor in self?.refreshAllPermissions() }
+            }
+        default:
+            if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone") {
+                NSWorkspace.shared.open(url)
+            }
+        }
     }
 
     func requestSpeechRecognitionPermission() {
@@ -936,18 +1068,10 @@ extension CompanionManager {
             return
         }
 
-        if #available(macOS 14.0, *) {
-            permissionEventStore.requestFullAccessToReminders { [weak self] _, _ in
-                Task { @MainActor [weak self] in
-                    self?.refreshAllPermissions()
-                }
-            }
-        } else {
-            permissionEventStore.requestAccess(to: .reminder) { [weak self] _, _ in
-                Task { @MainActor [weak self] in
-                    self?.refreshAllPermissions()
-                }
-            }
+        Task { [weak self] in
+            guard let self else { return }
+            _ = await PacePermissionService.shared.requestRemindersAccess(using: self.permissionEventStore)
+            self.refreshAllPermissions()
         }
     }
 
@@ -1001,22 +1125,17 @@ extension CompanionManager {
     /// Tint the capsule amber while a HEADLESS planner call (background
     /// agent, subagent, cron, plugin auto-repair) runs on an off-device
     /// tier. Counter-based: up to 4 subagents run concurrently and the
-    /// tint must hold until the LAST one finishes. Known limitation: a
-    /// user-spoken off-device turn ending mid-headless-call clears the
-    /// flag from its own path; the tint returns on the next begin call.
+    /// tint must hold until the LAST one finishes. Foreground, hosted MCP
+    /// and suggestion activity are aggregated independently.
     @discardableResult
     func beginHeadlessOffDeviceIndicatorIfNeeded(forceOffDevice: Bool = false) -> Bool {
         guard forceOffDevice || activePlannerTierIsOffDevice else { return false }
         headlessOffDevicePlannerCallCount += 1
-        isOffDeviceTurnInFlight = true
         return true
     }
 
     func endHeadlessOffDeviceIndicatorIfNeeded() {
         guard headlessOffDevicePlannerCallCount > 0 else { return }
         headlessOffDevicePlannerCallCount -= 1
-        if headlessOffDevicePlannerCallCount == 0 {
-            isOffDeviceTurnInFlight = false
-        }
     }
 }

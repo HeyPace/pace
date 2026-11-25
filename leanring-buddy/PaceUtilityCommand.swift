@@ -4,10 +4,27 @@ nonisolated enum PaceUtilityCommand: Equatable {
     case speak(text: String, useKokoro: Bool)
     case transcribeAudio(path: String)
     case checkUpdates
+    case localTime
+
+    static func updateCheckReply(for result: PaceAutoUpdateController.ManualUpdateCheckResult) -> String {
+        switch result {
+        case .started:
+            return "Checking for Pace updates."
+        case .alreadyInProgress:
+            return "An update check is already in progress."
+        case .disabledForLocalDevelopmentBuild:
+            return "Public updates are disabled for this local development build of Pace."
+        }
+    }
 
     static func parse(_ transcript: String) -> Self? {
         let text = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
         let normalized = text.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: ".!?"))
+        let normalizedQuestion = normalized.replacingOccurrences(of: "’", with: "'")
+            .split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        if ["what time is it", "what's the time", "what is the time", "tell me the time"].contains(normalizedQuestion) {
+            return .localTime
+        }
         if ["check for updates", "check pace for updates", "update check"].contains(normalized) {
             return .checkUpdates
         }
@@ -35,15 +52,20 @@ extension CompanionManager {
         defer { if turnLeaseRegistry.isCurrent(turnLease) { voiceState = .idle } }
 
         switch command {
+        case .localTime:
+            let currentTime = Date.now.formatted(date: .omitted, time: .shortened)
+            await publishCommandFeedback(transcript: transcript, spokenText: "It's \(currentTime).")
         case .checkUpdates:
-            let started = PaceAutoUpdateController.shared.checkForUpdatesManually()
+            let result = PaceAutoUpdateController.shared.checkForUpdatesManually()
             await publishCommandFeedback(
                 transcript: transcript,
-                spokenText: started ? "Checking for Pace updates." : "An update check is already in progress."
+                spokenText: PaceUtilityCommand.updateCheckReply(for: result)
             )
         case .speak(let text, let useKokoro):
+            let userEventID = activeConversationUserEvent?.eventID
             responseOverlayManager.showOverlayAndBeginStreaming()
             responseOverlayManager.updateStreamingText(text)
+            recordConversationTurn(userTranscript: transcript, assistantResponse: text)
             do {
                 let client: any BuddyTTSClient
                 if useKokoro {
@@ -64,7 +86,8 @@ extension CompanionManager {
                 } else {
                     response = "Read aloud: " + text
                 }
-                recordConversationTurn(userTranscript: transcript, assistantResponse: response)
+                guard isActiveTurn(turnLease) else { return }
+                recordAssistantNarration(response, turnIdentifier: userEventID)
                 responseOverlayManager.updateStreamingText(response)
                 currentTurnHUDState = .done(response)
             } catch {

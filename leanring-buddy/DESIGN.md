@@ -26,14 +26,14 @@ website, a generic AI dashboard, or a developer console.
 
 ## Color And Material
 
-- **Canvas:** near-black graphite (`#080A0D`), not featureless pure black.
-- **Primary surface:** `#101318` with a quiet top-edge highlight.
-- **Raised surface:** `#171B22`.
+- **Canvas and surfaces:** pure black (`#000000`) across the notch, conversation,
+  Settings and its title bar, notifications, and image/diagram controls. Use the
+  shared `DS.Colors.background` token; hierarchy comes from spacing and borders.
 - **Border:** `#2A3039` at low contrast.
 - **Primary text:** warm off-white (`#F1F0EC`).
 - **Secondary text:** cool gray (`#A7AFBA`).
 - **Muted text:** `#8B9590`, lifted above the original muted value so 9–12pt
-  metadata remains above 4.5:1 on every graphite surface.
+  metadata remains above 4.5:1 on every black surface.
 - **Local signal:** electric Pace blue (`#4F8BFF`). Blue means active local
   input, focus, selection, or the primary safe action; it is not decoration.
 - **PacePad expression:** deep ocean blue (`#2A94E1`) is reserved for the
@@ -45,9 +45,8 @@ website, a generic AI dashboard, or a developer console.
 - **Success:** green (`#34D399`) only after a completed outcome.
 - **Failure:** system red only for an actual error or denied destructive state.
 
-Depth comes from material and light rather than gradients. Native material may
-soften the quick panel over the desktop, but content surfaces stay legible and
-do not become translucent glass cards nested inside other glass cards.
+Surface fills remain opaque black. Borders, readable text, and subtle hover
+feedback provide separation without graphite panels or translucent material.
 
 ## Typography
 
@@ -64,8 +63,9 @@ scene titles, body/callout for working content, and caption for metadata.
 ## Shape And Components
 
 - Window and panel geometry follows native macOS conventions.
-- Working surfaces use 10–14pt continuous corners; pills are reserved for
-  status, filters, and short values.
+- Use 6pt corners for controls and 10pt corners for grouped content. Keep
+  the hardware notch silhouette. Use a neutral fill for hover, a visible
+  ring for keyboard focus, and a single hairline between dense list rows.
 - The shared signal mark is a waveform or single routed line, never sparkles.
 - PacePad's idle expression uses two happy signal arcs and one scanlined smile
   on the physical display. It stays abstract and screen-native rather than
@@ -131,21 +131,10 @@ state and can finish setup later.
 
 ## Command Center Information Architecture
 
-Use one resizable management window with plain-language grouped navigation:
-
-- **Use Pace:** Conversations, Automations, Multi-step automations, Scheduled
-  tasks.
-- **Activity & Privacy:** Activity history, Privacy, Permissions.
-- **Customize:** General, Voice, Local models, Memory.
-- **Help:** Help & diagnostics, About.
-
-Reasoning internals, optional integrations, experimental modes, usage detail,
-and developer tools live behind one Advanced controls disclosure but remain
-searchable by both their visible names and descriptions. Each primary group
-shows no more than four choices. The most recently selected destination is
-restored, and every destination exposes a contextual plain-language
-explanation. Settings remain stable, searchable, keyboard accessible, and
-sized for their content.
+Settings opens with direct access to Powers, Connected apps & tools, Local usage,
+and Activity history. Privacy & permissions groups access, memory, and history.
+Advanced groups models, recorded workflows, and troubleshooting. Detail screens
+provide a keyboard-accessible route back to Settings.
 
 ## References And Anti-References
 

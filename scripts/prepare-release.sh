@@ -56,6 +56,11 @@ mkdir -p "$OUTPUT_APP/Contents/Resources/scripts"
 cp "$SCRIPT_DIR/start-tts-server.sh" "$OUTPUT_APP/Contents/Resources/scripts/start-tts-server.sh"
 chmod +x "$OUTPUT_APP/Contents/Resources/scripts/start-tts-server.sh"
 
+if [[ "${PACE_LOCAL_DEVELOPMENT_BUILD:-0}" == "1" ]]; then
+    /usr/bin/plutil -replace PaceLocalDevelopmentBuild -bool YES "$OUTPUT_APP/Contents/Info.plist"
+    echo "▶ Local development build: public updates disabled"
+fi
+
 if [[ "$SIGNING_IDENTITY" != "-" ]]; then
 security find-identity -v -p codesigning | grep -F "$SIGNING_IDENTITY" >/dev/null || {
     echo "Developer ID identity is not installed: $SIGNING_IDENTITY" >&2
@@ -73,10 +78,31 @@ while IFS= read -r framework_path; do
     fi
 done < <(find "$OUTPUT_APP/Contents/Frameworks" -maxdepth 2 -name "*.framework" -type d 2>/dev/null)
 
+POWER_SERVICE="$OUTPUT_APP/Contents/XPCServices/PacePowerJavaScriptService.xpc"
+if [[ ! -d "$POWER_SERVICE" ]]; then
+    echo "Missing isolated Power service: $POWER_SERVICE" >&2
+    exit 1
+fi
+POWER_COMPUTE_HELPER="$POWER_SERVICE/Contents/Helpers/PacePowerJavaScriptWorker"
+if [[ ! -x "$POWER_COMPUTE_HELPER" ]]; then
+    echo "Missing isolated Power compute helper: $POWER_COMPUTE_HELPER" >&2
+    exit 1
+fi
 if [[ "$SIGNING_IDENTITY" == "-" ]]; then
-    codesign --force --deep --entitlements "$PROJECT_DIR/leanring-buddy/leanring-buddy.entitlements" --sign - "$OUTPUT_APP"
+    codesign --force --entitlements "$PROJECT_DIR/PacePowerJavaScriptWorker/PacePowerJavaScriptWorker.entitlements" --sign - "$POWER_COMPUTE_HELPER"
 else
-    codesign --force --deep --options runtime --timestamp --entitlements "$PROJECT_DIR/leanring-buddy/leanring-buddy.entitlements" --sign "$SIGNING_IDENTITY" "$OUTPUT_APP"
+    codesign --force --options runtime --timestamp --entitlements "$PROJECT_DIR/PacePowerJavaScriptWorker/PacePowerJavaScriptWorker.entitlements" --sign "$SIGNING_IDENTITY" "$POWER_COMPUTE_HELPER"
+fi
+if [[ "$SIGNING_IDENTITY" == "-" ]]; then
+    codesign --force --entitlements "$PROJECT_DIR/PacePowerJavaScriptService/PacePowerJavaScriptService.entitlements" --sign - "$POWER_SERVICE"
+else
+    codesign --force --options runtime --timestamp --entitlements "$PROJECT_DIR/PacePowerJavaScriptService/PacePowerJavaScriptService.entitlements" --sign "$SIGNING_IDENTITY" "$POWER_SERVICE"
+fi
+
+if [[ "$SIGNING_IDENTITY" == "-" ]]; then
+    codesign --force --entitlements "$PROJECT_DIR/leanring-buddy/leanring-buddy.entitlements" --sign - "$OUTPUT_APP"
+else
+    codesign --force --options runtime --timestamp --entitlements "$PROJECT_DIR/leanring-buddy/leanring-buddy.entitlements" --sign "$SIGNING_IDENTITY" "$OUTPUT_APP"
 fi
 
 codesign --verify --deep --strict --verbose=2 "$OUTPUT_APP"

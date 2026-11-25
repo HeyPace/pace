@@ -44,6 +44,19 @@ struct PacePrivacyDashboardViewTests {
         #expect(PacePrivacyDashboardAggregator.tier(forSubsystem: "planner.directAPI") == .directAPI)
     }
 
+    @Test func legacyResponsesOnlyCountWhenTheirOutcomeProvesTransport() {
+        let confirmed = ["completed", "refused", "invalidResponse", "httpFailure=403"]
+        let uncertainOrLocal = ["failed", "cancelled", "consentRevoked", "missingKey"]
+        let rows = (confirmed + uncertainOrLocal).map {
+            makeAuditEntry(subsystem: "planner.openai.responses", inputCharacterCount: 10, outcome: $0)
+        }
+        let snapshot = PacePrivacyDashboardAggregator.aggregate(auditEntries: rows)
+        #expect(snapshot.totalOffDeviceCallCount == confirmed.count)
+        #expect(snapshot.unconfirmedResponsesRequests == 3)
+        #expect(snapshot.totalOffDeviceBytesSent == 10 * confirmed.count)
+        #expect(snapshot.perTargetStats.first?.target == "openai/model/v1")
+    }
+
     @Test func cloudBridgeSubsystemIsClassifiedAsCloudBridgeTier() {
         #expect(PacePrivacyDashboardAggregator.tier(forSubsystem: "planner.cloudBridge") == .cloudBridge)
         #expect(PacePrivacyDashboardAggregator.tier(forSubsystem: "cloudBridge.transport") == .cloudBridge)

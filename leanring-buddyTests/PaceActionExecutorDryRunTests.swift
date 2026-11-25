@@ -3,6 +3,7 @@
 //  leanring-buddyTests
 //
 
+import AppKit
 import CoreGraphics
 import Foundation
 import Testing
@@ -10,6 +11,293 @@ import Testing
 
 @MainActor
 struct PaceActionExecutorDryRunTests {
+    @Test func unresolvedCoordinateClicksStopDependentStepsAndRequestFreshInspectionOnce() async throws {
+        let executor = PaceActionExecutor(
+            actionsAreEnabledOverride: true, accessibilityPermissionCheck: { true }, readMyScreenIsEnabled: { true })
+        let target = ScreenshotPixelLocation(xInScreenshotPixels: 10, yInScreenshotPixels: 10, screenNumber: 1)
+        let first = await executor.executeActionPlan(
+            .serial(actions: [.click(target), .type("draft")]), screenCaptures: [])
+        #expect(first.count == 1)
+        #expect(first.first?.requiresFreshInspectionPlan == true)
+        let retry = await executor.executeActionPlan(.serial(actions: [.doubleClick(target)]), screenCaptures: [])
+        #expect(retry.first?.stopsAgentLoop == true)
+    }
+
+    @Test func repeatedIdenticalPlannerClickRequestsOneInspectionAndNeverDispatches() async throws {
+        let executor = PaceActionExecutor(
+            actionsAreEnabledOverride: true, accessibilityPermissionCheck: { true }, readMyScreenIsEnabled: { true })
+        let location = ScreenshotPixelLocation(xInScreenshotPixels: 10, yInScreenshotPixels: 10, screenNumber: 1)
+        let plan = PaceActionExecutionPlan.serial(actions: [.click(location)])
+        func captures(_ byte: UInt8) -> [CompanionScreenCapture] {
+            [
+                .init(
+                    displayIdentifier: 8, imageData: Data([byte]), label: "Screen 1", isCursorScreen: true,
+                    displayWidthInPoints: 100, displayHeightInPoints: 100,
+                    displayFrame: CGRect(x: 0, y: 0, width: 100, height: 100),
+                    screenshotWidthInPixels: 200, screenshotHeightInPixels: 200)
+            ]
+        }
+        let fingerprint = try #require(PacePlannerClickFingerprint(plan: plan, captures: captures(1)))
+        #expect(fingerprint != PacePlannerClickFingerprint(plan: plan, captures: captures(2)))
+        #expect(
+            PacePlannerClickFingerprint(plan: .serial(actions: [.doubleClick(location)]), captures: captures(1)) == nil)
+        executor.previousPlannerClick = fingerprint
+        let firstRetry = await executor.executeActionPlanWithReceipt(
+            plan, screenCaptures: captures(1), checksRepeatedClick: true)
+        #expect(firstRetry.executedPlan.flattenedActions.isEmpty)
+        #expect(firstRetry.observations.first?.requiresFreshInspectionPlan == true)
+        let finalRetry = await executor.executeActionPlanWithReceipt(
+            plan, screenCaptures: captures(1), checksRepeatedClick: true)
+        #expect(finalRetry.executedPlan.flattenedActions.isEmpty)
+        #expect(finalRetry.observations.first?.stopsAgentLoop == true)
+        executor.beginUserTurn()
+        #expect(executor.previousPlannerClick == nil)
+    }
+
+    @Test func clicksRequireAnUnambiguousCapturedDisplayAndAnInBoundsPoint() async throws {
+        let executor = PaceActionExecutor(actionsAreEnabledOverride: false)
+        let capture = CompanionScreenCapture(
+            imageData: Data(), label: "Fixture", isCursorScreen: true, displayWidthInPoints: 100,
+            displayHeightInPoints: 100, displayFrame: CGRect(x: 0, y: 0, width: 100, height: 100),
+            screenshotWidthInPixels: 200, screenshotHeightInPixels: 200)
+        func resolves(x: Int, screen: Int?, count: Int) async -> Bool {
+            await executor.clickAtScreenshotLocation(
+                .init(xInScreenshotPixels: x, yInScreenshotPixels: 40, screenNumber: screen),
+                screenCaptures: Array(repeating: capture, count: count), clickCount: 1)
+        }
+        #expect(await resolves(x: 50, screen: 1, count: 1))
+        #expect(!(await resolves(x: 200, screen: 1, count: 1)))
+        #expect(!(await resolves(x: 50, screen: 2, count: 1)))
+        #expect(!(await resolves(x: 50, screen: nil, count: 2)))
+    }
+
+    @Test func missedClickCandidateStopsTheRemainingKeyboardPlan() async throws {
+        let executor = PaceActionExecutor(actionsAreEnabledOverride: true, accessibilityPermissionCheck: { true })
+        let candidate = PaceClickCandidate(
+            location: .init(xInScreenshotPixels: 7, yInScreenshotPixels: 7, screenNumber: 1),
+            label: nil, confidence: 1, expectStateChange: false)
+        let click = PaceParsedAction.clickCandidates(.init(candidates: [candidate], clickCount: 1))
+        let receipt = await executor.executeActionPlanWithReceipt(
+            .serial(actions: [click, .pressKey(name: "invalid-fixture-key", modifiers: [])]), screenCaptures: [])
+        #expect(receipt.executedPlan.flattenedActions.isEmpty)
+        #expect(receipt.observations.count == 1)
+        #expect(receipt.observations.first?.stopsActionPlan == true)
+        let recovery = try #require(receipt.observations.first?.setOfMarkRecovery)
+        #expect(recovery.unattemptedActionCount == 1)
+        let partial = recovery.verifiedClickObservation
+        #expect(partial.stopsAgentLoop)
+        let result = PaceActionRunRecord.completed(observations: [partial])
+        #expect(result.status == .failed && result.showsInConversation)
+        #expect(result.detail.contains("one action left"))
+
+        let finalReceipt = await executor.executeActionPlanWithReceipt(.serial(actions: [click]), screenCaptures: [])
+        let finalRecovery = try #require(finalReceipt.observations.first?.setOfMarkRecovery)
+        #expect(!finalRecovery.verifiedClickObservation.stopsAgentLoop)
+        let finalResult = PaceActionRunRecord.completed(observations: [finalRecovery.verifiedClickObservation])
+        #expect(finalResult.status == .completed)
+
+        let (root, manager, persister, _) = try PacePowerManagerTests().fixture()
+        defer {
+            manager.cancelActiveTurnTasks()
+            try? FileManager.default.removeItem(at: root)
+        }
+        PacePowerManagerTests().begin("Click the field and press Return", manager: manager)
+        let request = try #require(manager.activeConversationUserEvent)
+        let feedback = try #require(PaceActionExecutionObservation.formatForUserFeedback([partial]))
+        _ = await manager.deliverPostActionFeedbackIfCurrentTurn(
+            feedback, turnLease: manager.turnLeaseRegistry.currentLease)
+        #expect(
+            persister.events.values.contains { event in
+                event.turnID == request.eventID && event.role == .pace && event.text == feedback
+            })
+    }
+
+    @Test func targetedScrollUsesTheSelectedDisplayAndRejectsItsEdges() throws {
+        let screenHeight = try #require(NSScreen.screens.first).frame.height
+        let primary = CompanionScreenCapture(
+            imageData: Data(), label: "Screen 1", isCursorScreen: true,
+            displayWidthInPoints: 800, displayHeightInPoints: 600,
+            displayFrame: CGRect(x: 0, y: screenHeight - 600, width: 800, height: 600),
+            screenshotWidthInPixels: 1600, screenshotHeightInPixels: 1200)
+        let secondary = CompanionScreenCapture(
+            imageData: Data(), label: "Screen 2", isCursorScreen: false,
+            displayWidthInPoints: 800, displayHeightInPoints: 600,
+            displayFrame: CGRect(x: -800, y: screenHeight - 600, width: 800, height: 600),
+            screenshotWidthInPixels: 1600, screenshotHeightInPixels: 1200)
+        let executor = PaceActionExecutor(actionsAreEnabledOverride: false)
+        let captures = [primary, secondary]
+        #expect(CompanionScreenCapture.clickScreenIndex(nil, in: [secondary, primary]) == 1)
+        #expect(CompanionScreenCapture.clickScreenIndex(nil, in: [secondary, secondary]) == nil)
+        #expect(CompanionScreenCapture.clickScreenIndex(nil, in: [primary, primary]) == nil)
+        let location = ScreenshotPixelLocation(xInScreenshotPixels: 640, yInScreenshotPixels: 280, screenNumber: 2)
+        let edge = ScreenshotPixelLocation(xInScreenshotPixels: 1600, yInScreenshotPixels: 280, screenNumber: 2)
+        let globalPoint = executor.convertScreenshotPixelToDisplayGlobalPoint(
+            screenshotPixelLocation: location, screenCaptures: captures, requiresExactLocation: true)
+        let edgePoint = executor.convertScreenshotPixelToDisplayGlobalPoint(
+            screenshotPixelLocation: edge, screenCaptures: captures, requiresExactLocation: true)
+        #expect(globalPoint == CGPoint(x: -480, y: 140))
+        #expect(edgePoint == nil)
+    }
+
+    @Test func targetedScrollNeverFallsBackToTheCurrentPointerWhenCaptureIsUnavailable() async throws {
+        let location = ScreenshotPixelLocation(xInScreenshotPixels: 320, yInScreenshotPixels: 120, screenNumber: 2)
+        let action = PaceParsedAction.scroll(.up, amountInLines: 5, location: location)
+        let executor = PaceActionExecutor(
+            actionsAreEnabledOverride: true, accessibilityPermissionCheck: { true }, readMyScreenIsEnabled: { true })
+        let results = await executor.executeActionPlan(.serial(actions: [action]), screenCaptures: [])
+        let result = try #require(results.first)
+        #expect(result.toolName == "scroll")
+        #expect(result.summary.contains("Could not locate"))
+        #expect(result.stopsActionPlan)
+        #expect(result.requiresFreshInspectionPlan)
+        let retry = await executor.executeActionPlan(.serial(actions: [action]), screenCaptures: [])
+        #expect(retry.first?.stopsAgentLoop == true)
+
+        let privateExecutor = PaceActionExecutor(
+            actionsAreEnabledOverride: true, accessibilityPermissionCheck: { true }, readMyScreenIsEnabled: { false })
+        let blocked = await privateExecutor.executeActionPlan(.serial(actions: [action]), screenCaptures: [])
+        #expect(blocked.first?.summary.contains("Read My Screen is off") == true)
+        #expect(blocked.first?.stopsActionPlan == true)
+    }
+
+    @Test func launchedProcessBindsOnlyKnownNameSelectorsAndPreservesExactReceipts() throws {
+        let chromeURL = URL(fileURLWithPath: "/Applications/Google Chrome.app")
+        let executor = PaceActionExecutor(
+            actionsAreEnabledOverride: false, runningApplicationBundleURL: { _ in chromeURL })
+        executor.rememberLaunchedApplication(
+            named: "Chrome", processIdentifier: 4123, bundleURL: chromeURL,
+            generation: executor.applicationTargetGeneration)
+        for (toolName, fieldName) in [("window", "app"), ("see", "app_target")] {
+            let request = PaceMCPToolCall(
+                serverName: "peekaboo", toolName: toolName, arguments: [fieldName: .string("Google Chrome")])
+            #expect(try executor.boundPeekabooToolCall(request).arguments[fieldName] == .string("PID:4123"))
+            for exactSelector in ["pid", "window_id", "snapshot", "coordinate_reference"] {
+                var exactArguments = request.arguments
+                exactArguments[exactSelector] = .string("explicit-receipt")
+                let exactRequest = PaceMCPToolCall(
+                    serverName: "peekaboo", toolName: toolName, arguments: exactArguments)
+                #expect(try executor.boundPeekabooToolCall(exactRequest) == exactRequest)
+            }
+            for relativeSelector in ["window_index", "window_title", "window_target"] {
+                var arguments = request.arguments
+                arguments[relativeSelector] = .string("preserved-window-selector")
+                let targetedRequest = PaceMCPToolCall(serverName: "peekaboo", toolName: toolName, arguments: arguments)
+                let boundRequest = try executor.boundPeekabooToolCall(targetedRequest)
+                #expect(boundRequest.arguments[fieldName] == .string("PID:4123"))
+                #expect(boundRequest.arguments[relativeSelector] == .string("preserved-window-selector"))
+            }
+        }
+        for request in [
+            PaceMCPToolCall(serverName: "peekaboo", toolName: "window", arguments: ["app": .string("PID:9999")]),
+            PaceMCPToolCall(serverName: "peekaboo", toolName: "window", arguments: ["app": .string("Safari")]),
+            PaceMCPToolCall(serverName: "peekaboo", toolName: "see", arguments: ["app": .string("Chrome")]),
+            PaceMCPToolCall(
+                serverName: "peekaboo", toolName: "click",
+                arguments: ["app": .string("Chrome"), "foreground": .bool(false)]),
+            PaceMCPToolCall(serverName: "other", toolName: "window", arguments: ["app": .string("Chrome")]),
+        ] {
+            #expect(try executor.boundPeekabooToolCall(request) == request)
+        }
+    }
+
+    @Test func launchedProcessCannotBeReplacedByAReusedPIDOrGuessedAfterProfileLaunch() throws {
+        let chromeURL = URL(fileURLWithPath: "/Applications/Google Chrome.app")
+        let executor = PaceActionExecutor(
+            actionsAreEnabledOverride: false,
+            runningApplicationBundleURL: { _ in
+                URL(fileURLWithPath: "/Applications/Other.app")
+            })
+        executor.rememberLaunchedApplication(
+            named: "Chrome", processIdentifier: 4123, bundleURL: chromeURL,
+            generation: executor.applicationTargetGeneration)
+        let request = PaceMCPToolCall(
+            serverName: "peekaboo", toolName: "window", arguments: ["app": .string("Google Chrome")])
+        #expect(throws: PaceMCPClientError.self) { try executor.boundPeekabooToolCall(request) }
+        executor.forgetLaunchedApplication(named: "Chrome")
+        #expect(try executor.boundPeekabooToolCall(request) == request)
+    }
+
+    @Test func turnResetRejectsOldLaunchCompletionsWithoutClearingNewTargets() throws {
+        let chromeURL = URL(fileURLWithPath: "/Applications/Google Chrome.app")
+        let notesURL = URL(fileURLWithPath: "/System/Applications/Notes.app")
+        let executor = PaceActionExecutor(
+            actionsAreEnabledOverride: false,
+            runningApplicationBundleURL: { processIdentifier in
+                processIdentifier == 5000 ? chromeURL : notesURL
+            })
+        let oldGeneration = executor.applicationTargetGeneration
+        executor.rememberLaunchedApplication(
+            named: "Chrome", processIdentifier: 4000, bundleURL: chromeURL, generation: oldGeneration)
+        executor.beginUserTurn()
+        let chromeRequest = PaceMCPToolCall(
+            serverName: "peekaboo", toolName: "window", arguments: ["app": .string("Chrome")])
+        #expect(try executor.boundPeekabooToolCall(chromeRequest) == chromeRequest)
+        executor.rememberLaunchedApplication(
+            named: "Chrome", processIdentifier: 5000, bundleURL: chromeURL,
+            generation: executor.applicationTargetGeneration)
+        executor.rememberLaunchedApplication(
+            named: "Notes", processIdentifier: 6000, bundleURL: notesURL,
+            generation: executor.applicationTargetGeneration)
+        executor.rememberLaunchedApplication(
+            named: "Chrome", processIdentifier: 4000, bundleURL: chromeURL, generation: oldGeneration)
+        #expect(try executor.boundPeekabooToolCall(chromeRequest).arguments["app"] == .string("PID:5000"))
+        let notesRequest = PaceMCPToolCall(
+            serverName: "peekaboo", toolName: "see", arguments: ["app_target": .string("Notes")])
+        #expect(try executor.boundPeekabooToolCall(notesRequest).arguments["app_target"] == .string("PID:6000"))
+    }
+
+    @Test func browserProfileLaunchForgetsCanonicalChromeBindingAcrossAliases() async throws {
+        let chromeURL = URL(fileURLWithPath: "/Applications/Google Chrome.app")
+        let executor = PaceActionExecutor(
+            actionsAreEnabledOverride: false, runningApplicationBundleURL: { _ in chromeURL })
+        executor.rememberLaunchedApplication(
+            named: "Google Chrome", processIdentifier: 4123, bundleURL: chromeURL,
+            generation: executor.applicationTargetGeneration)
+        let request = PaceMCPToolCall(serverName: "peekaboo", toolName: "window", arguments: ["app": .string("Chrome")])
+        #expect(try executor.boundPeekabooToolCall(request).arguments["app"] == .string("PID:4123"))
+        _ = await executor.openBrowser(.init(browserName: "Chrome", url: nil, chromeProfile: "work"))
+        #expect(try executor.boundPeekabooToolCall(request) == request)
+        let canonicalRequest = PaceMCPToolCall(
+            serverName: "peekaboo", toolName: "see", arguments: ["app_target": .string("Google Chrome")])
+        #expect(try executor.boundPeekabooToolCall(canonicalRequest) == canonicalRequest)
+    }
+
+    @Test func cancelledLaunchCompletionDoesNotInstallTargetInCurrentTurn() async throws {
+        let chromeURL = URL(fileURLWithPath: "/Applications/Google Chrome.app")
+        let executor = PaceActionExecutor(
+            actionsAreEnabledOverride: false, runningApplicationBundleURL: { _ in chromeURL })
+        let generation = executor.applicationTargetGeneration
+        let completion = Task { @MainActor in
+            try? await Task.sleep(for: .seconds(1))
+            executor.rememberLaunchedApplication(
+                named: "Chrome", processIdentifier: 4123, bundleURL: chromeURL, generation: generation)
+        }
+        completion.cancel()
+        await completion.value
+        let request = PaceMCPToolCall(serverName: "peekaboo", toolName: "window", arguments: ["app": .string("Chrome")])
+        #expect(try executor.boundPeekabooToolCall(request) == request)
+    }
+
+    @Test func terminalObservationStopsTheRestOfThePlanButUncertainDispatchCanContinue() async {
+        let terminalReasons: [PaceActionExecutionObservation.TerminalReason?] = [.ambiguousApplicationTarget, nil]
+        for terminalReason in terminalReasons {
+            let executor = PaceActionExecutor(actionsAreEnabledOverride: false)
+            var dispatchCount = 0
+            executor.executeCodingSession = { _ in
+                dispatchCount += 1
+                return .init(
+                    toolName: "test", summary: "Dispatch unverified; obtain fresh observation.",
+                    terminalReason: terminalReason)
+            }
+            let statusAction = PaceParsedAction.codingSession(.status(sessionID: nil))
+            let observations = await executor.executeActionPlan(
+                .init(steps: [.init(actions: [statusAction, statusAction]), .init(actions: [statusAction])]),
+                screenCaptures: [])
+            #expect(dispatchCount == (terminalReason == nil ? 3 : 1))
+            #expect(observations.contains(where: \.stopsAgentLoop) == (terminalReason != nil))
+        }
+    }
+
     @Test func missingAccessibilityBlocksInputAndReturnsActionableObservations() async {
         let executor = PaceActionExecutor(
             actionsAreEnabledOverride: true,

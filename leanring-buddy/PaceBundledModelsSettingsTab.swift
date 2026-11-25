@@ -86,10 +86,10 @@ struct PaceBundledModelsSettingsTab: View {
 
         return VStack(alignment: .leading, spacing: 12) {
             VStack(alignment: .leading, spacing: 3) {
-                Text("memory budget")
+                Text("Memory budget")
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundColor(DS.Colors.textPrimary)
-                Text("These on-device models share your Mac's RAM. Estimates are for resident memory while each model is loaded — advisory only, they don't change what runs.")
+                Text("Each estimate shows how much RAM a model uses while loaded.")
                     .font(.system(size: 12))
                     .foregroundColor(DS.Colors.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -105,7 +105,7 @@ struct PaceBundledModelsSettingsTab: View {
             // fits/over-budget verdict, and the "largest VLM that fits"
             // recommendation all update live.
             VStack(alignment: .leading, spacing: 4) {
-                Text("Planner brain")
+                Text("Planning model")
                     .font(.system(size: 12, weight: .medium))
                     .foregroundColor(DS.Colors.textSecondary)
                 VStack(spacing: 0) {
@@ -314,7 +314,7 @@ struct PaceBundledModelsSettingsTab: View {
                 .foregroundColor(DS.Colors.accent)
                 .padding(.top, 1)
             VStack(alignment: .leading, spacing: 3) {
-                Text("planner runs off-device")
+                Text("Off-device planning")
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundColor(DS.Colors.textPrimary)
                 Text("\(plannerVariant.displayLabel) uses ~0 GB of local RAM, so about \(formatGB(freeForVLMGB)) is free for a larger local vision model — where quality matters most.")
@@ -341,7 +341,7 @@ struct PaceBundledModelsSettingsTab: View {
                 .foregroundColor(DS.Colors.textSecondary)
                 .padding(.top, 1)
             VStack(alignment: .leading, spacing: 3) {
-                Text("local planner is using the budget")
+                Text("Local planner memory")
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundColor(DS.Colors.textPrimary)
                 Text("\(plannerVariant.displayLabel) holds ~\(formatGB(plannerVariant.estimatedResidentRAMGB)) resident. Switch the planner to a cloud tier or Apple Foundation Models (Settings → Planner) to free that RAM for a larger vision model.")
@@ -527,10 +527,10 @@ struct PaceBundledModelsSettingsTab: View {
         VStack(alignment: .leading, spacing: 10) {
             Toggle(isOn: $isUsingMLXVLM) {
                 VStack(alignment: .leading, spacing: 3) {
-                    Text("in-process mlx vision model")
+                    Text("MLX vision model")
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundColor(DS.Colors.textPrimary)
-                    Text("Run Qwen3-VL screen analysis via mlx-swift in-process. Drops LM Studio's max-loaded-models requirement for the VLM path. Same model as the LM Studio default — quality unchanged, latency improves by removing the HTTP loopback.")
+                    Text("Run Qwen3-VL inside Pace to analyze your screen without opening LM Studio.")
                         .font(.system(size: 12))
                         .foregroundColor(DS.Colors.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -568,7 +568,7 @@ struct PaceBundledModelsSettingsTab: View {
         VStack(alignment: .leading, spacing: 10) {
             Toggle(isOn: $isUsingQwen3TTS) {
                 VStack(alignment: .leading, spacing: 3) {
-                    Text("in-process Qwen3 TTS")
+                    Text("Qwen3 text-to-speech")
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundColor(DS.Colors.textPrimary)
                     Text(
@@ -608,7 +608,7 @@ struct PaceBundledModelsSettingsTab: View {
                 .font(.system(size: 14))
                 .padding(.top, 1)
             VStack(alignment: .leading, spacing: 4) {
-                Text("mlx runtime")
+                Text("MLX runtime")
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundColor(DS.Colors.textPrimary)
                 Text(summaryText)
@@ -626,10 +626,12 @@ struct PaceBundledModelsSettingsTab: View {
         VStack(alignment: .leading, spacing: 10) {
             Toggle(isOn: $isUsingMLXPlanner) {
                 VStack(alignment: .leading, spacing: 3) {
-                    Text("in-process mlx planner")
+                    Text("MLX planning model")
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundColor(DS.Colors.textPrimary)
-                    Text("Run the planner via mlx-swift in-process. Drops the LM Studio install dependency for new users. Default ships with Qwen3-4B-Instruct-2507 bf16 + a plan-then-execute prompt scaffold — high-precision, opt-in.")
+                    Text(
+                        "Run the planning model inside Pace without opening LM Studio. The default is Qwen3-4B-Instruct-2507 (bf16)."
+                    )
                         .font(.system(size: 12))
                         .foregroundColor(DS.Colors.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -882,8 +884,9 @@ struct PaceBundledModelsSettingsTab: View {
     private var qualityCaveatSection: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text("quality notes")
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundColor(DS.Colors.textSecondary)
+                .font(DS.Typography.sectionTitle)
+                .foregroundColor(DS.Colors.textPrimary)
+                .accessibilityAddTraits(.isHeader)
             Text("Bundled MLX is the right choice when you don't have LM Studio installed and don't want to install it. The 4B planner scores ~3-4 points below qwen3-30b-a3b on Pace's FM-fixture eval set, mostly affecting multi-step agent reasoning. For day-to-day voice turns the gap is small. The embedder is a cleaner swap — Apple NaturalLanguage fallback keeps recall working when the MLX model isn't loaded yet.")
                 .font(.system(size: 12))
                 .foregroundColor(DS.Colors.textSecondary)

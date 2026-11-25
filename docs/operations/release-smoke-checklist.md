@@ -13,7 +13,7 @@ Run the locally built Release app (not a dev build) on real hardware.
 
 ## Voice core (every release)
 
-- [ ] Hold ctrl+option, say "what time is it" — reply speaks within ~1 s.
+- [ ] Hold the configured push-to-talk shortcut (Right Option by default), say "what time is it" — reply speaks within ~1 s.
 - [ ] Say "open Music" — app opens once (watch for double-execution).
 - [ ] Press PTT twice back-to-back — second turn starts cleanly.
 - [ ] After releasing PTT, the macOS orange mic indicator goes away
@@ -40,6 +40,6 @@ Run the locally built Release app (not a dev build) on real hardware.
 
 - [ ] With Direct API tier active, run one turn — menu-bar capsule
       tints amber; Privacy dashboard shows bytes/target.
-- [ ] Switch back to Local — dashboard returns to "0 bytes".
+- [ ] Switch back to Local and run a local turn. Verify it adds no off-device calls or bytes and the capsule stays local. Earlier transfers remain in the 24-hour total.
 
 Record date + build + any anomaly in the release PR description.

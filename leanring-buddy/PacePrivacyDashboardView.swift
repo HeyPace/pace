@@ -89,6 +89,27 @@ struct PacePrivacyDashboardAggregator {
         return nil
     }
 
+    static func tier(for entry: PaceAPIAuditEntry) -> PaceOffDeviceTier? {
+        // Older Responses events did not record whether transport started. Only a response
+        // from the provider proves that those requests left the preflight stage.
+        if entry.subsystem == "planner.openai.responses" {
+            switch entry.outcome {
+            case "completed", "refused", "invalidResponse": return .directAPI
+            default: return entry.outcome.hasPrefix("httpFailure=") ? .directAPI : nil
+            }
+        }
+        if entry.subsystem == "planner.cloudBridge",
+            entry.outcome == CloudBridgePlannerClient.unconfirmedTransportOutcome
+        {
+            return nil
+        }
+        return tier(forSubsystem: entry.subsystem, target: entry.target)
+    }
+
+    static func target(for entry: PaceAPIAuditEntry) -> String {
+        entry.subsystem == "planner.openai.responses" ? "openai/" + entry.target : entry.target
+    }
+
     struct AggregatedPerTierStats {
         let tier: PaceOffDeviceTier
         let callCount: Int
@@ -98,6 +119,7 @@ struct PacePrivacyDashboardAggregator {
     struct AggregatedSnapshot {
         let totalOffDeviceBytesSent: Int
         let totalOffDeviceCallCount: Int
+        var unconfirmedResponsesRequests = 0
         let perTierStats: [AggregatedPerTierStats]
         /// Per-target byte totals — useful for the "X KB to claude.ai"
         /// fragment when traffic is non-zero. Sorted descending by bytes.
@@ -131,18 +153,22 @@ struct PacePrivacyDashboardAggregator {
         var perTargetByteTotals: [String: Int] = [:]
         var totalBytes = 0
         var totalCalls = 0
+        var unconfirmedResponsesRequests = 0
         var localPlannerEntryCount = 0
         var appleFoundationModelsEntryCount = 0
 
         for entry in filteredEntries {
-            if let tier = tier(forSubsystem: entry.subsystem, target: entry.target) {
+            if let tier = tier(for: entry) {
                 let bytesForEntry = entry.inputCharacterCount ?? 0
                 perTierByteTotals[tier, default: 0] += bytesForEntry
                 perTierCallCounts[tier, default: 0] += 1
-                perTargetByteTotals[entry.target, default: 0] += bytesForEntry
+                perTargetByteTotals[target(for: entry), default: 0] += bytesForEntry
                 totalBytes += bytesForEntry
                 totalCalls += 1
                 continue
+            }
+            if entry.subsystem == "planner.openai.responses", entry.outcome != "missingKey" {
+                unconfirmedResponsesRequests += 1
             }
             if entry.subsystem == "planner" {
                 if entry.target.hasPrefix("apple-fm") || entry.target.contains("foundation") {
@@ -168,6 +194,7 @@ struct PacePrivacyDashboardAggregator {
         return AggregatedSnapshot(
             totalOffDeviceBytesSent: totalBytes,
             totalOffDeviceCallCount: totalCalls,
+            unconfirmedResponsesRequests: unconfirmedResponsesRequests,
             perTierStats: perTierStats,
             perTargetStats: perTargetStats,
             localPlannerEntryCount: localPlannerEntryCount,
@@ -231,46 +258,40 @@ struct PacePrivacyDashboardView: View {
     // MARK: - Headline card
 
     private var headlineCardSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            SMSectionHeader("", accent: "privacy", size: 28)
-
-            SMCard(padding: 16) {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(headlineCardPrimaryText)
-                        .font(.system(size: 18, weight: .semibold))
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .fixedSize(horizontal: false, vertical: true)
-                    Text(headlineCardSecondaryText)
-                        .font(.system(size: 12))
-                        .foregroundColor(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                    HStack {
-                        Spacer()
-                        Button(action: refresh) {
-                            Label("refresh", systemImage: "arrow.clockwise")
-                                .font(DS.Typography.calloutStrong)
-                        }
-                        .buttonStyle(.bordered)
-                        .pointerCursor()
-                    }
+        HStack(alignment: .top, spacing: 16) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(headlineCardPrimaryText)
+                    .font(DS.Typography.sectionTitle)
+                    .fixedSize(horizontal: false, vertical: true)
+                if snapshot.unconfirmedResponsesRequests > 0 {
+                    Text("Earlier OpenAI requests with unknown delivery: \(snapshot.unconfirmedResponsesRequests).")
+                        .font(DS.Typography.callout).foregroundStyle(DS.Colors.textSecondary)
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
+                Text(headlineCardSecondaryText)
+                    .font(DS.Typography.callout)
+                    .foregroundStyle(DS.Colors.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
+            Spacer(minLength: 4)
+            paceSettingsButton("Refresh", systemName: "arrow.clockwise", action: refresh)
         }
+        .padding(.bottom, 10)
+        .overlay(alignment: .bottom) { PaceSettingsSeparator() }
     }
 
     private var headlineCardPrimaryText: String {
         let formattedBytes = PacePrivacyByteFormatter.format(bytes: snapshot.totalOffDeviceBytesSent)
         if snapshot.totalOffDeviceBytesSent <= 0 {
-            return "In the last \(lookbackInHours)h, Pace sent 0 bytes off this Mac."
+            return "Recorded off-device payload in the last \(lookbackInHours)h: 0 bytes."
         }
         let topTarget = snapshot.perTargetStats.first?.target ?? "an external API"
-        return "In the last \(lookbackInHours)h, Pace sent \(formattedBytes) off this Mac to \(topTarget)."
+        return
+            "Estimated off-device payload in the last \(lookbackInHours)h: \(formattedBytes). Top target: \(topTarget)."
     }
 
     private var headlineCardSecondaryText: String {
         if snapshot.totalOffDeviceCallCount == 0 {
-            return "Every planner, VLM, OCR, TTS, and MCP call stayed on this device. Numbers update live as Pace works."
+            return "No confirmed off-device requests in this window."
         }
         let perTierFragments = snapshot.perTierStats
             .filter { $0.callCount > 0 }
@@ -282,10 +303,11 @@ struct PacePrivacyDashboardView: View {
 
     private var auditTableSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("off-device audit log")
-                .font(.system(size: 14, weight: .semibold))
+            Text("Off-device audit log")
+                .font(DS.Typography.sectionTitle)
+                .accessibilityAddTraits(.isHeader)
             Text(
-                "Every byte Pace sent off this Mac in the last \(lookbackInHours)h. Searchable. No message content — only sizes and outcomes."
+                "Recorded off-device requests and estimated payload sizes in the last \(lookbackInHours)h. Search by target or outcome."
             )
             .font(.system(size: 11))
             .foregroundColor(.secondary)
@@ -294,8 +316,8 @@ struct PacePrivacyDashboardView: View {
             HStack(spacing: 8) {
                 TextField("Search target / outcome…", text: $auditSearchQuery)
                     .textFieldStyle(.roundedBorder)
-                Picker("tier", selection: $auditTierFilter) {
-                    Text("all").tag(PaceOffDeviceTier?.none)
+                Picker("Tier", selection: $auditTierFilter) {
+                    Text("All").tag(PaceOffDeviceTier?.none)
                     ForEach(PaceOffDeviceTier.allCases) { tier in
                         Text(tier.rawValue).tag(PaceOffDeviceTier?.some(tier))
                     }
@@ -329,14 +351,14 @@ struct PacePrivacyDashboardView: View {
     private var auditTableHeader: some View {
         // 428pt of fixed columns and gaps leaves room for the tier at the 820pt window minimum.
         HStack(spacing: 4) {
-            Text("time").font(.system(size: 11, weight: .semibold)).frame(width: 84, alignment: .leading)
-            Text("tier").font(.system(size: 11, weight: .semibold))
+            Text("Time").font(.system(size: 11, weight: .semibold)).frame(width: 84, alignment: .leading)
+            Text("Tier").font(.system(size: 11, weight: .semibold))
                 .frame(minWidth: 40, maxWidth: .infinity, alignment: .leading)
-            Text("sent").font(.system(size: 11, weight: .semibold)).frame(width: 60, alignment: .trailing)
-            Text("recv").font(.system(size: 11, weight: .semibold)).frame(width: 60, alignment: .trailing)
-            Text("tokens").font(.system(size: 11, weight: .semibold)).frame(width: 80, alignment: .trailing)
-            Text("cost").font(.system(size: 11, weight: .semibold)).frame(width: 60, alignment: .trailing)
-            Text("outcome").font(.system(size: 11, weight: .semibold)).frame(width: 60, alignment: .leading)
+            Text("Sent").font(.system(size: 11, weight: .semibold)).frame(width: 60, alignment: .trailing)
+            Text("Received").font(.system(size: 11, weight: .semibold)).frame(width: 60, alignment: .trailing)
+            Text("Tokens").font(.system(size: 11, weight: .semibold)).frame(width: 80, alignment: .trailing)
+            Text("Cost").font(.system(size: 11, weight: .semibold)).frame(width: 60, alignment: .trailing)
+            Text("Outcome").font(.system(size: 11, weight: .semibold)).frame(width: 60, alignment: .leading)
         }
         .foregroundColor(.secondary)
         .padding(.vertical, 6)
@@ -347,10 +369,7 @@ struct PacePrivacyDashboardView: View {
         // target=composio.*) shows up as `.mcpHosted` instead of
         // falling through to "mcp" as a raw subsystem string. Same
         // overload the aggregation loop uses.
-        let tier = PacePrivacyDashboardAggregator.tier(
-            forSubsystem: entry.subsystem,
-            target: entry.target
-        )
+        let tier = PacePrivacyDashboardAggregator.tier(for: entry)
         let tokenDisplay = PaceProviderCostEstimator.formatTokenCounts(
             inputTokenCount: entry.inputTokenCount,
             outputTokenCount: entry.outputTokenCount
@@ -367,7 +386,7 @@ struct PacePrivacyDashboardView: View {
             Text(tier?.rawValue ?? entry.subsystem)
                 .font(.system(size: 11))
                 .frame(minWidth: 40, maxWidth: .infinity, alignment: .leading)
-                .help(entry.target)
+                .help(PacePrivacyDashboardAggregator.target(for: entry))
             Text(PacePrivacyByteFormatter.format(bytes: entry.inputCharacterCount ?? 0))
                 .font(.system(size: 11))
                 .frame(width: 60, alignment: .trailing)
@@ -384,7 +403,7 @@ struct PacePrivacyDashboardView: View {
                 .frame(width: 60, alignment: .trailing)
             Text(entry.outcome)
                 .font(.system(size: 11))
-                .foregroundColor(entry.outcome == "ok" ? .secondary : .orange)
+                .foregroundColor(PaceAPIAuditEntry.isRecordedFailure(entry.outcome) ? .orange : .secondary)
                 .frame(width: 60, alignment: .leading)
         }
         .padding(.vertical, 4)
@@ -395,12 +414,12 @@ struct PacePrivacyDashboardView: View {
         // calls would otherwise be filtered OUT of this list because
         // the no-target overload returns nil for `subsystem == "mcp"`.
         let offDeviceEntries = auditEntries.filter {
-            PacePrivacyDashboardAggregator.tier(forSubsystem: $0.subsystem, target: $0.target) != nil
+            PacePrivacyDashboardAggregator.tier(for: $0) != nil
         }
         let tierFiltered: [PaceAPIAuditEntry]
         if let auditTierFilter {
             tierFiltered = offDeviceEntries.filter {
-                PacePrivacyDashboardAggregator.tier(forSubsystem: $0.subsystem, target: $0.target) == auditTierFilter
+                PacePrivacyDashboardAggregator.tier(for: $0) == auditTierFilter
             }
         } else {
             tierFiltered = offDeviceEntries
@@ -410,7 +429,7 @@ struct PacePrivacyDashboardView: View {
             return tierFiltered.reversed() // newest first
         }
         return tierFiltered.filter { entry in
-            entry.target.lowercased().contains(trimmedQuery)
+            PacePrivacyDashboardAggregator.target(for: entry).lowercased().contains(trimmedQuery)
                 || entry.outcome.lowercased().contains(trimmedQuery)
         }.reversed()
     }
@@ -420,8 +439,9 @@ struct PacePrivacyDashboardView: View {
     private var perTierBreakdownSection: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Where your turns ran (last \(lookbackInHours)h)")
-                .font(.system(size: 14, weight: .semibold))
-            Text("Counts are planner-completion entries grouped by where the model lived.")
+                .font(DS.Typography.sectionTitle)
+                .accessibilityAddTraits(.isHeader)
+            Text("Completed planner calls, grouped by where they ran.")
                 .font(.system(size: 11))
                 .foregroundColor(.secondary)
 
@@ -472,9 +492,10 @@ struct PacePrivacyDashboardView: View {
 
     private var permissionsAuditSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("permissions pace has and uses")
-                .font(.system(size: 14, weight: .semibold))
-            Text("Cross-references the macOS grants with the audit log so you can see which permissions Pace actually exercises.")
+            Text("Permission activity")
+                .font(DS.Typography.sectionTitle)
+                .accessibilityAddTraits(.isHeader)
+            Text("Compare your macOS permissions with their recorded use.")
                 .font(.system(size: 11))
                 .foregroundColor(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -554,11 +575,12 @@ struct PacePrivacyDashboardView: View {
 
     private var dataResidencyClaimSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("data residency")
-                .font(.system(size: 14, weight: .semibold))
+            Text("Where your data goes")
+                .font(DS.Typography.sectionTitle)
+                .accessibilityAddTraits(.isHeader)
             VStack(alignment: .leading, spacing: 6) {
                 Text("Pace runs every planner, VLM, OCR, TTS, and MCP call on this Mac by default. No transcripts, screenshots, or audio leave the device.")
-                Text("deliberate exceptions, all opt-in:")
+                Text("Optional network features")
                     .padding(.top, 4)
                 bulletText("download_file fetches a URL you name into ~/Downloads — no other bytes are sent.")
                 bulletText("Cloud bridge (off by default) routes a turn through your already-authenticated Claude Code / Codex / Gemini CLI on this Mac. The CLI itself contacts the upstream provider.")

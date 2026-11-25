@@ -1,24 +1,4 @@
-//
-//  PaceChatSession.swift
-//  leanring-buddy
-//
-//  Backing store for the in-window chat surface in the Conversations tab.
-//  This file owns the ordered list of messages the SwiftUI view renders;
-//  the SOURCE OF TRUTH for persistence is still the existing `paceHistory`
-//  retrieval index that voice turns already write to via
-//  `PaceLocalRetriever.recordPaceHistory`. The chat session reads from
-//  that same index at load time and listens for new turns through
-//  `appendTurn(userTranscript:assistantResponse:)`, which `CompanionManager`
-//  calls from the single `recordConversationTurn` chokepoint — so voice
-//  and chat are always rendering the same conversation.
-//
-//  Mute is intentionally a per-session ephemeral `@Published` flag: it
-//  is NOT persisted (no UserDefaults, no chat-level prefs file). On app
-//  restart it returns to the default (false → Pace still speaks). The
-//  flag is read once per turn by `CompanionManager` when chat-mode
-//  submission begins, so toggling it mid-turn affects the NEXT turn but
-//  not the one currently streaming — matches voice-turn semantics.
-//
+// Shared live transcript backed by the local paceHistory retrieval index.
 
 import Combine
 import Foundation
@@ -28,7 +8,7 @@ import SwiftUI
 // actor isolation is MainActor, which would otherwise pin them there —
 // but the pure `PaceChatTranscriptModel` mapping layer (and its
 // off-main-actor tests) needs to read them from a nonisolated context.
-nonisolated enum PaceChatRole: String, Codable, Equatable {
+nonisolated enum PaceChatRole: String, Codable, Equatable, Sendable {
     case user
     case pace
 }
@@ -38,6 +18,13 @@ nonisolated struct PaceChatMessage: Identifiable, Equatable {
     let role: PaceChatRole
     let body: String
     let createdAt: Date
+    var speechRequest: PaceSpeechRequest? = nil
+    var turnIdentifier: String? = nil
+    var origin: ConversationEvent.Origin? = nil
+    var deliveryState: ConversationEvent.DeliveryState? = nil
+    var generatedImagePreviewID: UUID? = nil
+    var threadRootID: String? = nil
+    var powerCatalog: PaceChatPowerCatalog? = nil
 
     var isInternalRuntimeEvent: Bool {
         guard role == .user else { return false }
@@ -78,6 +65,7 @@ struct PaceChatHistoryTurn: Equatable, Sendable {
     let userText: String
     let paceText: String
     let recordedAt: Date?
+    var conversationEvent: ConversationEvent? = nil
 }
 
 /// Thin abstraction over the chat-mode submission path on
@@ -95,8 +83,21 @@ protocol PaceChatTranscriptSubmitting: AnyObject {
 
 @MainActor
 final class PaceChatSession: ObservableObject {
-    @Published private(set) var messages: [PaceChatMessage] = []
+    @Published private(set) var messages: [PaceChatMessage] = [] {
+        didSet {
+            cachedReplyCounts = nil
+            cachedTurnRoots = nil
+        }
+    }
+    @Published private(set) var activeThreadRootID: String?
+    private var cachedTurnRoots: [String: String]?
+    private var cachedReplyCounts: [String: Int]?
+    private var draftConnections: [String?: PacePowerConnection] = [:]
+    private var inactiveDrafts: [String?: String] = [:]
     @Published private(set) var hasLoadedHistory: Bool = false
+    @Published private(set) var latestScreenSuggestionEvent: ConversationEvent?
+    @Published private var lastAcknowledgedScreenSuggestionEventIdentifier: String
+    @Published private var screenSuggestionReadThroughDate: Date?
 
     /// Mute toggle for THIS session only. Reset to `false` on every app
     /// launch (a fresh `CompanionManager` builds a fresh session) so
@@ -109,9 +110,12 @@ final class PaceChatSession: ObservableObject {
     /// closed and reopened. This remains session-only and is never persisted.
     @Published var draftMessageText: String = ""
 
-    private var isHistoryLoadInFlight = false
+    private var historyLoadID: UUID?
 
     private let historySource: PaceChatHistorySource
+    private let preferences: UserDefaults?
+    private let now: () -> Date
+    private let didAcknowledgeScreenSuggestion: (String) -> Void
     /// Strongly held. The adapter that conforms to this protocol in
     /// production code holds `CompanionManager` weakly, so a strong
     /// reference here cannot create a retain cycle. Tests can pass a
@@ -121,10 +125,24 @@ final class PaceChatSession: ObservableObject {
 
     init(
         historySource: PaceChatHistorySource,
-        transcriptSubmitter: any PaceChatTranscriptSubmitting
+        transcriptSubmitter: any PaceChatTranscriptSubmitting,
+        preferences: UserDefaults? = nil,
+        now: @escaping () -> Date = Date.init,
+        didAcknowledgeScreenSuggestion: @escaping (String) -> Void = { _ in }
     ) {
         self.historySource = historySource
         self.transcriptSubmitter = transcriptSubmitter
+        self.preferences = preferences
+        self.now = now
+        self.didAcknowledgeScreenSuggestion = didAcknowledgeScreenSuggestion
+        self.lastAcknowledgedScreenSuggestionEventIdentifier =
+            preferences.map {
+                PaceUserPreferencesStore.string(
+                    .lastAcknowledgedScreenSuggestionEventIdentifier, default: "", defaults: $0)
+            } ?? ""
+        self.screenSuggestionReadThroughDate = preferences.flatMap {
+            PaceUserPreferencesStore.date(.screenSuggestionReadThroughDate, defaults: $0)
+        }
     }
 
     /// Pulls past `paceHistory` turns and seeds `messages` with them.
@@ -140,63 +158,252 @@ final class PaceChatSession: ObservableObject {
     /// away from the main actor so opening a Pace surface never waits on a
     /// growing retrieval index. Test sources remain synchronous.
     func loadHistoryWithoutBlockingInterface() {
-        guard !isHistoryLoadInFlight else { return }
+        guard historyLoadID == nil else { return }
         guard let localHistoryReader = historySource as? PaceLocalChatHistoryReader else {
             loadHistory()
             return
         }
 
-        isHistoryLoadInFlight = true
-        let messageIdentifiersBeforeHistoryLoad = Set(messages.map(\.id))
+        let loadID = UUID()
+        historyLoadID = loadID
         Task { [weak self] in
             let pastTurns = await localHistoryReader.loadPastTurnsOldestFirstOffMain()
-            guard let self else { return }
-            let messagesAddedDuringHistoryLoad = self.messages.filter { message in
-                !messageIdentifiersBeforeHistoryLoad.contains(message.id)
-            }
-            self.isHistoryLoadInFlight = false
+            guard let self, self.historyLoadID == loadID else { return }
+            self.historyLoadID = nil
             self.applyLoadedHistory(pastTurns)
-            let loadedMessageIdentifiers = Set(self.messages.map(\.id))
-            self.messages.append(
-                contentsOf: messagesAddedDuringHistoryLoad.filter { message in
-                    !loadedMessageIdentifiers.contains(message.id)
-                })
         }
     }
 
-    private func applyLoadedHistory(_ pastTurns: [PaceChatHistoryTurn]) {
-        var rehydratedMessages: [PaceChatMessage] = []
-        rehydratedMessages.reserveCapacity(pastTurns.count * 2)
-        for pastTurn in pastTurns {
-            let baseTimestamp = pastTurn.recordedAt ?? Date.distantPast
-            if !pastTurn.userText.isEmpty {
-                rehydratedMessages.append(
-                    PaceChatMessage(
-                        id: "\(pastTurn.id):user",
-                        role: .user,
-                        body: pastTurn.userText,
-                        createdAt: baseTimestamp
-                    )
-                )
-            }
-            if !pastTurn.paceText.isEmpty {
-                rehydratedMessages.append(
-                    PaceChatMessage(
-                        id: "\(pastTurn.id):pace",
-                        role: .pace,
-                        // Offset the assistant timestamp by 1ms so
-                        // ordering by `createdAt` is stable when the
-                        // recorded turn timestamp is the same for both
-                        // halves (always true — they're written
-                        // together).
-                        body: pastTurn.paceText,
-                        createdAt: baseTimestamp.addingTimeInterval(0.001)
-                    )
-                )
+    func applyLoadedHistory(_ pastTurns: [PaceChatHistoryTurn]) {
+        var merged: [PaceChatMessage] = []
+        var positions: [String: Int] = [:]
+        func merge(_ row: PaceChatMessage) {
+            if let position = positions[row.id] {
+                merged[position] = row
+            } else {
+                positions[row.id] = merged.count
+                merged.append(row)
             }
         }
-        messages = rehydratedMessages
+
+        let liveSuggestion = latestScreenSuggestionEvent
+        for turn in pastTurns {
+            if let event = turn.conversationEvent {
+                merge(message(from: event))
+                updateLatestScreenSuggestion(event)
+            } else {
+                let date = turn.recordedAt ?? .distantPast
+                if !turn.userText.isEmpty {
+                    merge(PaceChatMessage(id: "\(turn.id):user", role: .user, body: turn.userText, createdAt: date))
+                }
+                if !turn.paceText.isEmpty {
+                    merge(
+                        PaceChatMessage(
+                            id: "\(turn.id):pace", role: .pace, body: turn.paceText,
+                            createdAt: date.addingTimeInterval(0.001)))
+                }
+            }
+        }
+        for live in messages { merge(live) }
+        if let liveSuggestion { updateLatestScreenSuggestion(liveSuggestion) }
+        messages = merged.sorted { $0.createdAt < $1.createdAt }
         hasLoadedHistory = true
+    }
+
+    func orderMessagesChronologically() {
+        messages.sort { $0.createdAt < $1.createdAt }
+    }
+
+    func upsertConversationEvent(_ event: ConversationEvent) {
+        upsertMessage(message(from: event))
+        updateLatestScreenSuggestion(event)
+    }
+
+    private func message(from event: ConversationEvent) -> PaceChatMessage {
+        PaceChatMessage(
+            id: event.eventID, role: event.role, body: event.text, createdAt: event.createdAt,
+            speechRequest: event.speechRequest, turnIdentifier: event.turnID, origin: event.origin,
+            deliveryState: event.deliveryState, generatedImagePreviewID: event.generatedImagePreviewID,
+            threadRootID: event.threadRootID, powerCatalog: event.powerCatalog)
+    }
+
+    private func updateLatestScreenSuggestion(_ event: ConversationEvent) {
+        if event.role == .pace, event.origin == .proactive, event.deliveryState == .completed,
+            event.eventID.hasPrefix("screen-suggestion-"),
+            !event.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+            latestScreenSuggestionEvent.map({ event.createdAt >= $0.createdAt }) ?? true
+        {
+            latestScreenSuggestionEvent = event
+        }
+    }
+
+    var activeThreadRoot: PaceChatMessage? {
+        guard let activeThreadRootID else { return nil }
+        return messages.first { $0.id == activeThreadRootID }
+    }
+
+    var visibleMessages: [PaceChatMessage] {
+        let visible = userFacingMessages
+        guard let activeThreadRootID else { return visible.filter { $0.threadRootID == nil } }
+        let root = visible.first { $0.id == activeThreadRootID }
+        return [root].compactMap { $0 } + visible.filter { $0.threadRootID == activeThreadRootID }
+    }
+
+    func openThread(for message: PaceChatMessage) {
+        guard let stored = messages.first(where: { $0.id == message.id }) else { return }
+        navigate(to: stored.threadRootID ?? stored.id)
+    }
+
+    func returnToMainChat() { navigate(to: nil) }
+
+    func showLocation(of message: PaceChatMessage) {
+        guard let stored = messages.first(where: { $0.id == message.id }) else { return }
+        navigate(to: stored.threadRootID)
+    }
+
+    func navigate(to rootID: String?) {
+        guard activeThreadRootID != rootID else { return }
+        inactiveDrafts[activeThreadRootID] = draftMessageText.isEmpty ? nil : draftMessageText
+        draftMessageText = inactiveDrafts.removeValue(forKey: rootID) ?? ""
+        activeThreadRootID = rootID
+    }
+
+    func replyCount(for message: PaceChatMessage) -> Int {
+        if cachedReplyCounts == nil {
+            var counts: [String: Int] = [:]
+            for reply in userFacingMessages where !(reply.role == .pace && reply.origin == .progress) {
+                if let root = reply.threadRootID { counts[root, default: 0] += 1 }
+            }
+            cachedReplyCounts = counts
+        }
+        return cachedReplyCounts?[message.id] ?? 0
+    }
+
+    func threadRootID(forTurnID turnID: String) -> String? {
+        if cachedTurnRoots == nil {
+            var roots: [String: String] = [:]
+            for message in messages where message.role == .user {
+                guard let root = message.threadRootID else { continue }
+                roots[message.id] = root
+                if let id = message.turnIdentifier { roots[id] = root }
+            }
+            cachedTurnRoots = roots
+        }
+        return cachedTurnRoots?[turnID]
+    }
+
+    func plannerHistory(
+        forThreadRootID rootID: String, excludingTurnID: String?,
+        maximumPriorTurns: Int = 8, since cutoff: Date? = nil
+    )
+        -> [(userTranscript: String, assistantResponse: String)]
+    {
+        let visible = userFacingMessages
+        var history: [(userTranscript: String, assistantResponse: String)] = []
+        if let root = visible.first(where: { $0.id == rootID }) {
+            let anchor = String(root.body.prefix(4_000))
+            let rootTurnID = root.turnIdentifier ?? root.persistedTurnIdentifier ?? root.id
+            let counterpart =
+                maximumPriorTurns > 0
+                ? visible.last { candidate in
+                    candidate.role != root.role && candidate.threadRootID == nil && candidate.origin != .progress
+                        && candidate.deliveryState != .cancelled && candidate.deliveryState != .interrupted
+                        && (candidate.turnIdentifier ?? candidate.persistedTurnIdentifier ?? candidate.id) == rootTurnID
+                        && (cutoff.map { candidate.createdAt >= $0 } ?? true)
+                } : nil
+            let pairedText = String((counterpart?.body ?? "").prefix(2_000))
+            history.append(root.role == .user ? (anchor, pairedText) : (pairedText, anchor))
+        }
+        guard maximumPriorTurns > 0 else { return history }
+
+        // Read recent completed replies backward so idle queues and long-lived
+        // threads cannot overwhelm the new request. Preserve the anchor separately.
+        var recentTurnIDs: [String] = []
+        var selectedTurns = Set<String>()
+        for message in visible.reversed() where message.threadRootID == rootID && message.role == .pace {
+            guard let turnID = message.turnIdentifier ?? message.persistedTurnIdentifier,
+                turnID != excludingTurnID, cutoff.map({ message.createdAt >= $0 }) ?? true,
+                message.deliveryState != .cancelled,
+                message.deliveryState != .interrupted, message.origin != .progress
+            else { continue }
+            if selectedTurns.insert(turnID).inserted { recentTurnIDs.append(turnID) }
+            if recentTurnIDs.count >= maximumPriorTurns { break }
+        }
+        var pairsByTurn: [String: (userTranscript: String, assistantResponse: String)] = [:]
+        for message in visible where message.threadRootID == rootID {
+            guard let turnID = message.turnIdentifier ?? message.persistedTurnIdentifier,
+                selectedTurns.contains(turnID), cutoff.map({ message.createdAt >= $0 }) ?? true,
+                message.deliveryState != .cancelled,
+                message.deliveryState != .interrupted
+            else { continue }
+            if message.role == .user {
+                pairsByTurn[turnID, default: ("", "")].userTranscript = String(message.body.prefix(2_000))
+            } else {
+                let preceding = pairsByTurn[turnID]?.assistantResponse ?? ""
+                let text = String(message.body.prefix(2_000))
+                // Keep the final answer when preceding progress has filled the budget.
+                let remaining = max(0, 2_000 - text.count - 1)
+                let prefix = preceding.suffix(remaining)
+                pairsByTurn[turnID, default: ("", "")].assistantResponse = prefix.isEmpty ? text : "\(prefix)\n\(text)"
+            }
+        }
+        history.append(contentsOf: recentTurnIDs.reversed().compactMap { pairsByTurn[$0] })
+        return history
+    }
+
+    func clearHistory() {
+        historyLoadID = nil
+        activeThreadRootID = nil
+        draftMessageText = ""
+        inactiveDrafts.removeAll()
+        draftConnections.removeAll()
+        latestScreenSuggestionEvent = nil
+        messages.removeAll()
+    }
+
+    var hasUnreadScreenSuggestion: Bool {
+        guard let event = latestScreenSuggestionEvent,
+            event.eventID != lastAcknowledgedScreenSuggestionEventIdentifier
+        else { return false }
+        guard let screenSuggestionReadThroughDate else { return true }
+        return event.createdAt >= screenSuggestionReadThroughDate
+    }
+
+    func conversationPanelDidShow(_ intent: PaceConversationPanelPresentationIntent) {
+        guard intent == .interactive else { return }
+        acknowledgeScreenSuggestions()
+    }
+
+    func acknowledgeScreenSuggestions() {
+        let acknowledgementDate = now()
+        if let screenSuggestionReadThroughDate, acknowledgementDate < screenSuggestionReadThroughDate { return }
+        screenSuggestionReadThroughDate = acknowledgementDate
+        if let preferences {
+            PaceUserPreferencesStore.setDate(
+                acknowledgementDate, for: .screenSuggestionReadThroughDate, defaults: preferences)
+        }
+        if let event = latestScreenSuggestionEvent, event.createdAt <= acknowledgementDate {
+            acknowledgeScreenSuggestion(eventIdentifier: event.eventID)
+        }
+    }
+
+    func acknowledgeScreenSuggestion(eventIdentifier: String) {
+        guard latestScreenSuggestionEvent?.eventID == eventIdentifier else { return }
+        lastAcknowledgedScreenSuggestionEventIdentifier = eventIdentifier
+        if let preferences {
+            PaceUserPreferencesStore.setString(
+                eventIdentifier,
+                for: .lastAcknowledgedScreenSuggestionEventIdentifier, defaults: preferences)
+        }
+        didAcknowledgeScreenSuggestion(eventIdentifier)
+    }
+
+    private func upsertMessage(_ message: PaceChatMessage) {
+        if let messageIndex = messages.firstIndex(where: { $0.id == message.id }) {
+            messages[messageIndex] = message
+        } else {
+            messages.append(message)
+        }
     }
 
     /// Called by the chat view when the user hits Enter. Trims the
@@ -206,18 +413,49 @@ final class PaceChatSession: ObservableObject {
     /// submitter. The matching assistant message is appended later by
     /// `appendCompletedTurn` from `recordConversationTurn` — that's
     /// where we get the final cleaned spoken text.
+    func prepareDraft(using connection: PacePowerConnection) {
+        var content = draftMessageText
+        if let previous = draftConnections[activeThreadRootID] {
+            if content == previous.suggestedRequest {
+                content = ""
+            } else {
+                let previousPrefixes = ["Use " + previous.id + ": ", "Use " + previous.id + " to "]
+                if let prefix = previousPrefixes.first(where: content.hasPrefix) { content.removeFirst(prefix.count) }
+            }
+        }
+        draftConnections[activeThreadRootID] = connection
+        draftMessageText =
+            content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? connection.suggestedRequest : "Use " + connection.id + ": " + content
+    }
+
+    func insertPowerExample(_ example: String) {
+        let existing = draftMessageText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if existing.isEmpty {
+            draftMessageText = example
+        } else if existing != example && !existing.hasSuffix("\n" + example) {
+            draftMessageText += "\n" + example
+        }
+    }
+
     func submitUserMessage(_ rawTranscript: String) {
         let trimmedTranscript = rawTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedTranscript.isEmpty else { return }
+        draftConnections[activeThreadRootID] = nil
+        acknowledgeScreenSuggestions()
         let now = Date()
         let pendingMessageId =
-            "chat-pending-\(Int(now.timeIntervalSince1970 * 1000))-\(abs(trimmedTranscript.hashValue))"
+            "chat-pending-" + UUID().uuidString
         messages.append(
             PaceChatMessage(
                 id: pendingMessageId,
                 role: .user,
                 body: trimmedTranscript,
-                createdAt: now
+                createdAt: now,
+                turnIdentifier: pendingMessageId,
+                origin: .typed,
+                deliveryState: .accepted,
+                threadRootID: activeThreadRootID
             )
         )
         transcriptSubmitter.submitChatTranscript(
@@ -237,20 +475,24 @@ final class PaceChatSession: ObservableObject {
     ) {
         let trimmedUserTranscript = userTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedAssistantResponse = assistantResponse.trimmingCharacters(in: .whitespacesAndNewlines)
-        let stableTurnIdPrefix = "chat-\(Int(recordedAt.timeIntervalSince1970))-\(abs(trimmedUserTranscript.hashValue))"
+        let stableTurnIdPrefix = "chat-" + UUID().uuidString
 
         var completedUserMessageIndex: Int?
         if !trimmedUserTranscript.isEmpty {
             if let optimisticMessageIndex = messages.firstIndex(where: { message in
                 message.id.hasPrefix("chat-pending-")
                     && message.role == .user
+                    && message.deliveryState == .accepted
                     && message.body == trimmedUserTranscript
             }) {
+                let optimisticMessage = messages[optimisticMessageIndex]
                 messages[optimisticMessageIndex] = PaceChatMessage(
-                    id: "\(stableTurnIdPrefix):user",
+                    id: optimisticMessage.id,
                     role: .user,
                     body: trimmedUserTranscript,
-                    createdAt: recordedAt
+                    createdAt: recordedAt,
+                    turnIdentifier: optimisticMessage.turnIdentifier, origin: optimisticMessage.origin,
+                    deliveryState: .completed, threadRootID: optimisticMessage.threadRootID
                 )
                 completedUserMessageIndex = optimisticMessageIndex
             } else if let mostRecentMessageIndex = messages.indices.last,
@@ -276,7 +518,9 @@ final class PaceChatSession: ObservableObject {
                 id: "\(stableTurnIdPrefix):pace",
                 role: .pace,
                 body: trimmedAssistantResponse,
-                createdAt: recordedAt.addingTimeInterval(0.001)
+                createdAt: recordedAt.addingTimeInterval(0.001),
+                turnIdentifier: completedUserMessageIndex.flatMap { messages[$0].turnIdentifier },
+                threadRootID: completedUserMessageIndex.flatMap { messages[$0].threadRootID }
             )
             if let completedUserMessageIndex {
                 messages.insert(
@@ -344,19 +588,25 @@ final class PaceChatSession: ObservableObject {
 final class PaceLocalChatHistoryReader: PaceChatHistorySource {
 
     private nonisolated static let maximumDisplayedTurnCount = 200
+    private nonisolated let indexURL: URL?
+
+    init(indexURL: URL? = nil) {
+        self.indexURL = indexURL
+    }
 
     func loadPastTurnsOldestFirst() -> [PaceChatHistoryTurn] {
-        Self.loadPastTurnsOldestFirstFromDisk()
+        Self.loadPastTurnsOldestFirstFromDisk(indexURL: indexURL)
     }
 
     nonisolated func loadPastTurnsOldestFirstOffMain() async -> [PaceChatHistoryTurn] {
-        await Task.detached(priority: .userInitiated) {
-            Self.loadPastTurnsOldestFirstFromDisk()
+        let indexURL = indexURL
+        return await Task.detached(priority: .userInitiated) {
+            Self.loadPastTurnsOldestFirstFromDisk(indexURL: indexURL)
         }.value
     }
 
-    private nonisolated static func loadPastTurnsOldestFirstFromDisk() -> [PaceChatHistoryTurn] {
-        guard let indexURL = retrievalIndexFileURL(),
+    private nonisolated static func loadPastTurnsOldestFirstFromDisk(indexURL: URL?) -> [PaceChatHistoryTurn] {
+        guard let indexURL = indexURL ?? retrievalIndexFileURL(),
             let indexData = try? Data(contentsOf: indexURL),
             let indexJSON = try? JSONSerialization.jsonObject(with: indexData) as? [String: Any],
             let rawDocuments = indexJSON["documents"] as? [[String: Any]]
@@ -390,7 +640,11 @@ final class PaceLocalChatHistoryReader: PaceChatHistorySource {
                 id: id,
                 userText: userText,
                 paceText: paceText,
-                recordedAt: recordedAt
+                recordedAt: recordedAt,
+                conversationEvent: (documentRaw["conversationEvent"] as? [String: Any]).flatMap { rawEvent in
+                    guard let eventData = try? JSONSerialization.data(withJSONObject: rawEvent) else { return nil }
+                    return try? JSONDecoder().decode(ConversationEvent.self, from: eventData)
+                }
             )
         }
         // Oldest-first so the chat transcript renders top-down with the
@@ -398,7 +652,34 @@ final class PaceLocalChatHistoryReader: PaceChatHistorySource {
         let oldestFirstTurns = pastTurns.sorted {
             ($0.recordedAt ?? .distantPast) < ($1.recordedAt ?? .distantPast)
         }
-        return Array(oldestFirstTurns.suffix(maximumDisplayedTurnCount))
+        guard oldestFirstTurns.count > maximumDisplayedTurnCount else { return oldestFirstTurns }
+        // Only unthreaded history is windowed. A saved conversation remains complete
+        // even if the root is one half of an old paired document.
+        let roots = Set(oldestFirstTurns.compactMap { $0.conversationEvent?.threadRootID })
+        let anchorTurnIDs = Set(
+            oldestFirstTurns.compactMap { turn -> String? in
+                guard let event = turn.conversationEvent, roots.contains(event.eventID) else {
+                    return nil
+                }
+                return event.turnID ?? event.eventID
+            })
+        var mainCount = 0
+        let retained = oldestFirstTurns.reversed().filter { turn in
+            if let event = turn.conversationEvent {
+                if event.threadRootID != nil || roots.contains(event.eventID) { return true }
+                if event.origin != .progress, event.deliveryState != .cancelled, event.deliveryState != .interrupted,
+                    anchorTurnIDs.contains(event.turnID ?? event.eventID)
+                {
+                    return true
+                }
+            } else if roots.contains("\(turn.id):user") || roots.contains("\(turn.id):pace") {
+                return true
+            }
+            guard mainCount < maximumDisplayedTurnCount else { return false }
+            mainCount += 1
+            return true
+        }
+        return Array(retained.reversed())
     }
 
     private nonisolated static func retrievalIndexFileURL() -> URL? {

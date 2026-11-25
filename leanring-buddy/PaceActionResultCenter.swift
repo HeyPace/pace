@@ -45,19 +45,29 @@ nonisolated struct PaceActionRunRecord: Identifiable, Equatable {
     let status: PaceActionRunStatus
     let title: String
     let detail: String
+    let showsInConversation: Bool
+    let diagnosticDetail: String?
+    let targetResolution: PaceApplicationTargetResolution?
+    var turnIdentifier: String? = nil
 
     init(
         id: UUID = UUID(),
         createdAt: Date = Date(),
         status: PaceActionRunStatus,
         title: String,
-        detail: String
+        detail: String,
+        showsInConversation: Bool = true,
+        diagnosticDetail: String? = nil,
+        targetResolution: PaceApplicationTargetResolution? = nil
     ) {
         self.id = id
         self.createdAt = createdAt
         self.status = status
         self.title = title
         self.detail = detail
+        self.showsInConversation = showsInConversation
+        self.diagnosticDetail = diagnosticDetail
+        self.targetResolution = targetResolution
     }
 
     static func planned(
@@ -82,20 +92,67 @@ nonisolated struct PaceActionRunRecord: Identifiable, Equatable {
     }
 
     static func completed(observations: [PaceActionExecutionObservation]) -> PaceActionRunRecord {
-        let hasFailure = observations.contains { observation in
+        func indicatesFailure(_ observation: PaceActionExecutionObservation) -> Bool {
+            if observation.requiresFreshInspectionPlan { return false }
             let lowercasedSummary = observation.summary.lowercased()
-            return lowercasedSummary.contains("failed")
+            return observation.stopsAgentLoop || lowercasedSummary.contains("failed")
                 || lowercasedSummary.contains("could not")
                 || lowercasedSummary.contains("not granted")
                 || lowercasedSummary.contains("does not exist")
         }
-
-        let feedback = PaceActionExecutionObservation.formatForUserFeedback(observations)
-            ?? "No tool observations returned."
+        let targetResolution = observations.compactMap(\.targetResolution).last
+        let ordinaryObservations = observations.filter { $0.targetResolution == nil }
+        let visibleObservations =
+            targetResolution != nil && !ordinaryObservations.isEmpty
+            ? ordinaryObservations : observations
+        let hasFailure = visibleObservations.contains(where: indicatesFailure)
+        let needsFreshInspection = visibleObservations.contains(where: \.requiresFreshInspectionPlan)
+        let showsInConversation = targetResolution == nil || !ordinaryObservations.isEmpty
+        let hasSeparateDiagnostics = observations.contains { $0.userFacingSummary != nil || $0.targetResolution != nil }
+        let feedback =
+            PaceActionExecutionObservation.formatForUserFeedback(visibleObservations)
+            ?? targetResolution?.userFacingSummary ?? "No tool observations returned."
+        let title: String
+        if hasFailure {
+            title = "Action needs attention"
+        } else if needsFreshInspection {
+            title = targetResolution == .discovering ? "Choosing a window" : "Checking that again"
+        } else if targetResolution != nil && !ordinaryObservations.isEmpty {
+            title = "Earlier actions completed"
+        } else {
+            title = "Action complete"
+        }
         return PaceActionRunRecord(
-            status: hasFailure ? .failed : .completed,
-            title: hasFailure ? "Action needs attention" : "Action complete",
-            detail: feedback
+            status: hasFailure ? .failed : (needsFreshInspection ? .skipped : .completed),
+            title: title,
+            detail: feedback,
+            showsInConversation: showsInConversation,
+            diagnosticDetail: hasSeparateDiagnostics
+                ? boundedDiagnosticDetail(observations) : nil,
+            targetResolution: targetResolution
         )
     }
+
+    private static func boundedDiagnosticDetail(_ observations: [PaceActionExecutionObservation]) -> String {
+        let maximumBytes = 8_000
+        let truncationMarker = "\n[technical details truncated]"
+        var diagnostic = ""
+        for observation in observations {
+            var summary = observation.summary
+            for marker in ["\nTool structuredContent:", "\nTool _meta:"] {
+                if let range = summary.range(of: marker) { summary = String(summary[..<range.lowerBound]) }
+            }
+            let section = (diagnostic.isEmpty ? "" : "\n\n") + observation.toolName + ": " + summary
+            let remainingBytes = maximumBytes - diagnostic.utf8.count
+            if section.utf8.count > remainingBytes {
+                let budget = maximumBytes - truncationMarker.utf8.count
+                var prefix = String(decoding: (diagnostic + section).utf8.prefix(budget), as: UTF8.self)
+                while prefix.utf8.count > budget { prefix.removeLast() }
+                return prefix + truncationMarker
+            }
+            diagnostic += section
+        }
+        return diagnostic
+    }
+
 }

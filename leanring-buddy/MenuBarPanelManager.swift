@@ -15,6 +15,11 @@ import Combine
 import QuartzCore
 import SwiftUI
 
+enum PaceExplanationAutoClose {
+    static let delay: Duration = .seconds(30)
+    static let windowIdentifier = NSUserInterfaceItemIdentifier("PaceExplanation")
+}
+
 extension Notification.Name {
     static let paceDismissPanel = Notification.Name("paceDismissPanel")
     static let paceNotchConversationVisibilityChanged = Notification.Name("paceNotchConversationVisibilityChanged")
@@ -27,8 +32,16 @@ extension Notification.Name {
 
 /// Custom NSPanel subclass that can become the key window even with
 /// .nonactivatingPanel style, allowing text fields to receive focus.
-private class KeyablePanel: NSPanel {
+final class PaceConversationPanelWindow: NSPanel {
+    var preservesPhysicalNotchAnchor = false
+
     override var canBecomeKey: Bool { true }
+
+    override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect {
+        // AppKit's menu-bar avoidance would detach the conversation from its hardware anchor.
+        if preservesPhysicalNotchAnchor { return frameRect }
+        return super.constrainFrameRect(frameRect, to: screen)
+    }
 }
 
 @MainActor
@@ -39,15 +52,15 @@ private final class PaceConversationPanelSurfaceModel: ObservableObject {
 
 private struct PaceConversationPanelSurface: View {
     @ObservedObject var companionManager: CompanionManager
+    @ObservedObject var chatSession: PaceChatSession
     @ObservedObject var surfaceModel: PaceConversationPanelSurfaceModel
     @ObservedObject var companionControlCenter: PaceCompanionControlCenter
     let usesChatPanelAsPrimarySurface: Bool
 
     var body: some View {
         GeometryReader { geometry in
-            switch surfaceModel.placement {
-            case .physicalNotch(let notchGeometry):
-                VStack(spacing: 0) {
+            VStack(spacing: 0) {
+                if let notchGeometry {
                     PaceSeamNotchHeader(
                         physicalHousingWidth: notchGeometry.physicalHousingFrame.width,
                         physicalHousingHeight: notchGeometry.physicalHousingFrame.height,
@@ -55,42 +68,54 @@ private struct PaceConversationPanelSurface: View {
                         isOffDeviceTurn: companionManager.isOffDeviceTurnInFlight,
                         isExpanded: true,
                         isCameraActive: companionControlCenter.activeSources.contains(.camera),
-                        isScreenActive: companionControlCenter.activeSources.contains(.screen),
+                        isScreenActive: companionManager.isWatchModeEnabled
+                            || companionControlCenter.activeSources.contains(.screen),
+                        hasUnreadScreenSuggestion: chatSession.hasUnreadScreenSuggestion,
                         persistentStatus: companionControlCenter.runtimeStatusText,
                         companionStatusColor: companionStatusColor,
                         onBrandTap: {
-                            NotificationCenter.default.post(name: .paceShowPanel, object: nil)
+                            companionManager.handleMicrophoneButtonTapped()
                         },
                         onChatTap: {
-                            NotificationCenter.default.post(name: .paceDismissPanel, object: nil)
+                            NotificationCenter.default.post(
+                                name: .paceDismissPanel, object: PaceExplanationDismissalIntent.userInitiated)
                         }
                     )
                     .accessibilityValue(headerAccessibilityValue)
-                    PacePanelChatView(
-                        companionManager: companionManager, isEmbeddedInNotch: true,
-                        composerFocusRequestID: surfaceModel.presentation.composerFocusRequestID
-                    )
-                    .frame(width: PaceQuickPanelMetrics.width, height: PaceQuickPanelMetrics.seamlessContentHeight)
                 }
-                .frame(width: geometry.size.width, height: geometry.size.height, alignment: .top)
-                .background(Color.black)
-                .clipShape(
-                    UnevenRoundedRectangle(bottomLeadingRadius: 24, bottomTrailingRadius: 24, style: .continuous))
-            case .anchored:
+                // Placement changes only the chrome around this persistent chat subtree.
                 if usesChatPanelAsPrimarySurface {
                     PaceChatPanelView(
                         companionManager: companionManager,
+                        contentSize: notchGeometry == nil ? surfaceModel.placement.frame.size : nil,
                         composerFocusRequestID: surfaceModel.presentation.composerFocusRequestID)
                 } else {
                     PacePanelChatView(
                         companionManager: companionManager,
+                        isEmbeddedInNotch: notchGeometry != nil,
+                        contentSize: surfaceModel.placement.frame.size,
                         composerFocusRequestID: surfaceModel.presentation.composerFocusRequestID)
                 }
             }
+            // Reveal the settled layout as the window expands. Relaying out the
+            // transcript at every intermediate size makes the composer and text jump.
+            .frame(width: panelContentSize.width, height: panelContentSize.height, alignment: .top)
+            .background(notchGeometry == nil ? Color.clear : .black)
+            .clipShape(PaceConversationPanelChromeClip(isEmbeddedInNotch: notchGeometry != nil))
+            .frame(width: geometry.size.width, height: geometry.size.height, alignment: .top)
+            .clipped()
         }
         .onExitCommand {
-            NotificationCenter.default.post(name: .paceDismissPanel, object: nil)
+            NotificationCenter.default.post(
+                name: .paceDismissPanel, object: PaceExplanationDismissalIntent.userInitiated)
         }
+    }
+
+    private var panelContentSize: CGSize { surfaceModel.placement.frame.size }
+
+    private var notchGeometry: PaceLivingNotchGeometry? {
+        guard case .physicalNotch(let geometry) = surfaceModel.placement else { return nil }
+        return geometry
     }
 
     private var companionStatusColor: Color? {
@@ -110,22 +135,44 @@ private struct PaceConversationPanelSurface: View {
     private var headerAccessibilityValue: String {
         var descriptions: [String] = []
         if companionControlCenter.activeSources.contains(.camera) { descriptions.append("Camera active") }
-        if companionControlCenter.activeSources.contains(.screen) { descriptions.append("Screen active") }
+        if companionManager.isWatchModeEnabled || companionControlCenter.activeSources.contains(.screen) {
+            descriptions.append("Screen active")
+        }
         if companionControlCenter.preferences.isCompanionModeEnabled {
             descriptions.append("Companion mode \(companionControlCenter.runtimeStatusText)")
         }
         if companionManager.isOffDeviceTurnInFlight { descriptions.append("Off-device request active") }
+        if chatSession.hasUnreadScreenSuggestion { descriptions.append("Unread screen suggestion") }
         return descriptions.joined(separator: ". ")
+    }
+}
+
+private struct PaceConversationPanelChromeClip: Shape {
+    let isEmbeddedInNotch: Bool
+
+    func path(in rect: CGRect) -> Path {
+        if isEmbeddedInNotch {
+            return UnevenRoundedRectangle(
+                bottomLeadingRadius: DS.Radius.window, bottomTrailingRadius: DS.Radius.window, style: .continuous
+            ).path(in: rect)
+        }
+        // Anchored chat owns its rounding and shadow, so leave its surrounding drawing unmasked.
+        return Rectangle().path(in: rect.insetBy(dx: -rect.width, dy: -rect.height))
     }
 }
 
 @MainActor
 final class MenuBarPanelManager: NSObject {
-    private var panel: NSPanel?
+    private var panel: PaceConversationPanelWindow?
     private let surfaceModel = PaceConversationPanelSurfaceModel()
-    private var isPanelPresented: Bool { surfaceModel.presentation.isPresented }
+    var presentation: PaceConversationPanelPresentation { surfaceModel.presentation }
+    private var isPanelPresented: Bool { presentation.isPresented }
     private var screenParametersObserver: NSObjectProtocol?
     private var workspaceWakeObserver: NSObjectProtocol?
+    private let workspaceNotificationCenter: NotificationCenter
+    private let activeDisplayCoordinator: PaceActiveDisplayCoordinator
+    private var displayRouteObservation: AnyCancellable?
+    private var chatAppearanceObservation: AnyCancellable?
     private var menuBarOccupancyObserver: NSObjectProtocol?
     private var panelAnchorFrameOverride: NSRect?
     private var clickOutsideMonitor: Any?
@@ -136,27 +183,84 @@ final class MenuBarPanelManager: NSObject {
     /// can't immediately close it.
     private var panelShownAt: Date?
     private var visibilityAnimationGeneration = 0
+    private var pendingOutsideDismissalID: UUID?
     private var dismissPanelObserver: NSObjectProtocol?
     private var showPanelObserver: NSObjectProtocol?
+    private var conversationPanelPresentationObservation: AnyCancellable?
+    private var explanationVoiceStateObservation: AnyCancellable?
+    private var explanationInteractionMonitor: Any?
+    private var explanationAutoCloseTask: Task<Void, Never>?
+    private var explanationAutoCloseGeneration = 0
+    private var explanationAutoCloseIsArmed = false
+    private let shouldReducePanelMotion: @MainActor () -> Bool
+    private let waitForExplanationAutoClose: @MainActor (Duration) async throws -> Void
+    private let scheduleOutsideClickDismissal: @MainActor (@escaping @MainActor () -> Void) -> Void
+    private let panelPlacementResolver: (@MainActor (PaceActiveDisplayRoute) -> PaceConversationPanelPlacement?)?
 
     private let companionManager: CompanionManager
     private let usesChatPanelAsPrimarySurface: Bool
-    private let panelWidth: CGFloat
+    private var panelWidth: CGFloat {
+        PaceChatAppearanceStore.shared.appearance.anchoredWidth(
+            existing: usesChatPanelAsPrimarySurface ? 320 : PaceQuickPanelMetrics.width)
+    }
     private let panelHeight: CGFloat
-    init(companionManager: CompanionManager) {
-        let shouldUseChatPanelAsPrimarySurface = PaceUserPreferencesStore.bool(
-            for: .useChatPanelAsPrimarySurface
+    init(
+        companionManager: CompanionManager,
+        activeDisplayCoordinator: PaceActiveDisplayCoordinator = .shared,
+        workspaceNotificationCenter: NotificationCenter = NSWorkspace.shared.notificationCenter,
+        usesChatPanelAsPrimarySurface: Bool? = nil,
+        panelPlacementResolver: (@MainActor (PaceActiveDisplayRoute) -> PaceConversationPanelPlacement?)? = nil,
+        scheduleOutsideClickDismissal: @escaping @MainActor (@escaping @MainActor () -> Void) -> Void = { dismissal in
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15, execute: dismissal)
+        },
+        shouldReducePanelMotion: @escaping @MainActor () -> Bool = {
+            NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        },
+        waitForExplanationAutoClose: @escaping @MainActor (Duration) async throws -> Void = {
+            try await Task.sleep(for: $0)
+        }
+    ) {
+        let shouldUseChatPanelAsPrimarySurface =
+            usesChatPanelAsPrimarySurface
+            ?? PaceUserPreferencesStore.bool(
+                for: .useChatPanelAsPrimarySurface
         )
         self.companionManager = companionManager
+        self.activeDisplayCoordinator = activeDisplayCoordinator
+        self.workspaceNotificationCenter = workspaceNotificationCenter
+        self.shouldReducePanelMotion = shouldReducePanelMotion
+        self.waitForExplanationAutoClose = waitForExplanationAutoClose
+        self.scheduleOutsideClickDismissal = scheduleOutsideClickDismissal
+        self.panelPlacementResolver = panelPlacementResolver
         self.usesChatPanelAsPrimarySurface = shouldUseChatPanelAsPrimarySurface
         if shouldUseChatPanelAsPrimarySurface {
-            self.panelWidth = 320
             self.panelHeight = 460
         } else {
-            self.panelWidth = PaceQuickPanelMetrics.width
             self.panelHeight = PaceQuickPanelMetrics.height
         }
         super.init()
+        chatAppearanceObservation = PaceChatAppearanceStore.shared.$appearance
+            .map(\.panelWidth)
+            .removeDuplicates()
+            .dropFirst()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                self?.repositionVisiblePanel()
+            }
+        displayRouteObservation = activeDisplayCoordinator.routeChanges.sink { [weak self] _ in
+            self?.repositionVisiblePanel(reassertPresentation: true)
+        }
+        conversationPanelPresentationObservation = companionManager.conversationPanelPresentationRequests.sink {
+            [weak self] intent in
+            self?.showPanel(intent: intent)
+        }
+        explanationVoiceStateObservation = companionManager.$voiceState
+            .removeDuplicates { $0 == $1 }
+            .dropFirst()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] voiceState in
+                self?.handleExplanationVoiceStateChange(voiceState)
+            }
         menuBarOccupancyObserver = NotificationCenter.default.addObserver(
             forName: .paceMenuBarOccupancyChanged, object: nil, queue: .main
         ) { [weak self] _ in
@@ -167,11 +271,9 @@ final class MenuBarPanelManager: NSObject {
             forName: .paceDismissPanel,
             object: nil,
             queue: .main
-        ) { [weak self] _ in
-            guard let manager = self else { return }
-            Task { @MainActor in
-                manager.hidePanel()
-            }
+        ) { [weak self] notification in
+            let intent = notification.object as? PaceExplanationDismissalIntent ?? .automatic
+            MainActor.assumeIsolated { self?.hidePanel(intent: intent) }
         }
 
         showPanelObserver = NotificationCenter.default.addObserver(
@@ -190,18 +292,23 @@ final class MenuBarPanelManager: NSObject {
         ) { [weak self] _ in
             Task { @MainActor in self?.repositionVisiblePanel() }
         }
-        workspaceWakeObserver = NSWorkspace.shared.notificationCenter.addObserver(
+        workspaceWakeObserver = workspaceNotificationCenter.addObserver(
             forName: NSWorkspace.didWakeNotification, object: nil, queue: .main
         ) { [weak self] _ in
-            Task { @MainActor in self?.repositionVisiblePanel() }
+            Task { @MainActor in
+                self?.companionManager.prewarmFastAnswerCredentialsIfNeeded()
+                self?.repositionVisiblePanel()
+            }
         }
 
     }
 
     deinit {
+        explanationAutoCloseTask?.cancel()
+        if let explanationInteractionMonitor { NSEvent.removeMonitor(explanationInteractionMonitor) }
         if let menuBarOccupancyObserver { NotificationCenter.default.removeObserver(menuBarOccupancyObserver) }
         if let screenParametersObserver { NotificationCenter.default.removeObserver(screenParametersObserver) }
-        if let workspaceWakeObserver { NSWorkspace.shared.notificationCenter.removeObserver(workspaceWakeObserver) }
+        if let workspaceWakeObserver { workspaceNotificationCenter.removeObserver(workspaceWakeObserver) }
         if let monitor = clickOutsideMonitor {
             NSEvent.removeMonitor(monitor)
         }
@@ -218,7 +325,7 @@ final class MenuBarPanelManager: NSObject {
 
     func togglePanel() {
         if case .interactive = surfaceModel.presentation {
-            hidePanel()
+            hidePanel(intent: .userInitiated)
         } else {
             showPanel()
         }
@@ -226,6 +333,7 @@ final class MenuBarPanelManager: NSObject {
 
     func togglePanel(anchoredTo anchorFrame: NSRect) {
         panelAnchorFrameOverride = anchorFrame
+        activeDisplayCoordinator.selectDisplay(containing: anchorFrame)
         togglePanel()
     }
 
@@ -234,6 +342,7 @@ final class MenuBarPanelManager: NSObject {
     /// already-open panel mid-turn).
     func showPanel(anchoredTo anchorFrame: NSRect) {
         panelAnchorFrameOverride = anchorFrame
+        activeDisplayCoordinator.selectDisplay(containing: anchorFrame)
         showPanel()
     }
 
@@ -253,6 +362,10 @@ final class MenuBarPanelManager: NSObject {
     // MARK: - Panel Lifecycle
 
     private func showPanel(intent: PaceConversationPanelPresentationIntent = .interactive) {
+        if intent.requestsKeyboardFocus {
+            companionManager.prewarmFastAnswerCredentialsIfNeeded()
+        }
+        pendingOutsideDismissalID = nil
         PaceMenuBarOccupancyMonitor.shared.start()
         PaceMenuBarOccupancyMonitor.shared.refresh()
         if panel == nil {
@@ -262,12 +375,12 @@ final class MenuBarPanelManager: NSObject {
         guard let panel else { return }
         let wasVisible = isPanelPresented
         surfaceModel.presentation = surfaceModel.presentation.presenting(intent)
-        positionPanelBelowAnchor()
-        let expandedPanelFrame = panel.frame
+        positionPanelBelowAnchor(updatesUnchangedFrame: !wasVisible)
+        let expandedPanelFrame = surfaceModel.placement.frame.isEmpty ? panel.frame : surfaceModel.placement.frame
         visibilityAnimationGeneration += 1
 
         if wasVisible == false,
-            NSWorkspace.shared.accessibilityDisplayShouldReduceMotion == false
+            shouldReducePanelMotion() == false
         {
             let collapsedPanelFrame = surfaceModel.placement.collapsedFrame
             panel.alphaValue = 1
@@ -278,8 +391,8 @@ final class MenuBarPanelManager: NSObject {
             panel.orderFrontRegardless()
 
             NSAnimationContext.runAnimationGroup { animationContext in
-                animationContext.duration = 0.24
-                animationContext.timingFunction = CAMediaTimingFunction(controlPoints: 0.2, 0, 0, 1)
+                animationContext.duration = DS.Motion.micro
+                animationContext.timingFunction = CAMediaTimingFunction(controlPoints: 0.23, 1, 0.32, 1)
                 panel.animator().setFrame(expandedPanelFrame, display: true)
             }
         } else {
@@ -290,28 +403,33 @@ final class MenuBarPanelManager: NSObject {
             panel.orderFrontRegardless()
         }
         updateNotchConversationVisibility()
+        if panel.isVisible { companionManager.chatSession.conversationPanelDidShow(intent) }
         panelShownAt = Date()
         installClickOutsideMonitor()
+        resetExplanationAutoCloseAfterInteraction()
     }
 
-    private func hidePanel() {
+    private func hidePanel(intent: PaceExplanationDismissalIntent = .automatic) {
+        pendingOutsideDismissalID = nil
+        companionManager.handleExplanationDismissal(intent)
         let wasVisible = isPanelPresented
         surfaceModel.presentation = .hidden
         guard let panel, wasVisible else {
             removeClickOutsideMonitor()
+            updateNotchConversationVisibility()
             return
         }
         visibilityAnimationGeneration += 1
         let animationGeneration = visibilityAnimationGeneration
         removeClickOutsideMonitor()
-        guard !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else {
+        guard !shouldReducePanelMotion() else {
             panel.orderOut(nil)
             updateNotchConversationVisibility()
             return
         }
         NSAnimationContext.runAnimationGroup { animationContext in
-            animationContext.duration = 0.18
-            animationContext.timingFunction = CAMediaTimingFunction(controlPoints: 0.2, 0, 0, 1)
+            animationContext.duration = DS.Motion.micro
+            animationContext.timingFunction = CAMediaTimingFunction(controlPoints: 0.23, 1, 0.32, 1)
             panel.animator().setFrame(surfaceModel.placement.collapsedFrame, display: true)
         } completionHandler: { [weak self, weak panel] in
             Task { @MainActor in
@@ -329,6 +447,7 @@ final class MenuBarPanelManager: NSObject {
         let hostingView = NSHostingView(
             rootView: PaceConversationPanelSurface(
                 companionManager: companionManager,
+                chatSession: companionManager.chatSession,
                 surfaceModel: surfaceModel,
                 companionControlCenter: companionManager.companionControlCenter,
                 usesChatPanelAsPrimarySurface: usesChatPanelAsPrimarySurface))
@@ -337,7 +456,7 @@ final class MenuBarPanelManager: NSObject {
         hostingView.wantsLayer = true
         hostingView.layer?.backgroundColor = .clear
 
-        let menuBarPanel = KeyablePanel(
+        let menuBarPanel = PaceConversationPanelWindow(
             contentRect: NSRect(x: 0, y: 0, width: panelWidth, height: panelHeight),
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
@@ -351,28 +470,126 @@ final class MenuBarPanelManager: NSObject {
         menuBarPanel.hasShadow = false
         menuBarPanel.hidesOnDeactivate = false
         menuBarPanel.isExcludedFromWindowsMenu = true
-        menuBarPanel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        menuBarPanel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .canJoinAllApplications]
         menuBarPanel.isMovableByWindowBackground = false
         menuBarPanel.titleVisibility = .hidden
         menuBarPanel.titlebarAppearsTransparent = true
 
         menuBarPanel.contentView = hostingView
+        menuBarPanel.identifier = PaceExplanationAutoClose.windowIdentifier
         panel = menuBarPanel
     }
 
-    private func positionPanelBelowAnchor() {
-        guard let panel,
-            let anchorFrame = panelAnchorFrameOverride ?? defaultMenuBarAnchorFrame(),
-            let anchorScreen = NSScreen.screens.first(where: { $0.frame.intersects(anchorFrame) }) ?? NSScreen.main
-        else { return }
-        let notchGeometry = PaceLivingNotchScreenGeometryResolver.geometry(displayMode: .hover)
-        surfaceModel.placement = PaceConversationPanelPlacement.resolve(
-            notchGeometry: notchGeometry,
-            anchorFrame: anchorFrame,
-            screenFrame: notchGeometry.flatMap { notchGeometry in
-                NSScreen.screens.first { $0.frame.contains(notchGeometry.physicalHousingFrame) }?.frame
-            } ?? anchorScreen.frame,
-            contentSize: CGSize(width: panelWidth, height: panelHeight))
+    func handleExplanationVoiceStateChange(_ voiceState: CompanionVoiceState) {
+        explanationAutoCloseTask?.cancel()
+        explanationAutoCloseGeneration += 1
+        explanationAutoCloseIsArmed = voiceState == .idle
+        if voiceState == .idle {
+            if explanationInteractionMonitor == nil {
+                // Only observe input delivered to Pace's explanation windows.
+                // Other apps keep their normal input path and never reset this timer.
+                explanationInteractionMonitor = NSEvent.addLocalMonitorForEvents(
+                    matching: [.leftMouseDown, .rightMouseDown, .leftMouseDragged, .scrollWheel, .keyDown]
+                ) { [weak self] event in
+                    if event.window?.identifier == PaceExplanationAutoClose.windowIdentifier {
+                        self?.resetExplanationAutoCloseAfterInteraction()
+                    }
+                    return event
+                }
+            }
+            resetExplanationAutoCloseAfterInteraction()
+        } else {
+            removeExplanationInteractionMonitor()
+        }
+    }
+
+    func resetExplanationAutoCloseAfterInteraction() {
+        guard explanationAutoCloseIsArmed else { return }
+        explanationAutoCloseTask?.cancel()
+        explanationAutoCloseGeneration += 1
+        let generation = explanationAutoCloseGeneration
+        let waitForExplanationAutoClose = waitForExplanationAutoClose
+        explanationAutoCloseTask = Task { [weak self] in
+            do {
+                // Some planner paths return to idle before the audio queue drains.
+                while self?.companionManager.voiceState == .idle,
+                    self?.companionManager.ttsClient.isPlaying == true
+                {
+                    try await waitForExplanationAutoClose(.milliseconds(200))
+                    guard !Task.isCancelled else { return }
+                }
+                guard !Task.isCancelled, self?.companionManager.voiceState == .idle else { return }
+                try await waitForExplanationAutoClose(PaceExplanationAutoClose.delay)
+                guard !Task.isCancelled, let self,
+                    generation == explanationAutoCloseGeneration,
+                    companionManager.voiceState == .idle,
+                    companionManager.currentTurnHUDState.status != .failed
+                else { return }
+                let isEditingConversation = presentation.composerFocusRequestID != nil || panel?.isKeyWindow == true
+                let hasProtectedDraft =
+                    isEditingConversation
+                    && !companionManager.chatSession.draftMessageText.trimmingCharacters(in: .whitespacesAndNewlines)
+                        .isEmpty
+                if companionManager.ttsClient.isPlaying
+                    || hasProtectedDraft
+                    || NSApp.modalWindow != nil
+                {
+                    resetExplanationAutoCloseAfterInteraction()
+                    return
+                }
+                if case .generating = companionManager.imageOverlayController.state {
+                    resetExplanationAutoCloseAfterInteraction()
+                    return
+                }
+                explanationAutoCloseIsArmed = false
+                removeExplanationInteractionMonitor()
+                hidePanel()
+                companionManager.diagramOverlayController.dismiss()
+                companionManager.imageOverlayController.dismiss()
+            } catch {
+                // A new turn or interaction replaces the previous countdown.
+            }
+        }
+    }
+
+    private func removeExplanationInteractionMonitor() {
+        if let explanationInteractionMonitor { NSEvent.removeMonitor(explanationInteractionMonitor) }
+        explanationInteractionMonitor = nil
+    }
+
+    private func positionPanelBelowAnchor(updatesUnchangedFrame: Bool = false) {
+        guard let panel else { return }
+        let placement: PaceConversationPanelPlacement
+        if let panelPlacementResolver {
+            guard let resolvedPlacement = panelPlacementResolver(activeDisplayCoordinator.route) else { return }
+            placement = resolvedPlacement
+        } else {
+            guard let targetScreen = activeDisplayCoordinator.targetScreen else { return }
+            if let anchorFrame = panelAnchorFrameOverride,
+                !targetScreen.frame.contains(CGPoint(x: anchorFrame.midX, y: anchorFrame.midY))
+            {
+                panelAnchorFrameOverride = nil
+            }
+            guard let anchorFrame = panelAnchorFrameOverride ?? defaultMenuBarAnchorFrame() else { return }
+            let notchGeometry = PaceLivingNotchScreenGeometryResolver.geometry(for: targetScreen, displayMode: .hover)
+            placement = PaceConversationPanelPlacement.resolve(
+                notchGeometry: notchGeometry,
+                anchorFrame: anchorFrame,
+                screenFrame: targetScreen.frame,
+                contentSize: CGSize(width: panelWidth, height: panelHeight),
+                notchContentSize: usesChatPanelAsPrimarySurface
+                    ? CGSize(width: 320, height: panelHeight)
+                    : CGSize(width: PaceQuickPanelMetrics.width, height: PaceQuickPanelMetrics.seamlessContentHeight))
+        }
+        let placementChanged = surfaceModel.placement != placement
+        if placementChanged { surfaceModel.placement = placement }
+        let notchGeometry: PaceLivingNotchGeometry?
+        if case .physicalNotch(let geometry) = placement { notchGeometry = geometry } else { notchGeometry = nil }
+        if case .physicalNotch = surfaceModel.placement {
+            panel.preservesPhysicalNotchAnchor = true
+        } else {
+            panel.preservesPhysicalNotchAnchor = false
+        }
         if let notchGeometry,
             !PaceMenuBarOccupancyMonitor.shared.occupancy.overlaps(
                 surfaceModel.placement.frame, housingFrame: notchGeometry.physicalHousingFrame)
@@ -382,13 +599,15 @@ final class MenuBarPanelManager: NSObject {
             // Preserve the camera anchor, but let native menus own their row when crowded.
             panel.level = .floating
         }
-        panel.setFrame(surfaceModel.placement.frame, display: true)
+        if placementChanged || updatesUnchangedFrame {
+            panel.setFrame(placement.frame, display: true)
+        }
     }
 
-    private func repositionVisiblePanel() {
-        guard isPanelPresented else { return }
-        visibilityAnimationGeneration += 1
+    private func repositionVisiblePanel(reassertPresentation: Bool = false) {
+        guard isPanelPresented, pendingOutsideDismissalID == nil else { return }
         positionPanelBelowAnchor()
+        if reassertPresentation { panel?.orderFrontRegardless() }
         updateNotchConversationVisibility()
     }
 
@@ -405,13 +624,13 @@ final class MenuBarPanelManager: NSObject {
     }
 
     private func defaultMenuBarAnchorFrame() -> NSRect? {
+        guard let screen = activeDisplayCoordinator.targetScreen else { return nil }
         if let livingNotchGeometry = PaceLivingNotchScreenGeometryResolver.geometry(
-            displayMode: .active
+            for: screen, displayMode: .active
         ) {
             return livingNotchGeometry.presentationFrame
         }
 
-        guard let screen = NSScreen.main ?? NSScreen.screens.first else { return nil }
         let menuBarHeight = max(screen.frame.maxY - screen.visibleFrame.maxY, 1)
         return NSRect(
             x: screen.frame.midX,
@@ -443,25 +662,30 @@ final class MenuBarPanelManager: NSObject {
         // when you click the Settings window. Returns the event unchanged so
         // the clicked control still works.
         localClickOutsideMonitor = NSEvent.addLocalMonitorForEvents(
-            matching: [.leftMouseDown, .rightMouseDown]
+            matching: [.leftMouseDown, .rightMouseDown, .keyDown]
         ) { [weak self] event in
-            self?.dismissPanelIfClickIsOutside()
+            guard let self else { return event }
+            if let panel = self.panel, event.window === panel {
+                self.pendingOutsideDismissalID = nil
+            } else if event.type != .keyDown {
+                self.dismissPanelIfClickIsOutside()
+            }
             return event
         }
     }
 
     /// Hides the panel when a click lands outside its frame. Shared by the
     /// global (other-app) and local (own-window, e.g. Settings) monitors.
-    private func dismissPanelIfClickIsOutside() {
+    func dismissPanelIfClickIsOutside(at clickLocation: CGPoint = NSEvent.mouseLocation, currentDate: Date = Date()) {
         guard let panel else { return }
         // Grace window: ignore the click/gesture that just opened the panel
         // (tapping the mascot is outside the panel frame, so without this it
         // would immediately re-close — the open/close flicker).
-        if let panelShownAt, Date().timeIntervalSince(panelShownAt) < 0.45 {
+        if let panelShownAt, currentDate.timeIntervalSince(panelShownAt) < 0.45 {
             return
         }
-        let clickLocation = NSEvent.mouseLocation
         if panel.frame.contains(clickLocation) {
+            pendingOutsideDismissalID = nil
             return
         }
         // Small delay so a Grant button inside the panel that spawns a system
@@ -469,8 +693,11 @@ final class MenuBarPanelManager: NSObject {
         // panel already returned above; anything here is genuinely outside,
         // so dismiss like NSPopover.
         let dismissalGeneration = visibilityAnimationGeneration
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
-            guard let self, panel.isVisible, self.isPanelPresented,
+        let dismissalID = UUID()
+        pendingOutsideDismissalID = dismissalID
+        scheduleOutsideClickDismissal { [weak self, weak panel] in
+            guard let self, let panel, panel.isVisible, self.isPanelPresented,
+                self.pendingOutsideDismissalID == dismissalID,
                 self.visibilityAnimationGeneration == dismissalGeneration
             else { return }
             self.hidePanel()

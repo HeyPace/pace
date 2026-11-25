@@ -53,6 +53,7 @@ final class PacePermissionService: ObservableObject {
     private let pollIntervalInSeconds: TimeInterval = 1.5
     private var pollTimer: Timer?
     private var lifecycleObservers: [NSObjectProtocol] = []
+    private var remindersAccessRequest: Task<Bool, Never>?
 
     // No SCShareableContent live probe: it triggers the macOS Screen
     // Recording modal whenever the running process's cdhash hasn't been
@@ -86,6 +87,30 @@ final class PacePermissionService: ObservableObject {
     /// permissions are treated as denied (safe failure mode).
     func isGranted(_ kind: PacePermissionKind) -> Bool {
         grants[kind] ?? false
+    }
+
+    nonisolated static func canPromptForReminders(
+        status: EKAuthorizationStatus, isForegroundRequest: Bool
+    ) -> Bool {
+        status == .notDetermined && isForegroundRequest
+    }
+
+    func requestRemindersAccess(using eventStore: EKEventStore) async -> Bool {
+        if let remindersAccessRequest { return await remindersAccessRequest.value }
+        let status = EKEventStore.authorizationStatus(for: .reminder)
+        guard Self.canPromptForReminders(status: status, isForegroundRequest: true) else {
+            return status == .fullAccess
+        }
+
+        // Settings and a foreground request can wait on the same macOS prompt.
+        let request = Task { @MainActor in
+            _ = try? await eventStore.requestFullAccessToReminders()
+            refresh()
+            return EKEventStore.authorizationStatus(for: .reminder) == .fullAccess
+        }
+        remindersAccessRequest = request
+        defer { remindersAccessRequest = nil }
+        return await request.value
     }
 
     /// Manual refresh hook for places that just performed an action

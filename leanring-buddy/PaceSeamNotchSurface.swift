@@ -13,6 +13,7 @@ struct PaceSeamNotchSurface: View {
     var colorRoleOverride: PaceSignalColorRole? = nil
     var isCameraActive = false
     var isScreenActive = false
+    var hasUnreadScreenSuggestion = false
     var persistentStatus: String? = nil
     var companionStatusColor: Color? = nil
     var onBrandTap: (() -> Void)? = nil
@@ -37,7 +38,8 @@ struct PaceSeamNotchSurface: View {
                         .truncationMode(.tail)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .contentTransition(.opacity)
-                        .animation(.easeOut(duration: DS.Motion.micro), value: displayedActivityLabel)
+                        .animation(
+                            reduceMotion ? nil : .easeOut(duration: DS.Motion.micro), value: displayedActivityLabel)
                     if isOffDeviceTurn {
                         plannerBadge
                     } else if signalState == .understanding || signalState == .acting {
@@ -72,15 +74,6 @@ struct PaceSeamNotchSurface: View {
         .tint(DS.palette.brand)
         .preferredColorScheme(.dark)
         .background(Color.black)
-        .overlay {
-            UnevenRoundedRectangle(bottomLeadingRadius: 16, bottomTrailingRadius: 16, style: .continuous)
-                .stroke(
-                    Color.white.opacity(displayMode == .hover ? 0.18 : displayMode == .active ? 0.07 : 0),
-                    lineWidth: 0.5
-                )
-                .animation(.easeOut(duration: DS.Motion.micro), value: displayMode)
-                .allowsHitTesting(false)
-        }
         .clipShape(UnevenRoundedRectangle(bottomLeadingRadius: 16, bottomTrailingRadius: 16, style: .continuous))
     }
 
@@ -92,6 +85,7 @@ struct PaceSeamNotchSurface: View {
             isOffDeviceTurn: isOffDeviceTurn,
             isCameraActive: isCameraActive,
             isScreenActive: isScreenActive,
+            hasUnreadScreenSuggestion: hasUnreadScreenSuggestion,
             persistentStatus: persistentStatus,
             companionStatusColor: companionStatusColor,
             onBrandTap: onBrandTap,
@@ -110,6 +104,8 @@ struct PaceSeamNotchSurface: View {
                 .fixedSize()
         }
         .foregroundStyle(DS.Colors.offDeviceSignal)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Off-device planner, " + plannerLabel)
         .frame(maxWidth: 96)
         .fixedSize(horizontal: true, vertical: false)
     }
@@ -124,10 +120,12 @@ struct PaceSeamNotchHeader: View {
     var isExpanded = false
     var isCameraActive = false
     var isScreenActive = false
+    var hasUnreadScreenSuggestion = false
     var persistentStatus: String? = nil
     var companionStatusColor: Color? = nil
     var onBrandTap: (() -> Void)? = nil
     var onChatTap: (() -> Void)? = nil
+    @ObservedObject private var screenReadActivity = PaceScreenReadActivity.shared
     @State private var hoveredWingLabel: String?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -136,7 +134,7 @@ struct PaceSeamNotchHeader: View {
             let wingWidth = max(0, (geometry.size.width - physicalHousingWidth) / 2)
             HStack(spacing: 0) {
                 wingButton(
-                    label: "Open Pace",
+                    label: signalState == .listening ? "Finish recording" : "Start voice input",
                     shortcutHint: "Hold \(BuddyPushToTalkShortcut.currentShortcutOption.notchDisplayLabel) to speak",
                     action: onBrandTap
                 ) {
@@ -147,14 +145,16 @@ struct PaceSeamNotchHeader: View {
                         .contentTransition(reduceMotion ? .opacity : .symbolEffect(.replace))
                         .animation(.easeOut(duration: DS.Motion.micro), value: signalState == .listening)
                         .fixedSize()
-                        .frame(width: wingWidth, height: physicalHousingHeight)
+                        .frame(width: min(40, wingWidth), height: physicalHousingHeight)
                 }
+                .frame(width: wingWidth, height: physicalHousingHeight)
                 Color.clear.frame(width: physicalHousingWidth)
                 wingButton(
                     label: isExpanded ? "Close conversation" : "Open conversation",
                     shortcutHint: isExpanded
                         ? "Close conversation · Esc"
                         : "Open chat · \(PaceNotchChatShortcut.currentShortcutOption.notchDisplayLabel)",
+                    statusDescription: conversationStatusDescription,
                     action: onChatTap
                 ) {
                     Group {
@@ -166,9 +166,34 @@ struct PaceSeamNotchHeader: View {
                             PaceBrandMark().frame(width: 20, height: 20)
                         }
                     }
+                    .overlay {
+                        if screenReadActivity.isReading {
+                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                .fill(Color.cyan.opacity(0.12))
+                                .overlay {
+                                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                        .stroke(Color.cyan.opacity(0.65), lineWidth: 0.75)
+                                }
+                                .frame(width: 28, height: 28)
+                                .overlay(alignment: .bottomTrailing) {
+                                    Image(systemName: "eye.fill")
+                                        .font(.system(size: 8, weight: .semibold))
+                                        .foregroundStyle(Color.cyan)
+                                        .padding(2)
+                                        .background(Color.black, in: Capsule())
+                                        .offset(x: 4, y: 3)
+                                }
+                                .allowsHitTesting(false)
+                                .accessibilityHidden(true)
+                                .transition(.opacity)
+                        }
+                    }
+                    .animation(
+                        reduceMotion ? nil : .easeOut(duration: DS.Motion.micro), value: screenReadActivity.isReading
+                    )
                     .foregroundStyle(isOffDeviceTurn ? DS.Colors.offDeviceSignal : Color.white.opacity(0.94))
                     .fixedSize()
-                    .frame(width: wingWidth, height: physicalHousingHeight)
+                    .frame(width: min(40, wingWidth), height: physicalHousingHeight)
                     .overlay(alignment: .bottomTrailing) {
                         HStack(spacing: 4) {
                             if let companionStatusColor {
@@ -179,16 +204,18 @@ struct PaceSeamNotchHeader: View {
                                 Circle().fill(.green).frame(width: 4, height: 4)
                                     .accessibilityLabel("Camera active")
                             }
-                            if isScreenActive {
-                                Circle().fill(.cyan).frame(width: 4, height: 4)
-                                    .accessibilityLabel("Screen active")
+                            if isScreenActive || hasUnreadScreenSuggestion {
+                                Circle().fill(hasUnreadScreenSuggestion ? .yellow : .cyan).frame(width: 4, height: 4)
+                                    .accessibilityLabel(
+                                        hasUnreadScreenSuggestion ? "Unread screen suggestion" : "Screen active")
                             }
                         }
                         .fixedSize()
-                        .padding(.trailing, 12)
+                        .padding(.trailing, 3)
                         .padding(.bottom, 2)
                     }
                 }
+                .frame(width: wingWidth, height: physicalHousingHeight)
             }
         }
         .frame(height: physicalHousingHeight)
@@ -198,11 +225,14 @@ struct PaceSeamNotchHeader: View {
     private func wingButton<Content: View>(
         label: String,
         shortcutHint: String,
+        statusDescription: String = "",
         action: (() -> Void)?,
         @ViewBuilder content: () -> Content
     ) -> some View {
         let cap = content()
-            .background(hoveredWingLabel == label ? Color.white.opacity(0.08) : Color.clear)
+            .background(
+                hoveredWingLabel == label ? Color.white.opacity(0.08) : Color.clear,
+                in: RoundedRectangle(cornerRadius: DS.Radius.control, style: .continuous))
         if let action {
             Button(action: action) { cap.contentShape(Rectangle()) }
                 .buttonStyle(PaceNotchButtonStyle(isHovered: hoveredWingLabel == label))
@@ -215,10 +245,22 @@ struct PaceSeamNotchHeader: View {
                 }
                 .pointerCursor()
                 .accessibilityLabel(label)
-                .help(shortcutHint)
+                .accessibilityValue(statusDescription)
+                .help(statusDescription.isEmpty ? shortcutHint : statusDescription + " · " + shortcutHint)
         } else {
             cap
         }
+    }
+
+    private var conversationStatusDescription: String {
+        var descriptions: [String] = []
+        if isOffDeviceTurn { descriptions.append("Off-device request active") }
+        if isCameraActive { descriptions.append("Camera active") }
+        if isScreenActive { descriptions.append("Screen active") }
+        if let persistentStatus, companionStatusColor != nil { descriptions.append(persistentStatus) }
+        if screenReadActivity.isReading { descriptions.append("Reading your screen") }
+        if hasUnreadScreenSuggestion { descriptions.append("Unread screen suggestion") }
+        return descriptions.joined(separator: ". ")
     }
 
 }
@@ -230,22 +272,10 @@ private struct PaceNotchButtonStyle: ButtonStyle {
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .scaleEffect(reduceMotion || !isEnabled ? 1 : configuration.isPressed ? 0.96 : isHovered ? 1.04 : 1)
+            .scaleEffect(reduceMotion || !isEnabled ? 1 : configuration.isPressed ? 0.96 : 1)
             .opacity(configuration.isPressed && isEnabled ? 0.72 : 1)
             .animation(.timingCurve(0.23, 1, 0.32, 1, duration: DS.Motion.micro), value: configuration.isPressed)
             .animation(.timingCurve(0.23, 1, 0.32, 1, duration: DS.Motion.micro), value: isHovered)
-    }
-}
-
-extension BuddyPushToTalkShortcut.ShortcutOption {
-    fileprivate var notchDisplayLabel: String {
-        switch self {
-        case .shiftFunction: return "⇧fn"
-        case .controlOption: return "⌃⌥"
-        case .shiftControl: return "⌃⇧"
-        case .controlOptionSpace: return "⌃⌥Space"
-        case .shiftControlSpace: return "⌃⇧Space"
-        }
     }
 }
 
@@ -258,95 +288,5 @@ extension PaceNotchChatShortcut.ShortcutOption {
         case .controlShiftP: return "⌃⇧P"
         case .controlShiftSpace: return "⌃⇧Space"
         }
-    }
-}
-
-struct PaceSeamNotchShape: Shape {
-    let topShoulderRadius: CGFloat
-    let bottomCornerRadius: CGFloat
-
-    func path(in rect: CGRect) -> Path {
-        let resolvedTopShoulderRadius = min(topShoulderRadius, rect.width / 4, rect.height / 2)
-        let resolvedBottomCornerRadius = min(
-            bottomCornerRadius,
-            rect.width / 4,
-            rect.height / 2
-        )
-
-        var path = Path()
-        path.move(to: CGPoint(x: rect.minX, y: rect.minY))
-        path.addCurve(
-            to: CGPoint(
-                x: rect.minX + resolvedTopShoulderRadius,
-                y: rect.minY + resolvedTopShoulderRadius
-            ),
-            control1: CGPoint(
-                x: rect.minX + (resolvedTopShoulderRadius * 0.7),
-                y: rect.minY
-            ),
-            control2: CGPoint(
-                x: rect.minX + resolvedTopShoulderRadius,
-                y: rect.minY + (resolvedTopShoulderRadius * 0.35)
-            )
-        )
-        path.addLine(
-            to: CGPoint(
-                x: rect.minX + resolvedTopShoulderRadius,
-                y: rect.maxY - resolvedBottomCornerRadius
-            )
-        )
-        path.addCurve(
-            to: CGPoint(
-                x: rect.minX + resolvedTopShoulderRadius + resolvedBottomCornerRadius,
-                y: rect.maxY
-            ),
-            control1: CGPoint(
-                x: rect.minX + resolvedTopShoulderRadius,
-                y: rect.maxY - resolvedBottomCornerRadius * 0.447_715
-            ),
-            control2: CGPoint(
-                x: rect.minX + resolvedTopShoulderRadius + resolvedBottomCornerRadius * 0.447_715,
-                y: rect.maxY
-            )
-        )
-        path.addLine(
-            to: CGPoint(
-                x: rect.maxX - resolvedTopShoulderRadius - resolvedBottomCornerRadius,
-                y: rect.maxY
-            )
-        )
-        path.addCurve(
-            to: CGPoint(
-                x: rect.maxX - resolvedTopShoulderRadius,
-                y: rect.maxY - resolvedBottomCornerRadius
-            ),
-            control1: CGPoint(
-                x: rect.maxX - resolvedTopShoulderRadius - resolvedBottomCornerRadius * 0.447_715,
-                y: rect.maxY
-            ),
-            control2: CGPoint(
-                x: rect.maxX - resolvedTopShoulderRadius,
-                y: rect.maxY - resolvedBottomCornerRadius * 0.447_715
-            )
-        )
-        path.addLine(
-            to: CGPoint(
-                x: rect.maxX - resolvedTopShoulderRadius,
-                y: rect.minY + resolvedTopShoulderRadius
-            )
-        )
-        path.addCurve(
-            to: CGPoint(x: rect.maxX, y: rect.minY),
-            control1: CGPoint(
-                x: rect.maxX - resolvedTopShoulderRadius,
-                y: rect.minY + (resolvedTopShoulderRadius * 0.35)
-            ),
-            control2: CGPoint(
-                x: rect.maxX - (resolvedTopShoulderRadius * 0.7),
-                y: rect.minY
-            )
-        )
-        path.closeSubpath()
-        return path
     }
 }

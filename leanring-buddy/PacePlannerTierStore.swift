@@ -117,6 +117,7 @@ private enum PlannerTierUserDefaultsKey: String {
     case selectedTier                       = "pace.planner.tier.selectedTier"
     case directAPIProvider                  = "pace.planner.tier.directAPI.provider"
     case directAPIModelIdentifier           = "pace.planner.tier.directAPI.model"
+    case directAPIModelsByProvider = "pace.planner.tier.directAPI.modelsByProvider"
     case directAPICustomEndpointURLString   = "pace.planner.tier.directAPI.customEndpointURL"
     case fallsBackToLocalOnCloudFailure     = "pace.planner.tier.directAPI.fallsBackToLocalOnFailure"
     case cliDirectUpstream                  = "pace.planner.tier.cliDirect.upstream"
@@ -125,6 +126,13 @@ private enum PlannerTierUserDefaultsKey: String {
 // MARK: - PacePlannerTierStore
 
 enum PacePlannerTierStore {
+    static func fastEverydayAnswersEnabled(defaults: UserDefaults = .standard) -> Bool {
+        defaults.bool(forKey: "pace.planner.fastEverydayAnswersEnabled")
+    }
+
+    static func setFastEverydayAnswersEnabled(_ enabled: Bool, defaults: UserDefaults = .standard) {
+        defaults.set(enabled, forKey: "pace.planner.fastEverydayAnswersEnabled")
+    }
 
     // MARK: First-launch detection
 
@@ -140,6 +148,7 @@ enum PacePlannerTierStore {
             .selectedTier,
             .directAPIProvider,
             .directAPIModelIdentifier,
+            .directAPIModelsByProvider,
             .directAPICustomEndpointURLString,
             .fallsBackToLocalOnCloudFailure,
             .cliDirectUpstream
@@ -265,10 +274,19 @@ enum PacePlannerTierStore {
     }
 
     static func saveDirectAPIProvider(_ provider: PaceDirectAPIProvider) {
-        UserDefaults.standard.set(
-            provider.rawValue,
-            forKey: PlannerTierUserDefaultsKey.directAPIProvider.rawValue
-        )
+        let defaults = UserDefaults.standard
+        let providerKey = PlannerTierUserDefaultsKey.directAPIProvider.rawValue
+        let modelKey = PlannerTierUserDefaultsKey.directAPIModelIdentifier.rawValue
+        let historyKey = PlannerTierUserDefaultsKey.directAPIModelsByProvider.rawValue
+        let previous = defaults.string(forKey: providerKey).flatMap(PaceDirectAPIProvider.init(rawValue:)) ?? .anthropic
+        if previous != provider {
+            // Adopt the legacy single-model field for its original provider on the first switch.
+            var models = defaults.dictionary(forKey: historyKey) as? [String: String] ?? [:]
+            models[previous.rawValue] = defaults.string(forKey: modelKey) ?? previous.defaultModelIdentifier
+            defaults.set(models, forKey: historyKey)
+            defaults.set(models[provider.rawValue] ?? provider.defaultModelIdentifier, forKey: modelKey)
+        }
+        defaults.set(provider.rawValue, forKey: providerKey)
     }
 
     static func saveDirectAPIModelIdentifier(_ modelIdentifier: String) {

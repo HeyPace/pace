@@ -14,6 +14,7 @@
 
 import Foundation
 import XCTest
+
 @testable import Pace
 
 // MARK: - Test seam helpers
@@ -58,8 +59,10 @@ private final class RecordingActionSink: PaceFlowReplayActionSink {
     func typeText(_ text: String) async {
         dispatched.append(.typeText(text))
     }
-    func performAXPress(_ resolution: PaceAXPressResolution) async {
+    var pressSucceeds = true
+    func performAXPress(_ resolution: PaceAXPressResolution) async -> Bool {
         dispatched.append(.axPress(resolution.debugLabel))
+        return pressSucceeds
     }
     func postKeyShortcut(_ comboString: String) async {
         dispatched.append(.keyShortcut(comboString))
@@ -72,6 +75,75 @@ private final class RecordingActionSink: PaceFlowReplayActionSink {
 final class PaceFlowReplayerTests: XCTestCase {
 
     // MARK: AX target resolution
+
+    func testUniqueTargetResolvesBothPathOrdersAndRejectsAmbiguity() {
+        let roles = ["AXApplication", "AXWindow", "AXButton", "AXButton"]
+        for path in [["AXButton", "AXWindow", "AXApplication"], ["AXWindow", "AXButton"]] {
+            func lookup(_ names: [String]) -> Int? {
+                PaceFrontmostAppAXTreeSource.uniqueTarget(
+                    root: 0, rolePath: path, label: "Mark sample ready",
+                    role: { roles[$0] }, labels: { [names[$0]] },
+                    children: { [[1], [2, 3], [], []][$0] }
+                )
+            }
+            XCTAssertEqual(lookup(["Fixture", "Window", "Mark sample ready later", "Mark sample ready"]), 3)
+            XCTAssertNil(lookup(["Fixture", "Window", "Mark sample ready", "Mark sample ready"]))
+        }
+    }
+
+    func testWindowPathSkipsUnrelatedMenuHierarchy() {
+        let result = PaceFrontmostAppAXTreeSource.uniqueTarget(
+            root: 0, rolePath: ["AXWindow", "AXButton"], label: "Ready",
+            role: { [0: "AXApplication", 1: "AXWindow", 2: "AXButton", 3: "AXMenuBar"][$0] ?? "AXMenuItem" },
+            labels: { $0 == 2 ? ["Ready"] : [] },
+            children: { [0: [1, 3], 1: [2], 3: Array(4...261)][$0] ?? [] }
+        )
+        XCTAssertEqual(result, 2)
+    }
+
+    func testEachSensitivePressRequiresSeparateApprovalBeforeLaterSteps() async {
+        let source = StubAXTreeSource()
+        source.responseQueue = [.init(debugLabel: "Send"), .init(debugLabel: "Post")]
+        let sink = RecordingActionSink()
+        let flow = PaceRecordedFlow(
+            name: "Fixture", createdAt: Date(),
+            steps: [
+                .axPress(rolePath: ["AXButton"], label: "Send"),
+                .axPress(rolePath: ["AXButton"], label: "Post"),
+                .keyShortcut(key: "cmd+w"),
+            ])
+        var requests: [String] = []
+        var outcome: PaceFlowReplayOutcome?
+        await PaceFlowReplayer(axTreeSource: source, actionSink: sink).play(
+            flow,
+            confirmSensitivePress: { resolution, index in
+                requests.append(resolution.debugLabel)
+                return index == 0
+            }, onProgress: { _ in }, onCompletion: { outcome = $0 })
+        XCTAssertEqual(requests, ["Send", "Post"])
+        XCTAssertEqual(sink.dispatched, [.axPress("Send")])
+        XCTAssertEqual(outcome, .userCancelled)
+    }
+
+    func testRejectedPressStopsBeforeNextStep() async {
+        let source = StubAXTreeSource()
+        source.defaultResponse = PaceAXPressResolution(debugLabel: "Fixture")
+        let sink = RecordingActionSink()
+        sink.pressSucceeds = false
+        var outcome: PaceFlowReplayOutcome?
+        await PaceFlowReplayer(axTreeSource: source, actionSink: sink).play(
+            PaceRecordedFlow(
+                name: "Fixture", createdAt: Date(),
+                steps: [
+                    .axPress(rolePath: ["AXButton"], label: "Fixture"),
+                    .keyShortcut(key: "cmd+s"),
+                ]),
+            onProgress: { _ in XCTFail("Rejected press must stop before reporting progress") },
+            onCompletion: { outcome = $0 }
+        )
+        XCTAssertEqual(outcome, .failedToPressTarget(stepIndex: 0, axLabel: "Fixture"))
+        XCTAssertEqual(sink.dispatched, [.axPress("Fixture")])
+    }
 
     func testReplayerFindsTargetAndDispatchesPressInOrder() async {
         let axTreeSource = StubAXTreeSource()
@@ -101,11 +173,13 @@ final class PaceFlowReplayerTests: XCTestCase {
 
         XCTAssertEqual(finalOutcome, .completed)
         XCTAssertEqual(progressIndices, [0, 1, 2])
-        XCTAssertEqual(actionSink.dispatched, [
-            .activateApp("com.apple.mail"),
-            .axPress("Compose"),
-            .typeText("Hello there"),
-        ])
+        XCTAssertEqual(
+            actionSink.dispatched,
+            [
+                .activateApp("com.apple.mail"),
+                .axPress("Compose"),
+                .typeText("Hello there"),
+            ])
     }
 
     func testReplayerFailsToFindTargetAfterFiveSecondBudget() async {
@@ -135,7 +209,7 @@ final class PaceFlowReplayerTests: XCTestCase {
             name: "missing",
             createdAt: Date(),
             steps: [
-                .axPress(rolePath: ["AXWindow", "AXButton"], label: "Phantom"),
+                .axPress(rolePath: ["AXWindow", "AXButton"], label: "Phantom")
             ]
         )
 
@@ -153,8 +227,9 @@ final class PaceFlowReplayerTests: XCTestCase {
         )
 
         XCTAssertEqual(finalOutcome, .userCancelled)
-        XCTAssertGreaterThan(axTreeSource.resolveCallCount, 1,
-                             "Replayer should retry AX lookup at the 50ms poll interval")
+        XCTAssertGreaterThan(
+            axTreeSource.resolveCallCount, 1,
+            "Replayer should retry AX lookup at the 50ms poll interval")
     }
 
     func testReplayerFailsToFindTargetWhenAXNeverResolves() async {
@@ -227,10 +302,12 @@ final class PaceFlowReplayerTests: XCTestCase {
         XCTAssertEqual(finalOutcome, .stoppedBeforeSendStep(stepIndex: 2))
         // Send step should NOT appear in the dispatch list — the halt
         // happens BEFORE the AX press.
-        XCTAssertEqual(actionSink.dispatched, [
-            .activateApp("com.apple.mail"),
-            .typeText("Hello there"),
-        ])
+        XCTAssertEqual(
+            actionSink.dispatched,
+            [
+                .activateApp("com.apple.mail"),
+                .typeText("Hello there"),
+            ])
         // Progress was emitted for the parked Send step so the UI can
         // surface "step 3 of 3 is queued — say go ahead."
         XCTAssertEqual(progressIndices.last, 2)
@@ -250,7 +327,7 @@ final class PaceFlowReplayerTests: XCTestCase {
             name: "submit form",
             createdAt: Date(),
             steps: [
-                .axPress(rolePath: ["AXButton"], label: "Submit"),
+                .axPress(rolePath: ["AXButton"], label: "Submit")
             ]
         )
 
@@ -262,8 +339,9 @@ final class PaceFlowReplayerTests: XCTestCase {
         )
 
         XCTAssertEqual(finalOutcome, .stoppedBeforeSendStep(stepIndex: 0))
-        XCTAssertTrue(actionSink.dispatched.isEmpty,
-                      "Send-restriction step must never execute")
+        XCTAssertTrue(
+            actionSink.dispatched.isEmpty,
+            "Send-restriction step must never execute")
     }
 
     // MARK: Cancellation
@@ -300,8 +378,9 @@ final class PaceFlowReplayerTests: XCTestCase {
         )
 
         XCTAssertEqual(finalOutcome, .userCancelled)
-        XCTAssertLessThan(actionSink.dispatched.count, flow.steps.count,
-                          "Cancellation must halt before every step ran")
+        XCTAssertLessThan(
+            actionSink.dispatched.count, flow.steps.count,
+            "Cancellation must halt before every step ran")
     }
 
     // MARK: Adaptive delay
@@ -350,7 +429,7 @@ final class PaceFlowReplayerTests: XCTestCase {
             name: "shortcut",
             createdAt: Date(),
             steps: [
-                .keyShortcut(key: "cmd+s"),
+                .keyShortcut(key: "cmd+s")
             ]
         )
 

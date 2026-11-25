@@ -101,7 +101,33 @@ struct PaceAXRolePath: Equatable {
 enum PaceFlowRecorderStopReason: Equatable {
     case userCommand
     case idleTimeout
+    case captureInterrupted
     case appQuit
+}
+
+enum PaceFlowRecordingStartError: LocalizedError, Equatable {
+    case alreadyRecording(String)
+    case unsavedRecording(String)
+    case needsInputMonitoring
+    case needsAccessibility
+    case captureUnavailable
+
+    var errorDescription: String? {
+        switch self {
+        case .alreadyRecording(let name):
+            return "Could not start another workflow. Already recording \(name). Say stop recording first."
+        case .unsavedRecording(let name):
+            return "Could not start another workflow. Say stop recording to save the captured steps for \(name) first."
+        case .needsInputMonitoring:
+            return
+                "Could not start recording. Allow Pace in System Settings → Privacy & Security → Input Monitoring, then try again."
+        case .needsAccessibility:
+            return
+                "Could not start recording. Allow Pace in System Settings → Privacy & Security → Accessibility, then try again."
+        case .captureUnavailable:
+            return "Could not start input capture. Reopen Pace and try recording again."
+        }
+    }
 }
 
 /// Recorder state. Exposed on `PaceFlowRecorder.state` so SwiftUI
@@ -150,6 +176,19 @@ final class PaceFlowRecorder: ObservableObject {
 
     @Published private(set) var state: PaceFlowRecorderState = .idle
 
+    var onAutomaticStop: ((PaceFlowRecorderStopReason, PaceRecordedFlow) -> Void)?
+    var lastAutomaticStopSummary: String?
+
+    var unsavedRecording: PaceRecordedFlow? {
+        guard case .stopped(_, let flow) = state, let flow, !flow.steps.isEmpty else { return nil }
+        return flow
+    }
+
+    func markSaved(_ flow: PaceRecordedFlow) {
+        guard case .stopped(let reason, let pendingFlow) = state, flow == pendingFlow else { return }
+        state = .stopped(reason: reason, recordedFlow: nil)
+    }
+
     var isRecording: Bool {
         if case .recording = state { return true }
         return false
@@ -193,9 +232,7 @@ final class PaceFlowRecorder: ObservableObject {
     /// it was mid-deallocation, which matches the
     /// `objc_release`-inside-`AutoreleasePoolPage::releaseUntil`
     /// EXC_BAD_ACCESS observed crashing the test host
-    /// (`PaceFlowRecorderTests` installs a real tap via `start(
-    /// flowName:)` and, having no `tearDown()`, always tears the
-    /// recorder down via `deinit` rather than `stop(reason:)`).
+    /// during recorder teardown. Tests inject capture and verify this weak reference.
     ///
     /// Routing through this box means the callback safely observes
     /// `recorder == nil` instead of touching freed memory once
@@ -222,10 +259,14 @@ final class PaceFlowRecorder: ObservableObject {
     /// itself because we only need the read-side (no press).
     private let systemWideAXElement: AXUIElement = AXUIElementCreateSystemWide()
 
+    private let startCaptureOverride: (() throws(PaceFlowRecordingStartError) -> Void)?
+
     init(
         idleTimeoutSeconds: TimeInterval = 60,
+        startCaptureOverride: (() throws(PaceFlowRecordingStartError) -> Void)? = nil,
         currentDateProvider: @escaping () -> Date = { Date() }
     ) {
+        self.startCaptureOverride = startCaptureOverride
         self.idleTimeoutSeconds = idleTimeoutSeconds
         self.currentDateProvider = currentDateProvider
     }
@@ -250,26 +291,44 @@ final class PaceFlowRecorder: ObservableObject {
 
     // MARK: - Lifecycle
 
-    /// Begin recording into a fresh flow named `flowName`. If a
-    /// recording was already in progress it is silently stopped first
-    /// (the previous flow is discarded — voice commands explicitly
-    /// only start a new recording after `stop recording`).
-    func start(flowName: String) {
-        if isRecording {
-            stop(reason: .userCommand)
+    @discardableResult
+    func start(flowName: String) -> Result<Void, PaceFlowRecordingStartError> {
+        if case .recording(let currentName, _) = state {
+            return .failure(.alreadyRecording(currentName))
         }
+
+        if let unsavedRecording { return .failure(.unsavedRecording(unsavedRecording.name)) }
+
+        // The installed C callback owns this retain until the tap is removed.
+        let context = Unmanaged.passRetained(EventTapCallbackContext(recorder: self))
+        do {
+            if let startCaptureOverride {
+                try startCaptureOverride()
+            } else {
+                try installCGEventTap(callbackContext: context.toOpaque())
+                installWorkspaceActivationObserverIfNeeded()
+            }
+        } catch {
+            context.release()
+            return .failure(error)
+        }
+        eventTapCallbackContext = context.takeUnretainedValue()
         recordedSteps = []
         activeTypingBuffer = nil
+        lastAutomaticStopSummary = nil
         state = .recording(flowName: flowName, startedAt: currentDateProvider())
-        installCGEventTapIfNeeded()
-        installWorkspaceActivationObserverIfNeeded()
         rearmIdleTimer()
+        return .success(())
     }
 
     /// Stop the current recording. Returns the assembled flow if one
     /// was in progress and had a non-empty name; otherwise `nil`.
     @discardableResult
     func stop(reason: PaceFlowRecorderStopReason) -> PaceRecordedFlow? {
+        guard isRecording else {
+            if case .idle = state { state = .stopped(reason: reason, recordedFlow: nil) }
+            return nil
+        }
         flushActiveTypingBuffer()
 
         let assembledFlow: PaceRecordedFlow?
@@ -295,6 +354,9 @@ final class PaceFlowRecorder: ObservableObject {
         removeCGEventTap()
         invalidateIdleTimer()
         state = .stopped(reason: reason, recordedFlow: assembledFlow)
+        if let assembledFlow, reason == .idleTimeout || reason == .captureInterrupted {
+            onAutomaticStop?(reason, assembledFlow)
+        }
         return assembledFlow
     }
 
@@ -335,6 +397,10 @@ final class PaceFlowRecorder: ObservableObject {
         observedAt: Date
     ) {
         guard isRecording else { return }
+        if eventType == .tapDisabledByTimeout || eventType == .tapDisabledByUserInput {
+            stop(reason: .captureInterrupted)
+            return
+        }
         rearmIdleTimer()
 
         switch eventType {
@@ -650,8 +716,8 @@ final class PaceFlowRecorder: ObservableObject {
 
     // MARK: - CGEventTap lifecycle
 
-    private func installCGEventTapIfNeeded() {
-        guard globalEventTap == nil else { return }
+    private func installCGEventTap(callbackContext: UnsafeMutableRawPointer) throws(PaceFlowRecordingStartError) {
+        guard AXIsProcessTrusted() else { throw .needsAccessibility }
 
         let monitoredEventTypes: [CGEventType] = [
             .leftMouseDown,
@@ -681,8 +747,6 @@ final class PaceFlowRecorder: ObservableObject {
             return Unmanaged.passUnretained(event)
         }
 
-        let callbackContext = EventTapCallbackContext(recorder: self)
-
         guard
             let installedTap = CGEvent.tapCreate(
                 tap: .cgSessionEventTap,
@@ -690,11 +754,10 @@ final class PaceFlowRecorder: ObservableObject {
                 options: .listenOnly,
                 eventsOfInterest: monitoredEventMask,
                 callback: eventTapCallback,
-                userInfo: Unmanaged.passRetained(callbackContext).toOpaque()
+                userInfo: callbackContext
             )
         else {
-            print("⚠️ PaceFlowRecorder: couldn't create CGEvent tap — flow recording disabled until Accessibility is granted")
-            return
+            throw CGPreflightListenEventAccess() ? .captureUnavailable : .needsInputMonitoring
         }
         guard let runLoopSource = CFMachPortCreateRunLoopSource(
             kCFAllocatorDefault,
@@ -702,17 +765,18 @@ final class PaceFlowRecorder: ObservableObject {
             0
         ) else {
             CFMachPortInvalidate(installedTap)
-            Unmanaged.passUnretained(callbackContext).release()
-            print("⚠️ PaceFlowRecorder: couldn't create event tap run-loop source")
-            return
+            throw .captureUnavailable
         }
-
-        self.globalEventTap = installedTap
-        self.globalEventTapRunLoopSource = runLoopSource
-        self.eventTapCallbackContext = callbackContext
 
         CFRunLoopAddSource(CFRunLoopGetMain(), runLoopSource, .commonModes)
         CGEvent.tapEnable(tap: installedTap, enable: true)
+        guard CGEvent.tapIsEnabled(tap: installedTap) else {
+            CFRunLoopRemoveSource(CFRunLoopGetMain(), runLoopSource, .commonModes)
+            CFMachPortInvalidate(installedTap)
+            throw .captureUnavailable
+        }
+        globalEventTap = installedTap
+        globalEventTapRunLoopSource = runLoopSource
     }
 
     private func removeCGEventTap() {
