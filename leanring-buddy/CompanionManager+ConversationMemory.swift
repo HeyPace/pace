@@ -173,7 +173,8 @@ extension CompanionManager {
         assistantResponse: String,
         userEventIdentifier: String? = nil,
         recordsAssistantEvent: Bool = true,
-        recordsAssistantDerivedMemory: Bool = true
+        recordsAssistantDerivedMemory: Bool = true,
+        powerCatalog: PaceChatPowerCatalog? = nil
     ) {
         let isRemoteResponse = activePacePadTurnIdentifier != nil
         let visibleAssistantResponse = conversationDisplayText(for: assistantResponse)
@@ -234,7 +235,7 @@ extension CompanionManager {
                 ConversationEvent(
                     eventID: assistantEventIdentifier,
                     turnID: stableTurnId, role: .pace, origin: .assistant, text: visibleAssistantResponse,
-                    createdAt: recordedAt, speechRequest: spokenRequest))
+                    createdAt: recordedAt, speechRequest: spokenRequest, powerCatalog: powerCatalog))
         }
         if ownsActiveStream {
             if recordsAssistantEvent { lastConversationAssistantEventIdentifier = assistantEventIdentifier }

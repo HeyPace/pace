@@ -24,6 +24,7 @@ nonisolated struct PaceChatMessage: Identifiable, Equatable {
     var deliveryState: ConversationEvent.DeliveryState? = nil
     var generatedImagePreviewID: UUID? = nil
     var threadRootID: String? = nil
+    var powerCatalog: PaceChatPowerCatalog? = nil
 
     var isInternalRuntimeEvent: Bool {
         guard role == .user else { return false }
@@ -222,7 +223,7 @@ final class PaceChatSession: ObservableObject {
             id: event.eventID, role: event.role, body: event.text, createdAt: event.createdAt,
             speechRequest: event.speechRequest, turnIdentifier: event.turnID, origin: event.origin,
             deliveryState: event.deliveryState, generatedImagePreviewID: event.generatedImagePreviewID,
-            threadRootID: event.threadRootID)
+            threadRootID: event.threadRootID, powerCatalog: event.powerCatalog)
     }
 
     private func updateLatestScreenSuggestion(_ event: ConversationEvent) {

@@ -1468,7 +1468,8 @@ extension CompanionManager {
     func sendTranscriptToPlannerWithScreenshot(
         transcript: String, continuingAcceptedRequest: Bool = false, skillRun: ActiveSkillRun? = nil,
         screenSuggestionContext: PaceScreenSuggestionRequestContext? = nil,
-        allowsPermissionPrompt: Bool = false, voiceThreadRootID: String? = nil
+        allowsPermissionPrompt: Bool = false, voiceThreadRootID: String? = nil,
+        catalogSelection: PaceChatPowerCatalog.Selection? = nil
     ) {
         let capturedScreenSuggestionContext = continuingAcceptedRequest ? nil : screenSuggestionContext
         cancelActiveTurnTasks(preservingConversationRequest: continuingAcceptedRequest)
@@ -1489,7 +1490,7 @@ extension CompanionManager {
                 transcript: transcript,
                 turnLease: turnLease,
                 screenSuggestionContext: screenSuggestionContextForRequest,
-                allowsPermissionPrompt: allowsPermissionPrompt
+                allowsPermissionPrompt: allowsPermissionPrompt, catalogSelection: catalogSelection
             )
         }
     }
@@ -1604,10 +1605,10 @@ extension CompanionManager {
         transcript: String,
         turnLease: PaceTurnLease,
         screenSuggestionContext: PaceScreenSuggestionRequestContext? = nil,
-        allowsPermissionPrompt: Bool = false
+        allowsPermissionPrompt: Bool = false, catalogSelection: PaceChatPowerCatalog.Selection? = nil
     ) async {
         guard validateScreenSuggestionRequestForPlanner(screenSuggestionContext, turnLease: turnLease) else { return }
-        if await handleSpokenPowerRecoveryIfNeeded(transcript) { return }
+        if catalogSelection == nil, await handleSpokenPowerRecoveryIfNeeded(transcript) { return }
         let acceptedTurnIdentifier = activeConversationUserEvent?.eventID
         actionExecutor.beginUserTurn()
         ttsClient.stopPlayback()
@@ -1621,6 +1622,12 @@ extension CompanionManager {
         // them here BEFORE any routing branch — every fast path
         // (watch-mode, automation, memory, fast-action) clears them too.
         annotationOverlayController.clearOnNextUserTurn()
+        if let catalogSelection {
+            pendingSpokenPowerClarification = nil
+            guard let command = catalogSelection.command else { return }
+            await handlePowerCommand(command, transcript: transcript, catalogSelection: catalogSelection)
+            return
+        }
         if handlePendingPowerDescription(transcript) { return }
         if imageOverlayController.state != .idle, PaceImageGenerationRequest.requestsDismissal(transcript) {
             imageOverlayController.dismiss()

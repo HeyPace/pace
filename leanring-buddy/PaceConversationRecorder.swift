@@ -19,6 +19,7 @@ nonisolated struct ConversationEvent: Codable, Equatable, Identifiable, Sendable
     var deliveryState: DeliveryState
     let speechRequest: PaceSpeechRequest?
     let generatedImagePreviewID: UUID?
+    let powerCatalog: PaceChatPowerCatalog?
 
     var id: String { eventID }
 
@@ -26,7 +27,8 @@ nonisolated struct ConversationEvent: Codable, Equatable, Identifiable, Sendable
         eventID: String = UUID().uuidString, turnID: String? = nil,
         role: PaceChatRole, origin: Origin, text: String,
         createdAt: Date = Date(), deliveryState: DeliveryState = .completed,
-        speechRequest: PaceSpeechRequest? = nil, generatedImagePreviewID: UUID? = nil, threadRootID: String? = nil
+        speechRequest: PaceSpeechRequest? = nil, generatedImagePreviewID: UUID? = nil, threadRootID: String? = nil,
+        powerCatalog: PaceChatPowerCatalog? = nil
     ) {
         self.eventID = eventID
         self.threadRootID = threadRootID
@@ -38,6 +40,7 @@ nonisolated struct ConversationEvent: Codable, Equatable, Identifiable, Sendable
         self.deliveryState = deliveryState
         self.speechRequest = speechRequest
         self.generatedImagePreviewID = generatedImagePreviewID
+        self.powerCatalog = powerCatalog
     }
 }
 

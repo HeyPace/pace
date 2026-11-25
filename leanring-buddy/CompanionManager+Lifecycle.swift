@@ -105,32 +105,46 @@ extension CompanionManager {
             shouldMuteTTS: chatSession.isChatTTSMuted, screenSuggestionContext: .notification(suggestion))
     }
 
+    func submitChatPowerCatalogAction(_ action: PaceChatPowerCatalog.Action, entry: PaceChatPowerCatalog.Entry) {
+        let selection = PaceChatPowerCatalog.Selection(action: action, entry: entry)
+        guard selection.command != nil else { return }
+        pendingSpokenPowerClarification = nil
+        let label = action == .run ? "Run power" : "Show power"
+        submitChatTranscript(
+            "\(label) \(entry.name)", optimisticMessageIdentifier: nil, shouldMuteTTS: true,
+            allowsPermissionPrompt: true, catalogSelection: selection)
+    }
+
     private func submitChatTranscript(
         _ transcript: String,
         optimisticMessageIdentifier: String?,
         shouldMuteTTS: Bool,
         allowsPermissionPrompt: Bool = false,
-        screenSuggestionContext: PaceScreenSuggestionRequestContext? = nil
+        screenSuggestionContext: PaceScreenSuggestionRequestContext? = nil,
+        catalogSelection: PaceChatPowerCatalog.Selection? = nil
     ) {
         revealRequestFeedback()
         let acceptedEvent = acceptConversationRequest(
             transcript, origin: .typed,
             eventIdentifier: optimisticMessageIdentifier ?? UUID().uuidString,
-            threadRootID: optimisticMessageIdentifier.flatMap { chatSession.threadRootID(forTurnID: $0) })
+            threadRootID: catalogSelection == nil
+                ? optimisticMessageIdentifier.flatMap { chatSession.threadRootID(forTurnID: $0) }
+                : chatSession.activeThreadRootID)
         let queuedTurn = PaceQueuedChatTurn(
             transcript: transcript,
             shouldMuteTTS: shouldMuteTTS,
             allowsPermissionPrompt: allowsPermissionPrompt,
             optimisticMessageIdentifier: acceptedEvent.eventID,
             screenSuggestionContext: screenSuggestionContext
-                ?? (acceptedEvent.threadRootID == nil
+                ?? (catalogSelection == nil && acceptedEvent.threadRootID == nil
                     ? screenSuggestionCoordinator.followUpSuggestion(for: transcript).map(
-                        PaceScreenSuggestionRequestContext.followUp) : nil)
+                        PaceScreenSuggestionRequestContext.followUp) : nil),
+            catalogSelection: catalogSelection
         )
 
         // A permission prompt can suspend meeting startup. Its stop command
         // must cancel that lifecycle rather than queue behind the pending start.
-        if PaceMeetingModeController.shared.state == .starting,
+        if catalogSelection == nil, PaceMeetingModeController.shared.state == .starting,
             PaceMeetingModeCommandParser.parse(transcript) == .stop
         {
             cancelActiveTurnTasks()
@@ -207,7 +221,7 @@ extension CompanionManager {
         pendingTypedConversationEventIdentifier = queuedTurn.optimisticMessageIdentifier
         sendTranscriptToPlannerWithScreenshot(
             transcript: transcript, screenSuggestionContext: screenSuggestionContext,
-            allowsPermissionPrompt: queuedTurn.allowsPermissionPrompt)
+            allowsPermissionPrompt: queuedTurn.allowsPermissionPrompt, catalogSelection: queuedTurn.catalogSelection)
     }
 
     func cancelQueuedChatTurns(eventIdentifiers: Set<String>) {

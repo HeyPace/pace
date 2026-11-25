@@ -59,28 +59,44 @@ struct PaceChatPanelView: View {
         )
     }
 
+    @State private var powerBrowser: PacePowerBrowserLocation?
     @State private var scrollTarget: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             headerStrip
-            PaceJapanesePracticeControl(companionManager: companionManager)
-                .padding(.horizontal, appearance.padding(existing: 14))
-                .padding(.vertical, 7)
             PaceDialogueCurrentStatusView(companionManager: companionManager)
                 .padding(.horizontal, appearance.padding())
             PaceThreadLocationBar(session: chatSession) { scrollTarget = $0.dialogueScrollID }
                 .padding(.horizontal, appearance.padding(existing: 14))
             transcriptColumn
+                .opacity(powerBrowser == nil ? 1 : 0)
+                .accessibilityHidden(powerBrowser != nil)
+                .disabled(powerBrowser != nil)
+                .allowsHitTesting(powerBrowser == nil)
+                .overlay {
+                    if let powerBrowser {
+                        PaceChatPowerCatalogBrowser(
+                            catalog: powerBrowser.catalog, initialCategory: powerBrowser.category,
+                            returnTitle: chatSession.activeThreadRootID == nil ? "Main chat" : "Replies",
+                            goBack: {
+                                self.powerBrowser = nil
+                                isChatInputFocused = true
+                            },
+                            performAction: { entry, action in
+                                self.powerBrowser = nil
+                                companionManager.submitChatPowerCatalogAction(action, entry: entry)
+                            }
+                        )
+                    }
+                }
             dockedInputRow
-            PaceChatVoiceControl(companionManager: companionManager)
-                .padding(.horizontal, appearance.padding(existing: 12))
-                .padding(.bottom, 10)
         }
         .frame(width: contentSize?.width ?? 320, height: contentSize?.height ?? 460)
         .background(panelBackground)
         .smTheme(DS.palette)
         .clipShape(RoundedRectangle(cornerRadius: DS.Radius.window, style: .continuous))
+        .onChange(of: chatSession.activeThreadRootID) { powerBrowser = nil }
         .onAppear {
             // Re-pull persisted history so turns recorded before this
             // panel first opened (or while it was closed) are present.
@@ -122,24 +138,10 @@ struct PaceChatPanelView: View {
             }
 
             Spacer()
-            Button(action: {
-                PaceSettingsWindowManager.shared.show(companionManager: companionManager)
-            }) {
-                Label("Settings", systemImage: "gearshape")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(DS.Colors.textSecondary)
-                    .padding(.horizontal, 7)
-                    .frame(minHeight: 30)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .paceControlHoverHighlight(cornerRadius: 6)
-            .pointerCursor()
-            .keyboardShortcut(",", modifiers: [.command])
-            .help("Open Pace settings")
+            PaceChatOptionsMenu(companionManager: companionManager)
         }
         .padding(.horizontal, 14)
-        .padding(.vertical, 12)
+        .frame(height: 40)
     }
 
     private var voiceStateSymbolName: String {
@@ -308,6 +310,14 @@ struct PaceChatPanelView: View {
     private func messageBubbleRow(_ message: PaceChatTranscriptMessageRowModel, source: PaceChatMessage?) -> some View {
         PaceDialogueMessageView(
             message: message, appearance: appearance,
+            powerCatalog: source?.powerCatalog,
+            openPowerCategory: { category in
+                guard let catalog = source?.powerCatalog else { return }
+                isChatInputFocused = false
+                powerBrowser = PacePowerBrowserLocation(catalog: catalog, category: category)
+            },
+            historicalPowerCount: chatSession.historicalPowerCount(for: source),
+            refreshPowers: { chatSession.submitUserMessage("List powers") },
             threadActionTitle: source.flatMap { chatSession.threadActionTitle(for: $0) },
             onThreadAction: {
                 guard let source else { return }
@@ -580,52 +590,12 @@ struct PaceChatPanelView: View {
     // MARK: - Docked input
 
     private var dockedInputRow: some View {
-        HStack(spacing: 8) {
-            TextField(
-                chatSession.activeThreadRootID == nil ? "Message Pace…" : "Reply in thread…",
-                text: $chatSession.draftMessageText, axis: .vertical
-            )
-                .textFieldStyle(.plain)
-                .font(appearance.font(size: 13))
-                .foregroundColor(DS.Colors.textPrimary)
-                .lineLimit(1...4)
-                .focused($isChatInputFocused)
-                .onSubmit(submitDraftMessageText)
-            .accessibilityLabel(chatSession.activeThreadRootID == nil ? "Message Pace" : "Reply in thread")
-                .padding(.vertical, 5)
-            Button(action: submitDraftMessageText) {
-                Image(systemName: "arrow.up")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(isDraftMessageTextEmpty ? DS.Colors.textTertiary : appearance.controlForeground)
-                    .frame(width: 28, height: 28)
-                    .background(
-                        isDraftMessageTextEmpty ? DS.Colors.surfaceRaised : appearance.controlColor,
-                        in: RoundedRectangle(cornerRadius: DS.Radius.control))
-            }
-            .buttonStyle(.plain)
-            .paceControlHoverHighlight(cornerRadius: DS.Radius.control, isEnabled: !isDraftMessageTextEmpty)
-            .pointerCursor(isEnabled: !isDraftMessageTextEmpty)
-            .keyboardShortcut(.return, modifiers: [.command])
-            .disabled(isDraftMessageTextEmpty)
-            .accessibilityLabel("Send message")
-            .help("Send to Pace")
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        .background(DS.Colors.controlFill, in: RoundedRectangle(cornerRadius: DS.Radius.surface))
-        .overlay {
-            if isChatInputFocused {
-                RoundedRectangle(cornerRadius: DS.Radius.surface)
-                    .strokeBorder(appearance.controlColor(existing: DS.Colors.textSecondary).opacity(0.72))
-                    .allowsHitTesting(false)
-            }
-        }
+        PaceChatComposer(
+            companionManager: companionManager, chatSession: chatSession, appearance: appearance,
+            focused: $isChatInputFocused, submit: submitDraftMessageText
+        )
         .padding(.horizontal, appearance.padding(existing: 12))
-        .padding(.vertical, 10)
-    }
-
-    private var isDraftMessageTextEmpty: Bool {
-        chatSession.draftMessageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        .padding(.vertical, 8)
     }
 
     /// Submits through `PaceChatSession.submitUserMessage`, which appends
@@ -637,6 +607,7 @@ struct PaceChatPanelView: View {
             .trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedDraftMessageText.isEmpty else { return }
         chatSession.draftMessageText = ""
+        powerBrowser = nil
         chatSession.submitUserMessage(trimmedDraftMessageText)
         isChatInputFocused = true
     }

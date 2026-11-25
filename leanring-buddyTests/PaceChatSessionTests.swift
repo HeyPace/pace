@@ -17,6 +17,22 @@ import Testing
 @MainActor
 struct PaceChatSessionTests {
 
+    @Test func legacyListAnswerShowsRecordedCountsOnlyForItsOwnPowerRequest() {
+        let session = makeSession(historySource: FakeHistorySource(), submitter: FakeTranscriptSubmitter())
+        let counts = "12 built-in powers, 3 saved powers, 4 installed workflows."
+        let legacyAnswer =
+            counts
+            + "\nBuilt-in powers: Text, Voice. Say show power followed by an exact name for its steps and controls."
+        for question in ["List powers", "Explain this example"] {
+            session.upsertConversationEvent(
+                ConversationEvent(eventID: question, turnID: question, role: .user, origin: .typed, text: question))
+            session.upsertConversationEvent(
+                ConversationEvent(turnID: question, role: .pace, origin: .assistant, text: legacyAnswer))
+            #expect(
+                session.historicalPowerCount(for: session.messages.last) == (question == "List powers" ? counts : nil))
+        }
+    }
+
     @Test func typedReceiptExistsBeforeTheAgentSubmissionCallback() {
         let submitter = FakeTranscriptSubmitter()
         let session = PaceChatSession(historySource: FakeHistorySource(), transcriptSubmitter: submitter)

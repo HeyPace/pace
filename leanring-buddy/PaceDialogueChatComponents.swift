@@ -4,6 +4,10 @@ import SwiftUI
 struct PaceDialogueMessageView: View {
     let message: PaceChatTranscriptMessageRowModel
     let appearance: PaceChatAppearance
+    var powerCatalog: PaceChatPowerCatalog?
+    var openPowerCategory: (PaceChatPowerCatalog.Category) -> Void = { _ in }
+    var historicalPowerCount: String?
+    var refreshPowers: () -> Void = {}
     var threadActionTitle: String? = nil
     var onThreadAction: () -> Void = {}
     var canReplay = false
@@ -23,12 +27,25 @@ struct PaceDialogueMessageView: View {
                         .font(.system(size: 10, weight: .medium))
                         .foregroundStyle(DS.Colors.textTertiary)
                 }
-                Text(readableMessage(message.bodyText))
-                    .font(appearance.font(size: isFromUser ? 13 : 14))
-                    .lineSpacing(appearance.lineSpacing(existing: isFromUser ? 3 : 5))
-                    .foregroundStyle(DS.Colors.textPrimary.opacity(isFromUser ? 0.9 : 1))
-                    .textSelection(.enabled)
-                    .fixedSize(horizontal: false, vertical: true)
+                if let powerCatalog {
+                    PaceChatPowerCatalogAnswer(catalog: powerCatalog, openCategory: openPowerCategory)
+                } else if let historicalPowerCount {
+                    Text(historicalPowerCount)
+                        .font(appearance.font(size: 14))
+                        .textSelection(.enabled)
+                    Button("Browse current powers", action: refreshPowers)
+                        .buttonStyle(.plain)
+                        .foregroundStyle(DS.Colors.textSecondary)
+                        .paceControlHoverHighlight(cornerRadius: DS.Radius.control)
+                        .pointerCursor()
+                } else {
+                    Text(readableMessage(message.bodyText))
+                        .font(appearance.font(size: isFromUser ? 13 : 14))
+                        .lineSpacing(appearance.lineSpacing(existing: isFromUser ? 3 : 5))
+                        .foregroundStyle(DS.Colors.textPrimary.opacity(isFromUser ? 0.9 : 1))
+                        .textSelection(.enabled)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
                 if let generatedImagePreview {
                     Image(nsImage: generatedImagePreview)
                         .resizable()
@@ -343,7 +360,75 @@ struct PaceDialogueCurrentStatusView: View {
     }
 }
 
-struct PaceChatVoiceControl: View {
+struct PaceChatComposer: View {
+    @ObservedObject var companionManager: CompanionManager
+    @ObservedObject var chatSession: PaceChatSession
+    let appearance: PaceChatAppearance
+    let focused: FocusState<Bool>.Binding
+    let submit: () -> Void
+
+    var body: some View {
+        let empty = chatSession.draftMessageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let placeholder = chatSession.activeThreadRootID == nil ? "Message Pace…" : "Reply in thread…"
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(alignment: .bottom, spacing: 4) {
+                TextField(placeholder, text: $chatSession.draftMessageText, axis: .vertical)
+                    .textFieldStyle(.plain).font(appearance.font(size: 14))
+                    .foregroundStyle(DS.Colors.textPrimary)
+                    .lineLimit(1...4)
+                    .focused(focused).onSubmit(submit)
+                    .accessibilityLabel(chatSession.activeThreadRootID == nil ? "Message Pace" : "Reply in thread")
+                    .padding(.leading, 5).padding(.vertical, 6)
+                PaceChatVoiceControl(companionManager: companionManager)
+                if companionManager.voiceState != .idle {
+                    Button {
+                        companionManager.cancelCurrentTurnFromPanel()
+                    } label: {
+                        Image(systemName: "stop.fill").font(.system(size: 10))
+                            .frame(width: 28, height: 28).contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain).paceControlHoverHighlight(cornerRadius: DS.Radius.control)
+                    .pointerCursor().keyboardShortcut(.escape, modifiers: [.command])
+                    .accessibilityLabel("Stop current request").help("Stop after the current completed action")
+                }
+                Button(action: submit) {
+                    Image(systemName: "arrow.up")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(empty ? DS.Colors.textTertiary : appearance.controlForeground)
+                        .frame(width: 28, height: 28)
+                        .background(empty ? DS.Colors.surfaceRaised : appearance.controlColor, in: Circle())
+                }
+                .buttonStyle(.plain).paceControlHoverHighlight(cornerRadius: 14, isEnabled: !empty)
+                .pointerCursor(isEnabled: !empty).keyboardShortcut(.return, modifiers: [.command])
+                .disabled(empty)
+                .accessibilityLabel(companionManager.voiceState == .idle ? "Send message" : "Queue message")
+                .help(companionManager.voiceState == .idle ? "Send message" : "Add message to queue")
+            }
+            .padding(.horizontal, 7).padding(.vertical, 5)
+            .background(DS.Colors.controlFill, in: RoundedRectangle(cornerRadius: DS.Radius.surface))
+            .overlay {
+                if focused.wrappedValue {
+                    RoundedRectangle(cornerRadius: DS.Radius.surface)
+                        .strokeBorder(appearance.controlColor(existing: DS.Colors.textSecondary).opacity(0.72))
+                        .allowsHitTesting(false)
+                }
+            }
+            let queued = companionManager.queuedRequestIDsInCurrentChat
+            if !queued.isEmpty {
+                HStack {
+                    Text(queued.count == 1 ? "1 message queued" : "\(queued.count) messages queued")
+                    Spacer()
+                    Button("Clear") { companionManager.cancelQueuedChatTurns(eventIdentifiers: queued) }
+                        .buttonStyle(.plain).paceControlHoverHighlight(cornerRadius: DS.Radius.control)
+                        .pointerCursor().accessibilityLabel("Clear queued messages in this chat")
+                }
+                .font(.caption).foregroundStyle(DS.Colors.textSecondary)
+            }
+        }
+    }
+}
+
+private struct PaceChatVoiceControl: View {
     @ObservedObject var companionManager: CompanionManager
     @ObservedObject private var dictationManager: PacePushToTalkManager
 
@@ -353,69 +438,68 @@ struct PaceChatVoiceControl: View {
     }
 
     var body: some View {
-        let action = PaceChatVoiceAction.resolve(for: companionManager)
-        HStack(spacing: 4) {
-            switch action {
-            case .allowMicrophone:
-                control("Allow microphone", icon: "mic", help: "Allow Pace to use your microphone for voice input") {
-                    companionManager.requestMicrophoneAccess()
-                }
-            case .allowSpeechRecognition:
-                control(
-                    "Allow speech recognition", icon: "waveform",
-                    help: "Allow the selected speech provider to transcribe your voice"
-                ) {
-                    companionManager.requestSpeechRecognitionPermission()
-                }
-            case .checkVoiceModel:
-                control(
-                    "Check voice model", icon: "waveform",
-                    help: "The transcription model is loading. Open Voice settings to see its status."
-                ) {
-                    PaceSettingsWindowManager.shared.show(companionManager: companionManager, destination: .voice)
-                }
-            case .retryPracticeMicrophone:
-                control(
-                    "Retry Japanese microphone", icon: "arrow.clockwise",
-                    help: dictationManager.japanesePracticePreparationStatus
-                ) {
-                    dictationManager.prepareJapanesePracticeTranscriptionIfNeeded()
-                }
-            case .preparingPracticeMicrophone:
-                Label("Preparing Japanese microphone…", systemImage: "waveform")
-            case .start:
-                control("Speak to Pace", icon: "mic", help: "Start voice input") {
-                    companionManager.handleMicrophoneButtonTapped()
-                }
-                if companionManager.hasAccessibilityPermission {
-                    Text("Hold " + BuddyPushToTalkShortcut.currentShortcutOption.notchDisplayLabel)
-                        .foregroundStyle(DS.Colors.textTertiary)
-                        .accessibilityLabel(
-                            "Voice shortcut: hold " + BuddyPushToTalkShortcut.currentShortcutOption.notchDisplayLabel)
-                }
-            case .finishRecording:
-                control("Finish recording", icon: "mic.fill", help: "Finish voice input and transcribe") {
-                    companionManager.handleMicrophoneButtonTapped()
-                }
-            case .transcribing:
-                Label("Transcribing…", systemImage: "waveform")
+        switch PaceChatVoiceAction.resolve(for: companionManager) {
+        case .allowMicrophone:
+            control("Allow microphone", icon: "mic", caption: "Allow mic", help: "Allow Pace to use your microphone") {
+                companionManager.requestMicrophoneAccess()
             }
+        case .allowSpeechRecognition:
+            control(
+                "Allow speech recognition", icon: "waveform", caption: "Allow speech",
+                help: "Allow the selected provider to transcribe speech"
+            ) {
+                companionManager.requestSpeechRecognitionPermission()
+            }
+        case .checkVoiceModel:
+            control(
+                "Check voice model", icon: "waveform", caption: "Voice model", help: "View transcription model status"
+            ) {
+                PaceSettingsWindowManager.shared.show(companionManager: companionManager, destination: .voice)
+            }
+        case .retryPracticeMicrophone:
+            control(
+                "Retry Japanese microphone", icon: "arrow.clockwise", caption: "Retry mic",
+                help: dictationManager.japanesePracticePreparationStatus
+            ) {
+                dictationManager.prepareJapanesePracticeTranscriptionIfNeeded()
+            }
+        case .preparingPracticeMicrophone:
+            status("Preparing Japanese microphone", icon: "waveform")
+        case .start:
+            control("Speak to Pace", icon: "mic", help: "Start voice input") {
+                companionManager.handleMicrophoneButtonTapped()
+            }
+        case .finishRecording:
+            control(
+                "Finish recording", icon: "mic.fill", help: "Finish recording and transcribe",
+                tint: DS.Colors.localSignal
+            ) {
+                companionManager.handleMicrophoneButtonTapped()
+            }
+        case .transcribing:
+            status("Transcribing", icon: "waveform")
         }
-        .font(.system(size: 11))
-        .foregroundStyle(DS.Colors.textSecondary)
     }
 
-    private func control(_ title: String, icon: String, help: String, action: @escaping () -> Void) -> some View {
+    private func status(_ title: String, icon: String) -> some View {
+        Image(systemName: icon).frame(width: 28, height: 28)
+            .foregroundStyle(DS.Colors.textSecondary).accessibilityLabel(title).help(title)
+    }
+
+    private func control(
+        _ title: String, icon: String, caption: String? = nil, help: String, tint: Color = DS.Colors.textSecondary,
+        action: @escaping () -> Void
+    ) -> some View {
         Button(action: action) {
-            Label(title, systemImage: icon)
-                .padding(.horizontal, 4)
-                .frame(minHeight: 24)
-                .contentShape(Rectangle())
+            HStack(spacing: 3) {
+                Image(systemName: icon).font(.system(size: 13, weight: .medium))
+                if let caption { Text(caption).font(.caption).fixedSize() }
+            }
+            .foregroundStyle(tint)
+            .frame(minWidth: 28, minHeight: 28).contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
-        .paceControlHoverHighlight(cornerRadius: DS.Radius.control)
-        .pointerCursor()
-        .help(help)
+        .buttonStyle(.plain).paceControlHoverHighlight(cornerRadius: DS.Radius.control)
+        .pointerCursor().accessibilityLabel(title).help(help)
     }
 }
 

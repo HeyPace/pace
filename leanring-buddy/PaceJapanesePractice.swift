@@ -215,56 +215,61 @@ extension CompanionManager {
     }
 }
 
-struct PaceJapanesePracticeControl: View {
+struct PaceChatOptionsMenu: View {
     @ObservedObject var companionManager: CompanionManager
     @ObservedObject private var dictationManager: PacePushToTalkManager
 
     init(companionManager: CompanionManager) {
         self.companionManager = companionManager
-        self._dictationManager = ObservedObject(wrappedValue: companionManager.buddyDictationManager)
+        _dictationManager = ObservedObject(wrappedValue: companionManager.buddyDictationManager)
     }
 
-    private var isEnabled: Bool { companionManager.conversationLanguageMode == .japanesePractice }
-
     var body: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            HStack(spacing: 6) {
-                if isEnabled {
-                    Image(systemName: "character.bubble")
-                        .foregroundStyle(DS.Colors.textSecondary)
-                    Text("Japanese practice")
-                        .foregroundStyle(DS.Colors.textSecondary)
-                    Text("· English subtitles")
-                        .foregroundStyle(DS.Colors.textTertiary)
-                    Spacer(minLength: 8)
-                    Button("End practice") { companionManager.setJapanesePracticeEnabled(false) }
-                        .help("Restore your usual language and voice")
-                        .accessibilityLabel("End Japanese practice")
-                        .paceControlHoverHighlight(cornerRadius: 4)
-                        .pointerCursor()
-                } else {
-                    Button {
-                        companionManager.setJapanesePracticeEnabled(true)
-                    } label: {
-                        Label("Practice Japanese", systemImage: "character.bubble")
-                    }
-                    .help("Speak Japanese with English subtitles; local Japanese and English recognition")
-                    .accessibilityLabel("Turn on Japanese practice")
-                    .paceControlHoverHighlight(cornerRadius: 4)
-                    .pointerCursor()
-                    Spacer(minLength: 0)
+        let practicing = companionManager.conversationLanguageMode == .japanesePractice
+        Menu {
+            Toggle(isOn: Binding(get: { practicing }, set: { companionManager.setJapanesePracticeEnabled($0) })) {
+                Label("Japanese practice", systemImage: "character.bubble")
+            }
+            if practicing {
+                Text("English subtitles")
+                if !dictationManager.japanesePracticePreparationStatus.isEmpty {
+                    Text(dictationManager.japanesePracticePreparationStatus)
                 }
             }
-            .buttonStyle(.plain)
-            .font(.system(size: 10))
-            .foregroundStyle(DS.Colors.textTertiary)
-            if isEnabled, !dictationManager.japanesePracticePreparationStatus.isEmpty {
-                Text(dictationManager.japanesePracticePreparationStatus)
-                    .font(.system(size: 9))
-                    .foregroundStyle(DS.Colors.textTertiary)
-                    .lineLimit(2)
-                    .help(dictationManager.japanesePracticePreparationStatus)
+            Divider()
+            Menu("Keyboard shortcuts") {
+                Text("Return — Send message")
+                Text("Shift–Return — New line")
+                Text("Command–Escape — Stop request")
+                if companionManager.hasAccessibilityPermission {
+                    Text("Hold " + BuddyPushToTalkShortcut.currentShortcutOption.notchDisplayLabel + " — Speak")
+                }
             }
+            Button {
+                PaceSettingsWindowManager.shared.show(companionManager: companionManager)
+            } label: {
+                Label("Settings…", systemImage: "gearshape")
+            }
+            .keyboardShortcut(",", modifiers: .command)
+        } label: {
+            HStack(spacing: 5) {
+                if practicing {
+                    Text("Japanese practice")
+                        .font(.caption)
+                }
+                Image(systemName: "ellipsis")
+                    .font(.system(size: 15, weight: .medium))
+                    .frame(width: 28, height: 28)
+            }
+            .foregroundStyle(DS.Colors.textSecondary)
+            .contentShape(Rectangle())
         }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .paceControlHoverHighlight(cornerRadius: DS.Radius.control)
+        .pointerCursor()
+        .accessibilityLabel("Chat options and settings")
+        .help("Chat options, keyboard shortcuts, and Settings")
     }
 }
