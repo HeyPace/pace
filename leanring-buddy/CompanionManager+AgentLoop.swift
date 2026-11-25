@@ -736,11 +736,9 @@ extension CompanionManager {
 
                 let threadSummaryInjectionForTurn =
                     activeConversationUserEvent?.threadRootID == nil ? threadMemory.injectionPrefix() : nil
-                let ambientContextInjectionForTurn = PaceAmbientContextStore.shared.ambientPromptFragment
                 let selectedSystemPromptForTurn = activeConversationLanguageMode.applying(
                     to: CompanionSystemPrompt.buildTextOnly(
                         threadSummaryInjection: threadSummaryInjectionForTurn,
-                        ambientContextInjection: ambientContextInjectionForTurn,
                         includeInteractiveDiagrams: true))
                 let everydaySystemPromptForTurn = CompanionSystemPrompt.buildTextOnly(
                     threadSummaryInjection: threadSummaryInjectionForTurn,
@@ -2441,6 +2439,7 @@ extension CompanionManager {
                     // it already contains the cursor screen plus enriched
                     // analysis, so re-capturing before consuming it just
                     // adds latency to the hot path.
+                    let screenObservationGeneration = ambientContextStore.observationGeneration
                     let screenCaptureStartedAt = Date()
                     var prewarmedContextForStep: PaceScreenContextPrewarmedSnapshot?
                     let screenCaptures: [CompanionScreenCapture]
@@ -2531,7 +2530,8 @@ extension CompanionManager {
                             includeAgentMode: isAgentModeEnabled && !usesPassiveScreenPrompt,
                             isTuitionModeEnabled: isTuitionModeEnabled,
                             threadSummaryInjection: threadSummaryInjectionForTurn,
-                            ambientContextInjection: PaceAmbientContextStore.shared.ambientPromptFragment,
+                            ambientContextInjection: useLocalVLMForScreenContext && !screenCaptures.isEmpty
+                                ? ambientContextStore.ambientPromptFragment : nil,
                             usesIterativeComputerUse: !usesPassiveScreenPrompt
                                 && plannerClientForThisTurn is PaceLocalCLIPlannerClient,
                             includeInteractiveDiagrams: !usesPassiveScreenPrompt
@@ -2713,6 +2713,12 @@ extension CompanionManager {
 
                         guard validateScreenSuggestionRequestForPlanner(screenSuggestionContext, turnLease: turnLease)
                         else { return }
+                        if !screenCaptures.isEmpty,
+                            !useLocalVLMForScreenContext
+                                || ambientContextStore.observationGeneration != screenObservationGeneration
+                        {
+                            throw CancellationError()
+                        }
                         let responsePlannerForThisCall = BuddyPlannerClientFactory.makePassiveScreenAnswerPlanner(
                             usesPassiveScreenPrompt: usesPassiveScreenPrompt,
                             selectedPlanner: plannerClientForThisTurn,

@@ -379,13 +379,14 @@ extension CompanionManager {
             PaceMeetingAudioRecorder.crashRepairAllMeetingRecordings()
             PaceMeetingAudioRecorder.pruneMeetingRecordings(olderThanDays: meetingRecordingRetentionDays)
         }
-        // Start the always-on ambient context store. Polls the system
-        // every 3s for frontmost app, window title, AX tree summary,
-        // clipboard metadata, and time-of-day — all permission-free
-        // and <1ms per poll. The snapshot is injected into the planner
-        // system prompt so the planner has instant context without a
-        // VLM round-trip.
-        PaceAmbientContextStore.shared.start()
+        ambientContextPermissionCancellable = $useLocalVLMForScreenContext.removeDuplicates().sink {
+            [ambientContextStore] enabled in
+            if enabled {
+                ambientContextStore.start()
+            } else {
+                ambientContextStore.stop()
+            }
+        }
         // Default-off observe-only companion runtime. This reads the explicit
         // companion/source preferences and remains inert on every existing
         // installation until the user opts in.
@@ -640,8 +641,7 @@ extension CompanionManager {
                     }
                     let systemPrompt = CompanionSystemPrompt.build(
                         includeAgentMode: false,
-                        threadSummaryInjection: nil,
-                        ambientContextInjection: PaceAmbientContextStore.shared.ambientPromptFragment
+                        threadSummaryInjection: nil
                     )
                     let acquiredIndicator = self.beginHeadlessOffDeviceIndicatorIfNeeded()
                     defer { if acquiredIndicator { self.endHeadlessOffDeviceIndicatorIfNeeded() } }
@@ -863,6 +863,9 @@ extension CompanionManager {
     }
 
     func stop() {
+        ambientContextPermissionCancellable?.cancel()
+        ambientContextPermissionCancellable = nil
+        ambientContextStore.stop()
         invalidateFastAnswerCredentialPrewarm()
         dismissCodingApprovals()
         Task { await codingSessionCoordinator.shutdown() }

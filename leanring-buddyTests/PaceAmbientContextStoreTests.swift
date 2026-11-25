@@ -2,7 +2,7 @@
 //  PaceAmbientContextStoreTests.swift
 //  leanring-buddyTests
 //
-//  Tests for the always-on ambient context store. Verifies that
+//  Tests for the screen-authorized ambient context store. Verifies that
 //  snapshots are taken correctly, the prompt fragment is well-formed,
 //  and the store can be started/stopped without issues.
 //
@@ -18,7 +18,7 @@ struct PaceAmbientContextStoreTests {
 
     @Test
     func snapshot_capturesFrontmostApp() {
-        let store = PaceAmbientContextStore.shared
+        let store = PaceAmbientContextStore()
         let startedAt = Date()
         store.start()
         defer { store.stop() }
@@ -39,7 +39,7 @@ struct PaceAmbientContextStoreTests {
 
     @Test
     func snapshot_capturesDisplayCount() {
-        let store = PaceAmbientContextStore.shared
+        let store = PaceAmbientContextStore()
         store.start()
         defer { store.stop() }
 
@@ -51,7 +51,7 @@ struct PaceAmbientContextStoreTests {
 
     @Test
     func snapshot_capturesTimeContext() {
-        let store = PaceAmbientContextStore.shared
+        let store = PaceAmbientContextStore()
         store.start()
         defer { store.stop() }
 
@@ -69,18 +69,14 @@ struct PaceAmbientContextStoreTests {
 
     @Test
     func promptFragment_isEmptyWhenNoSnapshot() {
-        let store = PaceAmbientContextStore.shared
+        let store = PaceAmbientContextStore()
         store.stop()
-        // Without starting, the snapshot may be nil or stale.
-        // Just verify the method doesn't crash.
-        let fragment = store.ambientPromptFragment
-        // It's either empty or contains the XML tag.
-        #expect(fragment.isEmpty || fragment.contains("<ambient_context>"))
+        #expect(store.ambientPromptFragment.isEmpty)
     }
 
     @Test
     func promptFragment_containsAmbientTagWhenSnapshotExists() {
-        let store = PaceAmbientContextStore.shared
+        let store = PaceAmbientContextStore()
         store.start()
         defer { store.stop() }
 
@@ -93,7 +89,7 @@ struct PaceAmbientContextStoreTests {
 
     @Test
     func promptFragment_containsFrontmostApp() {
-        let store = PaceAmbientContextStore.shared
+        let store = PaceAmbientContextStore()
         store.start()
         defer { store.stop() }
 
@@ -107,7 +103,7 @@ struct PaceAmbientContextStoreTests {
 
     @Test
     func start_setsIsRunning() {
-        let store = PaceAmbientContextStore.shared
+        let store = PaceAmbientContextStore()
         store.start()
         #expect(store.isRunning == true)
         store.stop()
@@ -115,15 +111,34 @@ struct PaceAmbientContextStoreTests {
 
     @Test
     func stop_clearsIsRunning() {
-        let store = PaceAmbientContextStore.shared
+        let store = PaceAmbientContextStore()
         store.start()
         store.stop()
         #expect(store.isRunning == false)
     }
 
     @Test
+    func revokingAndRestoringScreenAccessDiscardsPendingWindowReads() {
+        let store = PaceAmbientContextStore()
+        store.start()
+        let previousGeneration = store.observationGeneration
+        let bundleID = store.currentSnapshot?.frontmostBundleID
+        store.stop()
+        store.applyAXReadResult(
+            windowTitle: "old window", axSummary: nil, forBundleID: bundleID, generation: previousGeneration)
+        #expect(store.currentSnapshot == nil)
+        #expect(store.ambientPromptFragment.isEmpty)
+
+        store.start()
+        defer { store.stop() }
+        store.applyAXReadResult(
+            windowTitle: "old window", axSummary: nil, forBundleID: bundleID, generation: previousGeneration)
+        #expect(store.currentSnapshot?.focusedWindowTitle != "old window")
+    }
+
+    @Test
     func start_isIdempotent() {
-        let store = PaceAmbientContextStore.shared
+        let store = PaceAmbientContextStore()
         store.start()
         store.start() // should not crash or create duplicate timers
         #expect(store.isRunning == true)
@@ -134,7 +149,7 @@ struct PaceAmbientContextStoreTests {
 
     @Test
     func clipboardChangeCount_startsAtZero() {
-        let store = PaceAmbientContextStore.shared
+        let store = PaceAmbientContextStore()
         store.start()
         defer { store.stop() }
 

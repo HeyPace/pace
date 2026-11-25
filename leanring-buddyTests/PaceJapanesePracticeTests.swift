@@ -254,6 +254,9 @@ struct PaceJapanesePracticeManagerTests {
         manager.useLocalVLMForScreenContext = true
         manager.isOverlayVisible = true
         var captureAttempts = 0
+        manager.ambientContextStore.start()
+        defer { manager.ambientContextStore.stop() }
+        #expect(!manager.ambientContextStore.ambientPromptFragment.isEmpty)
         manager.captureScreensForPlanner = {
             captureAttempts += 1
             throw NSError(domain: "PracticeGreetingCaptureFixture", code: 1)
@@ -265,6 +268,7 @@ struct PaceJapanesePracticeManagerTests {
         #expect(classifier.calls == 1 && planner.calls == 1)
         #expect(planner.imageCounts == [0] && captureAttempts == 0)
         #expect(planner.capturedSystemPrompt.contains("englishSubtitle"))
+        #expect(!planner.capturedSystemPrompt.contains("<ambient_context>"))
         #expect(speech.requests.isEmpty)
         #expect(manager.chatSession.messages.filter { $0.role == .pace }.map(\.body) == ["Hello. How are you?"])
         #expect(persister.events.values.filter { $0.role == .pace }.map(\.text) == ["Hello. How are you?"])

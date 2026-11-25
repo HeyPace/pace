@@ -851,6 +851,8 @@ final class CompanionManager: ObservableObject {
     var shortcutTransitionCancellable: AnyCancellable?
     var chatShortcutCancellable: AnyCancellable?
     var voiceStateCancellable: AnyCancellable?
+    let ambientContextStore = PaceAmbientContextStore()
+    var ambientContextPermissionCancellable: AnyCancellable?
     var queuedChatTurnDrainCancellable: AnyCancellable?
     var audioPowerCancellable: AnyCancellable?
 
