@@ -1,0 +1,102 @@
+{
+  "pace.automation": {
+    "title": "Automations",
+    "operations": [
+      "record_flow",
+      "run_flow",
+      "shortcut_run"
+    ]
+  },
+  "pace.coding": {
+    "title": "Coding",
+    "operations": [
+      "coding_session"
+    ]
+  },
+  "pace.computer": {
+    "title": "Computer use",
+    "operations": [
+      "click",
+      "click_candidates",
+      "clipboard_read",
+      "codex_session",
+      "double_click",
+      "edit_selection",
+      "finder",
+      "key_press",
+      "open_app",
+      "open_browser",
+      "open_url",
+      "scroll",
+      "set_value",
+      "type",
+      "undo",
+      "window_snap"
+    ]
+  },
+  "pace.images": {
+    "title": "Images",
+    "operations": [
+      "generate_image"
+    ]
+  },
+  "pace.integrations": {
+    "title": "Integrations",
+    "operations": [
+      "download_file"
+    ]
+  },
+  "pace.productivity": {
+    "title": "Productivity",
+    "operations": [
+      "brightness",
+      "calendar_create",
+      "calendar_read",
+      "mail_draft",
+      "messages_open",
+      "music",
+      "note_append",
+      "note_create",
+      "note_search",
+      "reminder_create",
+      "start_timer",
+      "things_create",
+      "volume"
+    ]
+  },
+  "pace.research": {
+    "title": "Research",
+    "operations": []
+  },
+  "pace.screen": {
+    "title": "Screen awareness",
+    "operations": [
+      "screen_capture"
+    ]
+  },
+  "pace.teaching": {
+    "title": "Teaching",
+    "operations": [
+      "clear_annotations",
+      "dismiss_diagram",
+      "draw_annotation",
+      "show_diagram"
+    ]
+  },
+  "pace.text": {
+    "title": "Text",
+    "operations": []
+  },
+  "pace.to-do": {
+    "title": "To-do List",
+    "operations": []
+  },
+  "pace.voice": {
+    "title": "Voice",
+    "operations": [
+      "meeting",
+      "present_media",
+      "speak"
+    ]
+  }
+}

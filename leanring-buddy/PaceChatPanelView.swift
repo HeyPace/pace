@@ -23,6 +23,9 @@ import SaaSMakerUI
 import SwiftUI
 
 struct PaceChatPanelView: View {
+    @ObservedObject private var appearanceStore = PaceChatAppearanceStore.shared
+    private var appearance: PaceChatAppearance { appearanceStore.appearance }
+
     @ObservedObject var companionManager: CompanionManager
     // Observed separately: these are their own ObservableObjects, and
     // changes to their @Published state do NOT flow through
@@ -38,14 +41,13 @@ struct PaceChatPanelView: View {
     /// conversation but snaps instead of animating.
     @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotionIsEnabled
 
-    @State private var draftMessageText: String = ""
     @FocusState private var isChatInputFocused: Bool
 
-    private let panelWidth: CGFloat = 320
-    private let panelHeight: CGFloat = 460
+    private let contentSize: CGSize?
     private let composerFocusRequestID: UUID?
 
-    init(companionManager: CompanionManager, composerFocusRequestID: UUID?) {
+    init(companionManager: CompanionManager, contentSize: CGSize? = nil, composerFocusRequestID: UUID?) {
+        self.contentSize = contentSize
         self.composerFocusRequestID = composerFocusRequestID
         _companionManager = ObservedObject(wrappedValue: companionManager)
         _chatSession = ObservedObject(wrappedValue: companionManager.chatSession)
@@ -57,18 +59,54 @@ struct PaceChatPanelView: View {
         )
     }
 
+    @State private var powerBrowser: PacePowerBrowserLocation?
+    @State private var scrollTarget: String?
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             headerStrip
-            Divider().background(DS.Colors.borderSubtle)
+            PaceDialogueCurrentStatusView(companionManager: companionManager)
+                .padding(.horizontal, appearance.padding())
+            PaceThreadLocationBar(session: chatSession) { scrollTarget = $0.dialogueScrollID }
+                .padding(.horizontal, appearance.padding(existing: 14))
             transcriptColumn
-            Divider().background(DS.Colors.borderSubtle)
+                .opacity(powerBrowser == nil ? 1 : 0)
+                .accessibilityHidden(powerBrowser != nil)
+                .disabled(powerBrowser != nil)
+                .allowsHitTesting(powerBrowser == nil)
+                .overlay {
+                    if let powerBrowser {
+                        PaceCurrentPowerBrowser(
+                            location: powerBrowser, companionManager: companionManager,
+                            returnTitle: chatSession.activeThreadRootID == nil ? "Main chat" : "Replies",
+                            goBack: {
+                                self.powerBrowser = nil
+                                isChatInputFocused = true
+                            },
+                            useConnection: { connection in
+                                chatSession.prepareDraft(using: connection)
+                                self.powerBrowser = nil
+                                isChatInputFocused = true
+                            },
+                            useExample: { example in
+                                chatSession.insertPowerExample(example)
+                                self.powerBrowser = nil
+                                isChatInputFocused = true
+                            },
+                            performAction: { entry, action in
+                                self.powerBrowser = nil
+                                companionManager.submitChatPowerCatalogAction(action, entry: entry)
+                            }
+                        )
+                    }
+                }
             dockedInputRow
         }
-        .frame(width: panelWidth, height: panelHeight)
+        .frame(width: contentSize?.width ?? 320, height: contentSize?.height ?? 460)
         .background(panelBackground)
         .smTheme(DS.palette)
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: DS.Radius.window, style: .continuous))
+        .onChange(of: chatSession.activeThreadRootID) { powerBrowser = nil }
         .onAppear {
             // Re-pull persisted history so turns recorded before this
             // panel first opened (or while it was closed) are present.
@@ -76,21 +114,15 @@ struct PaceChatPanelView: View {
             // transcript wholesale from the same `paceHistory` store
             // `recordConversationTurn` writes to.
             chatSession.loadHistory()
-            isChatInputFocused = composerFocusRequestID != nil
+            isChatInputFocused = powerBrowser == nil && composerFocusRequestID != nil
         }
         .onChange(of: composerFocusRequestID) { _, composerFocusRequestID in
-            isChatInputFocused = composerFocusRequestID != nil
+            isChatInputFocused = powerBrowser == nil && composerFocusRequestID != nil
         }
     }
 
-    /// System material per the PRD design language, darkened with the
-    /// existing background token so the DS text colors keep contrast on
-    /// any desktop wallpaper behind the panel.
     private var panelBackground: some View {
-        ZStack {
-            Rectangle().fill(.ultraThinMaterial)
-            DS.Colors.background.opacity(0.72)
-        }
+        DS.Colors.background
     }
 
     // MARK: - Header strip
@@ -106,28 +138,26 @@ struct PaceChatPanelView: View {
                 .foregroundColor(voiceStateColor)
                 .frame(width: 16)
 
-            SMStatusPill(
-                voiceStateDisplayText.lowercased(),
-                tone: companionManager.isOffDeviceTurnInFlight ? .warning : .brand
-            )
+            Text(voiceStateDisplayText)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(DS.Colors.textPrimary)
+            if companionManager.isOffDeviceTurnInFlight {
+                Label("Off-device", systemImage: "arrow.up.right")
+                    .font(.caption)
+                    .foregroundStyle(DS.Colors.offDeviceSignal)
+            }
 
             Spacer()
-
-            Button(action: {
-                PaceSettingsWindowManager.shared.show(companionManager: companionManager)
-            }) {
-                Image(systemName: "gearshape")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundColor(DS.Colors.textTertiary)
-                    .frame(width: 22, height: 22)
-                    .background(Circle().fill(Color.white.opacity(0.08)))
+            if powerBrowser == nil {
+                PacePowerSearchButton {
+                    isChatInputFocused = false
+                    powerBrowser = PacePowerBrowserLocation(catalog: nil, category: nil)
+                }
             }
-            .buttonStyle(.plain)
-            .pointerCursor()
-            .help("Settings — planner, voice, permissions, memory, activity")
+            PaceChatOptionsMenu(companionManager: companionManager)
         }
         .padding(.horizontal, 14)
-        .padding(.vertical, 12)
+        .frame(height: 40)
     }
 
     private var voiceStateSymbolName: String {
@@ -157,7 +187,7 @@ struct PaceChatPanelView: View {
     private var voiceStateDisplayText: String {
         switch companionManager.voiceState {
         case .idle:
-            return "Ready — hold ⌃⌥ to talk"
+            return "Ready"
         case .listening:
             return "Listening"
         case .processing:
@@ -176,6 +206,7 @@ struct PaceChatPanelView: View {
 
     private var transcriptColumn: some View {
         ScrollViewReader { scrollProxy in
+            let sources = Dictionary(uniqueKeysWithValues: chatSession.visibleMessages.map { ("message-" + $0.id, $0) })
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 8) {
                     if shouldShowEmptyTranscriptState {
@@ -185,34 +216,54 @@ struct PaceChatPanelView: View {
                         ForEach(threadRows) { threadRow in
                             switch threadRow {
                             case .message(let messageRowModel):
-                                messageBubbleRow(messageRowModel)
-                            case .toolActivity(let toolActivityRowModel):
-                                toolActivityRow(toolActivityRowModel)
+                                messageBubbleRow(messageRowModel, source: sources[messageRowModel.id]).id(threadRow.id)
+                            case .activity(let activity):
+                                PaceDialogueActivityView(activity: activity) {
+                                    PaceSettingsWindowManager.shared.show(
+                                        companionManager: companionManager, destination: .doctor)
+                                }
                             }
                         }
                     }
-                    companionObservationInlineCard
-                    morningBriefInlineCard
-                    meetingInlineCard
-                    liveSpeechDraftBubbleRow
-                    streamingReplyBubbleRow
+                    if chatSession.activeThreadRootID == nil {
+                        companionObservationInlineCard
+                        morningBriefInlineCard
+                        meetingInlineCard
+                    }
+                    if companionManager.isViewingLiveTurn {
+                        liveSpeechDraftBubbleRow
+                        streamingReplyBubbleRow
+                    }
                     Color.clear
                         .frame(height: 1)
                         .id(Self.transcriptBottomAnchorId)
                 }
-                .padding(14)
+                .padding(appearance.padding(existing: 14))
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .onChange(of: chatSession.messages.count) {
-                scrollTranscriptToBottom(scrollProxy)
+            .task(id: scrollTarget) {
+                guard let scrollTarget else { return }
+                await Task.yield()
+                guard !Task.isCancelled else { return }
+                scrollProxy.scrollTo(scrollTarget, anchor: .center)
+                self.scrollTarget = nil
+            }
+            .onChange(of: chatSession.visibleMessages.last?.id) {
+                if scrollTarget == nil { scrollTranscriptToBottom(scrollProxy) }
+            }
+            .onChange(of: composerFocusRequestID) { _, composerFocusRequestID in
+                guard composerFocusRequestID != nil else { return }
+                scrollTranscriptToBottom(scrollProxy, isAnimated: false)
             }
             .onChange(of: streamingSentenceTTSPipeline.inFlightStreamedText) {
+                guard companionManager.isViewingLiveTurn else { return }
                 scrollTranscriptToBottom(scrollProxy)
             }
             .onChange(of: companionManager.liveSpeechDraft) {
+                guard companionManager.isViewingLiveTurn else { return }
                 scrollTranscriptToBottom(scrollProxy)
             }
-            .onChange(of: companionManager.recentActionResults.count) {
+            .onChange(of: threadRows.last?.id) {
                 scrollTranscriptToBottom(scrollProxy)
             }
             .onAppear {
@@ -223,14 +274,12 @@ struct PaceChatPanelView: View {
 
     /// Merged conversation timeline. All merge/sort/state decisions live
     /// in the pure `PaceChatTranscriptModel` layer (unit-tested there).
-    private var threadRows: [PaceChatThreadRowModel] {
-        PaceChatTranscriptModel.threadRows(
-            messageRowModels: PaceChatTranscriptModel.messageRowModels(
-                fromChatMessages: chatSession.messages
+    private var threadRows: [PaceDialogueTranscriptItem] {
+        PaceDialogueTranscriptModel.items(
+            messages: PaceChatTranscriptModel.messageRowModels(
+                fromChatMessages: chatSession.visibleMessages
             ),
-            toolActivityRowModels: PaceChatTranscriptModel.toolActivityRowModels(
-                fromNewestFirstActionRunRecords: companionManager.recentActionResults
-            )
+            activities: companionManager.activitiesInCurrentChat(), threadRootID: chatSession.activeThreadRootID
         )
     }
 
@@ -255,6 +304,7 @@ struct PaceChatPanelView: View {
         _ scrollProxy: ScrollViewProxy,
         isAnimated: Bool = true
     ) {
+        guard scrollTarget == nil else { return }
         if isAnimated && !accessibilityReduceMotionIsEnabled {
             withAnimation(.easeOut(duration: 0.18)) {
                 scrollProxy.scrollTo(Self.transcriptBottomAnchorId, anchor: .bottom)
@@ -265,147 +315,59 @@ struct PaceChatPanelView: View {
     }
 
     private var emptyTranscriptState: some View {
-        VStack(spacing: 6) {
-            Text("Hold ⌃⌥ to talk")
-                .font(.system(size: 13, weight: .medium))
-                .foregroundColor(DS.Colors.textSecondary)
-            Text("…or type below.")
-                .font(.system(size: 12))
-                .foregroundColor(DS.Colors.textTertiary)
-        }
+        Text("What’s on your mind?")
+            .font(appearance.font(size: 15, weight: .medium))
+            .foregroundStyle(DS.Colors.textSecondary)
         .frame(maxWidth: .infinity)
     }
 
     // MARK: - Message bubbles
 
-    private func messageBubbleRow(
-        _ messageRowModel: PaceChatTranscriptMessageRowModel
-    ) -> some View {
-        HStack {
-            if messageRowModel.isAlignedToTrailingEdge {
-                Spacer(minLength: 32)
-            }
-            Text(messageRowModel.bodyText)
-                .font(.system(size: 13))
-                .lineSpacing(3)
-                .foregroundColor(DS.Colors.textPrimary)
-                .textSelection(.enabled)
-                .padding(.horizontal, 11)
-                .padding(.vertical, 8)
-                .background(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .fill(
-                            messageRowModel.usesAccentTintedBubble
-                                ? DS.Colors.accent.opacity(0.22)
-                                : Color.white.opacity(0.05)
-                        )
-                )
-                .frame(
-                    maxWidth: .infinity,
-                    alignment: messageRowModel.isAlignedToTrailingEdge ? .trailing : .leading
-                )
-            if !messageRowModel.isAlignedToTrailingEdge {
-                Spacer(minLength: 32)
-            }
-        }
+    private func messageBubbleRow(_ message: PaceChatTranscriptMessageRowModel, source: PaceChatMessage?) -> some View {
+        PaceDialogueMessageView(
+            message: message, appearance: appearance,
+            powerCatalog: source?.powerCatalog,
+            openPowerCategory: { category in
+                guard let catalog = source?.powerCatalog else { return }
+                isChatInputFocused = false
+                powerBrowser = PacePowerBrowserLocation(catalog: catalog, category: category)
+            },
+            historicalPowerCount: chatSession.historicalPowerCount(for: source),
+            refreshPowers: {
+                isChatInputFocused = false
+                powerBrowser = PacePowerBrowserLocation(catalog: nil, category: nil)
+            },
+            threadReplyCount: source.flatMap { chatSession.threadReplyCount(for: $0) },
+            onThreadAction: {
+                guard let source else { return }
+                chatSession.openThread(for: source)
+            },
+            canReplay: companionManager.canReplayChatSpeech,
+            onReplay: companionManager.replayChatSpeech)
     }
 
-    // MARK: - Inline tool activity
-
-    /// Compact row under the assistant bubble it belongs to: state icon,
-    /// tool name, one-line result. Per PRD: tool name + one-line result
-    /// state (running / done / failed).
-    private func toolActivityRow(
-        _ toolActivityRowModel: PaceChatToolActivityRowModel
-    ) -> some View {
-        HStack(spacing: 6) {
-            Image(systemName: toolActivityRowModel.resultState.systemSymbolName)
-                .font(.system(size: 9, weight: .semibold))
-                .foregroundColor(toolActivityResultStateColor(toolActivityRowModel.resultState))
-
-            Text(toolActivityRowModel.toolDisplayName)
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundColor(DS.Colors.textTertiary)
-                .lineLimit(1)
-                .truncationMode(.tail)
-
-            Text(toolActivityRowModel.resultSummaryLine)
-                .font(.system(size: 11))
-                .foregroundColor(DS.Colors.textTertiary)
-                .lineLimit(1)
-                .truncationMode(.tail)
-
-            Spacer(minLength: 0)
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 5)
-        .background(
-            Capsule(style: .continuous).fill(Color.white.opacity(0.05))
-        )
-    }
-
-    private func toolActivityResultStateColor(
-        _ resultState: PaceChatToolActivityResultState
-    ) -> Color {
-        switch resultState {
-        case .running:
-            return DS.Colors.accent
-        case .done:
-            return DS.Colors.success
-        case .failed:
-            return DS.Colors.warning
-        }
-    }
-
-    // MARK: - Live speech + streaming reply
-
-    /// The user's words as they speak — a right-aligned in-progress
-    /// bubble, slightly more saturated than a committed user bubble so
-    /// it reads as "in progress". Replaced by the committed message when
-    /// `recordConversationTurn` lands the turn.
     @ViewBuilder
     private var liveSpeechDraftBubbleRow: some View {
-        if !companionManager.liveSpeechDraft
-            .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            HStack {
-                Spacer(minLength: 32)
-                Text(companionManager.liveSpeechDraft)
-                    .font(.system(size: 13))
-                    .lineSpacing(3)
-                    .foregroundColor(DS.Colors.textPrimary)
-                    .padding(.horizontal, 11)
-                    .padding(.vertical, 8)
-                    .background(
-                        RoundedRectangle(cornerRadius: 12, style: .continuous)
-                            .fill(DS.Colors.accent.opacity(0.30))
-                    )
-                    .frame(maxWidth: .infinity, alignment: .trailing)
-            }
+        if !companionManager.liveSpeechDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            PaceDialogueMessageView(
+                message: PaceChatTranscriptMessageRowModel(
+                    id: "live-speech-draft", author: .user,
+                    bodyText: companionManager.liveSpeechDraft, createdAt: .distantFuture), appearance: appearance)
         }
     }
 
-    /// Pace's reply as it streams — the same `inFlightStreamedText` the
-    /// TTS pipeline publishes, so a spoken turn appears in the transcript
-    /// exactly like a typed one. Retired by `recordConversationTurn` when
-    /// the committed assistant message lands.
     @ViewBuilder
     private var streamingReplyBubbleRow: some View {
-        if !streamingSentenceTTSPipeline.inFlightStreamedText
-            .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            HStack {
-                Text(streamingSentenceTTSPipeline.inFlightStreamedText)
-                    .font(.system(size: 13))
-                    .lineSpacing(3)
-                    .foregroundColor(DS.Colors.textPrimary)
-                    .padding(.horizontal, 11)
-                    .padding(.vertical, 8)
-                    .background(
-                        RoundedRectangle(cornerRadius: 12, style: .continuous)
-                            .fill(Color.white.opacity(0.05))
-                    )
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                Spacer(minLength: 32)
-            }
+        let streamingText = streamingSentenceTTSPipeline.inFlightStreamedText
+        if PaceDialogueTranscriptModel.shouldShowStreamingReply(
+            text: streamingText,
+            assistantEventIdentifier: companionManager.activeConversationAssistantEventIdentifier,
+            committedMessages: chatSession.messages)
+        {
+            PaceDialogueMessageView(
+                message: PaceChatTranscriptMessageRowModel(
+                    id: "streaming-reply", author: .assistant,
+                    bodyText: streamingText, createdAt: .distantFuture), appearance: appearance)
         }
     }
 
@@ -432,7 +394,7 @@ struct PaceChatPanelView: View {
         if let pendingMorningBriefCard = morningTriageScheduler.pendingMorningBriefCard {
             VStack(alignment: .leading, spacing: 6) {
                 HStack(alignment: .center, spacing: 6) {
-                    Text("morning brief")
+                    Text("Morning brief")
                         .font(.system(size: 11, weight: .semibold))
                         .foregroundColor(DS.Colors.textSecondary)
 
@@ -444,11 +406,13 @@ struct PaceChatPanelView: View {
                         Image(systemName: "play.fill")
                             .font(.system(size: 10, weight: .semibold))
                             .foregroundColor(DS.Colors.textSecondary)
-                            .frame(width: 20, height: 20)
-                            .background(Circle().fill(Color.white.opacity(0.07)))
+                            .frame(width: 26, height: 26)
+                            .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
                     .pointerCursor()
+                    .paceControlHoverHighlight(cornerRadius: DS.Radius.control)
+                    .accessibilityLabel("Play morning brief")
                     .help("Speak the brief now")
 
                     Button(action: {
@@ -457,12 +421,14 @@ struct PaceChatPanelView: View {
                         Image(systemName: "xmark")
                             .font(.system(size: 10, weight: .semibold))
                             .foregroundColor(DS.Colors.textTertiary)
-                            .frame(width: 20, height: 20)
-                            .background(Circle().fill(Color.white.opacity(0.05)))
+                            .frame(width: 26, height: 26)
+                            .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
                     .pointerCursor()
-                    .help("Dismiss")
+                    .paceControlHoverHighlight(cornerRadius: DS.Radius.control)
+                    .accessibilityLabel("Dismiss morning brief")
+                    .help("Dismiss morning brief")
                 }
 
                 Text(pendingMorningBriefCard)
@@ -643,44 +609,12 @@ struct PaceChatPanelView: View {
     // MARK: - Docked input
 
     private var dockedInputRow: some View {
-        HStack(spacing: 8) {
-            TextField("Message Pace…", text: $draftMessageText, axis: .vertical)
-                .textFieldStyle(.plain)
-                .font(.system(size: 13))
-                .foregroundColor(DS.Colors.textPrimary)
-                .lineLimit(1...4)
-                .focused($isChatInputFocused)
-                .onSubmit(submitDraftMessageText)
-                .padding(.horizontal, 11)
-                .padding(.vertical, 8)
-                .background(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .fill(Color.white.opacity(0.06))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                .stroke(DS.Colors.borderSubtle, lineWidth: 0.7)
-                        )
-                )
-
-            Button(action: submitDraftMessageText) {
-                Image(systemName: "arrow.up.circle.fill")
-                    .font(.system(size: 22))
-                    .foregroundColor(
-                        isDraftMessageTextEmpty ? DS.Colors.textTertiary : DS.Colors.accent
-                    )
-            }
-            .buttonStyle(.plain)
-            .pointerCursor()
-            .keyboardShortcut(.return, modifiers: [.command])
-            .disabled(isDraftMessageTextEmpty)
-            .help("Send to Pace")
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-    }
-
-    private var isDraftMessageTextEmpty: Bool {
-        draftMessageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        PaceChatComposer(
+            companionManager: companionManager, chatSession: chatSession, appearance: appearance,
+            focused: $isChatInputFocused, submit: submitDraftMessageText
+        )
+        .padding(.horizontal, appearance.padding(existing: 12))
+        .padding(.vertical, 8)
     }
 
     /// Submits through `PaceChatSession.submitUserMessage`, which appends
@@ -688,11 +622,12 @@ struct PaceChatPanelView: View {
     /// voice (`CompanionManager.submitChatTranscriptFromChatSession`) —
     /// same intent classification, approval policy, and memory writes.
     private func submitDraftMessageText() {
-        let trimmedDraftMessageText = draftMessageText
+        let trimmedDraftMessageText = chatSession.draftMessageText
             .trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedDraftMessageText.isEmpty else { return }
+        chatSession.draftMessageText = ""
+        powerBrowser = nil
         chatSession.submitUserMessage(trimmedDraftMessageText)
-        draftMessageText = ""
         isChatInputFocused = true
     }
 }

@@ -15,8 +15,29 @@ enum PaceMCPClientError: Error, LocalizedError, CustomStringConvertible {
     case invalidCommand(String)
     case launchFailed(String)
     case requestTimedOut(String)
-    case invalidResponse(String)
     case rpcError(String)
+    case ambiguousApplicationTarget(String)
+    case staleApplicationTarget(String)
+
+    static func classifyToolError(_ error: Error, toolCall: PaceMCPToolCall) -> Error {
+        guard toolCall.serverName == "peekaboo", let mcpError = error as? PaceMCPClientError,
+            case .rpcError(let message) = mcpError
+        else { return error }
+        let applicationField: String
+        switch toolCall.toolName {
+        case "window": applicationField = "app"
+        case "see": applicationField = "app_target"
+        default: return error
+        }
+        guard case .string(let applicationTarget) = toolCall.arguments[applicationField] else { return error }
+        let diagnosticPattern =
+            "^(?:MCP tool reported an error:\\s*)?(?:Failed to [^:\\r\\n]+:\\s*)?Multiple apps match '"
+            + NSRegularExpression.escapedPattern(for: applicationTarget) + "'\\.\\s*Did you mean:"
+        guard message.range(of: diagnosticPattern, options: [.regularExpression, .caseInsensitive]) != nil else {
+            return error
+        }
+        return PaceMCPClientError.ambiguousApplicationTarget(message)
+    }
 
     var errorDescription: String? { description }
 
@@ -30,10 +51,12 @@ enum PaceMCPClientError: Error, LocalizedError, CustomStringConvertible {
             return "MCP server launch failed: \(message)"
         case .requestTimedOut(let method):
             return "MCP request timed out: \(method)"
-        case .invalidResponse(let message):
-            return "MCP server returned an invalid response: \(message)"
         case .rpcError(let message):
             return "MCP server returned an error: \(message)"
+        case .ambiguousApplicationTarget(let message):
+            return "Could not identify one application to control: \(message)"
+        case .staleApplicationTarget(let applicationName):
+            return "The launched \(applicationName) process is no longer available."
         }
     }
 }
@@ -112,6 +135,13 @@ nonisolated struct PaceMCPToolCall: Equatable, Sendable {
     let serverName: String
     let toolName: String
     let arguments: [String: PaceMCPJSONValue]
+
+    var createsAppleReminder: Bool {
+        guard serverName.lowercased() == "apple", toolName.lowercased() == "reminders",
+            case .string(let operation)? = arguments["operation"]
+        else { return false }
+        return operation.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "create"
+    }
 
     var approvalDescription: String {
         let argumentSummary = arguments.keys.sorted().joined(separator: ", ")
@@ -231,7 +261,10 @@ nonisolated enum PaceMCPServerRegistry {
             }
             let servers = root.mcpServers ?? root.servers ?? [:]
             if !servers.isEmpty {
-                return servers
+                return Dictionary(
+                    uniqueKeysWithValues: servers.map { slug, configured in
+                        (slug, PaceMCPServerCatalog.currentConfiguration(forSlug: slug, configured: configured))
+                    })
             }
         }
         return [:]
@@ -289,7 +322,7 @@ nonisolated struct PaceMCPStdioClient {
         try await toolCatalog(serverName: serverName, allowedNames: nil)
     }
 
-    private func toolCatalog(serverName: String, allowedNames: Set<String>?) async throws -> String {
+    func toolCatalog(serverName: String, allowedNames: Set<String>?) async throws -> String {
         guard let configuration = serverConfigurationsProvider()[serverName] else {
             throw PaceMCPClientError.serverNotConfigured(serverName)
         }
@@ -353,11 +386,12 @@ nonisolated struct PaceMCPStdioClient {
                     auditMCPCall(outcome: "ok", outputCharacterCount: result.count)
                     continuation.resume(returning: result)
                 } catch {
+                    let classifiedError = PaceMCPClientError.classifyToolError(error, toolCall: toolCall)
                     auditMCPCall(
                         outcome: "error",
-                        detail: String(String(describing: error).prefix(160))
+                        detail: String(String(describing: classifiedError).prefix(160))
                     )
-                    continuation.resume(throwing: error)
+                    continuation.resume(throwing: classifiedError)
                 }
             }
         }
@@ -470,14 +504,18 @@ private final class PaceMCPPersistentSessionSlot: @unchecked Sendable {
 }
 
 private final class PaceMCPPersistentSession {
+    private let cachesDesktopCatalog: Bool
     let configuration: PaceMCPServerConfiguration
     let process = Process()
     private let stdinPipe = Pipe()
     private let stdoutPipe = Pipe()
     private let stderrHandle: FileHandle
     private let client = MCP.Client(name: "Pace", version: "1.0")
+    private let closeLock = NSLock()
+    private var hasScheduledClose = false
 
     init(serverName: String, configuration: PaceMCPServerConfiguration, timeout: TimeInterval) throws {
+        cachesDesktopCatalog = ["peekaboo", "playwright"].contains(serverName)
         self.configuration = configuration
         guard let nullHandle = FileHandle(forWritingAtPath: "/dev/null") else {
             throw PaceMCPClientError.launchFailed("Could not open stderr sink")
@@ -515,10 +553,14 @@ private final class PaceMCPPersistentSession {
 
     deinit { close() }
 
+    // The session slot serializes requests and replaces this instance on a process or configuration change.
+    private var desktopCatalog: (response: [String: Any], expires: ContinuousClock.Instant)?
+
     func request(method: String, parameters: [String: Any], timeout: TimeInterval) throws -> [String: Any] {
         let client = self.client
         let resultData: Data
         if method == "tools/list" {
+            if let desktopCatalog, ContinuousClock.now < desktopCatalog.expires { return desktopCatalog.response }
             resultData = try waitForMCPResult(timeout: timeout) {
                 var tools: [MCP.Tool] = []
                 var cursor: String?
@@ -529,7 +571,11 @@ private final class PaceMCPPersistentSession {
                 } while cursor != nil
                 return try JSONEncoder().encode(tools)
             }
-            return ["result": ["tools": try JSONSerialization.jsonObject(with: resultData)]]
+            let response: [String: Any] = ["result": ["tools": try JSONSerialization.jsonObject(with: resultData)]]
+            if cachesDesktopCatalog {
+                desktopCatalog = (response, .now.advanced(by: .seconds(15)))
+            }
+            return response
         }
         let name = parameters["name"] as? String ?? ""
         let argumentData = try JSONSerialization.data(withJSONObject: parameters["arguments"] ?? [:])
@@ -545,12 +591,26 @@ private final class PaceMCPPersistentSession {
     }
 
     func close() {
+        closeLock.lock()
+        guard !hasScheduledClose else {
+            closeLock.unlock()
+            return
+        }
+        hasScheduledClose = true
         let client = self.client
-        Task { await client.disconnect() }
+        let retainedInputPipe = stdinPipe
+        let retainedOutputPipe = stdoutPipe
+        let retainedErrorHandle = stderrHandle
+        closeLock.unlock()
         if process.isRunning { process.terminate() }
-        try? stdinPipe.fileHandleForWriting.close()
-        try? stdoutPipe.fileHandleForReading.close()
-        try? stderrHandle.close()
+        // The SDK borrows raw descriptor numbers. Keep their owners alive until
+        // its reader is disconnected, so another session cannot reuse them first.
+        Task.detached {
+            await client.disconnect()
+            try? retainedInputPipe.fileHandleForWriting.close()
+            try? retainedOutputPipe.fileHandleForReading.close()
+            try? retainedErrorHandle.close()
+        }
     }
 }
 
@@ -610,90 +670,6 @@ private func executableURL(for command: String) throws -> URL {
     }
 
     throw PaceMCPClientError.invalidCommand(command)
-}
-
-private func sendJSONRPCMessage(_ jsonObject: [String: Any], to stdinHandle: FileHandle) throws {
-    let data = try JSONSerialization.data(withJSONObject: jsonObject, options: [])
-    var newlineTerminatedData = data
-    newlineTerminatedData.append(0x0A)
-    try stdinHandle.write(contentsOf: newlineTerminatedData)
-}
-
-private func readJSONRPCResponse(
-    id expectedID: Int,
-    from stdoutReader: PaceMCPLineReader,
-    timeoutInSeconds: TimeInterval
-) throws -> [String: Any] {
-    let deadline = Date().addingTimeInterval(timeoutInSeconds)
-
-    while Date() < deadline {
-        for lineData in stdoutReader.drainLines() {
-            guard !lineData.isEmpty else { continue }
-            guard let jsonObject = try JSONSerialization.jsonObject(with: lineData) as? [String: Any] else {
-                continue
-            }
-
-            if let errorObject = jsonObject["error"] as? [String: Any] {
-                throw PaceMCPClientError.rpcError(formatJSONRPCError(errorObject))
-            }
-
-            guard let responseID = jsonObject["id"] as? Int, responseID == expectedID else {
-                continue
-            }
-
-            return jsonObject
-        }
-
-        Thread.sleep(forTimeInterval: 0.01)
-    }
-
-    throw PaceMCPClientError.requestTimedOut("id \(expectedID)")
-}
-
-private final class PaceMCPLineReader {
-    private let fileHandle: FileHandle
-    private let lock = NSLock()
-    private var buffer = Data()
-    private var lines: [Data] = []
-
-    init(fileHandle: FileHandle) {
-        self.fileHandle = fileHandle
-        self.fileHandle.readabilityHandler = { [weak self] readableHandle in
-            let data = readableHandle.availableData
-            guard !data.isEmpty else { return }
-            self?.append(data)
-        }
-    }
-
-    func stop() {
-        fileHandle.readabilityHandler = nil
-    }
-
-    func drainLines() -> [Data] {
-        lock.lock()
-        defer { lock.unlock() }
-        let currentLines = lines
-        lines.removeAll()
-        return currentLines
-    }
-
-    private func append(_ data: Data) {
-        lock.lock()
-        defer { lock.unlock() }
-
-        buffer.append(data)
-        while let newlineIndex = buffer.firstIndex(of: 0x0A) {
-            let lineData = buffer.subdata(in: buffer.startIndex..<newlineIndex)
-            buffer.removeSubrange(buffer.startIndex...newlineIndex)
-            lines.append(lineData)
-        }
-    }
-}
-
-private func formatJSONRPCError(_ errorObject: [String: Any]) -> String {
-    let codeText = (errorObject["code"] as? Int).map { "\($0): " } ?? ""
-    let messageText = errorObject["message"] as? String ?? "Unknown error"
-    return "\(codeText)\(messageText)"
 }
 
 private func summarizeMCPToolCallResponse(_ response: [String: Any]) -> String {

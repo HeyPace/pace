@@ -37,7 +37,7 @@ final class PaceDictationFastPath {
 
     /// Callback to type text into the focused app. Set by
     /// CompanionManager to `actionExecutor.typeText`.
-    var typeTextCallback: ((String) async -> Void)?
+    var typeTextCallback: ((String) async -> Bool)?
 
     /// Callback to run Apple FM cleanup. Set by CompanionManager.
     /// Returns the cleaned-up text, or nil if Apple FM isn't available.
@@ -65,24 +65,33 @@ final class PaceDictationFastPath {
         // Step 2: optional Apple FM cleanup for disfluencies.
         // This is the only async step and it's optional — if Apple FM
         // isn't available, we skip it and use the deterministic output.
-        if let appleFMCleanupCallback, !cleanedText.isEmpty {
+        if let appleFMCleanupCallback, mode?.lowercased() != "code",
+            Self.hasSpokenDisfluency(cleanedText)
+        {
             PaceLatencyBudget.shared.mark(.plannerStart)
-            if let fmCleaned = await appleFMCleanupCallback(cleanedText) {
+            if let fmCleaned = await appleFMCleanupCallback(cleanedText),
+                !fmCleaned.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            {
                 cleanedText = fmCleaned
             }
             PaceLatencyBudget.shared.mark(.plannerComplete)
         }
 
-        guard !cleanedText.isEmpty else { return nil }
+        guard !Task.isCancelled, !cleanedText.isEmpty else { return nil }
 
         // Step 3: type the text directly into the focused field.
         PaceLatencyBudget.shared.mark(.toolExecStart)
-        await typeTextCallback(cleanedText)
+        let didPostText = await typeTextCallback(cleanedText)
         PaceLatencyBudget.shared.mark(.toolExecComplete)
+        guard didPostText else { return nil }
 
         print("📝 Dictation fast path: typed \(cleanedText.count) chars, skipped planner/VLM/TTS")
 
         return cleanedText
+    }
+
+    static func hasSpokenDisfluency(_ text: String) -> Bool {
+        text.lowercased().range(of: #"\b(?:um+|uh+|erm+)\b|\b(\p{L}+)\s+\1\b"#, options: .regularExpression) != nil
     }
 
     /// Check if a transcript looks like a dictation command.

@@ -42,4 +42,13 @@ struct PaceTranscriptionContextualPhraseBuilderTests {
 
         #expect(phrases.count == PaceTranscriptionContextualPhraseBuilder.maximumPhraseCount)
     }
+    @Test func savedNamesSurviveTheBoundedVocabularyBeforeGenericToolTerms() {
+        let phrases = PaceTranscriptionContextualPhraseBuilder.phrasesForCurrentTurn(
+            frontmostApplicationName: "Cursor", additionalTerms: ["Bouncing Ball", "Bounce Coach"])
+        #expect(phrases.contains("Bouncing Ball"))
+        #expect(phrases.contains("Bounce Coach"))
+        #expect((phrases.firstIndex(of: "Bouncing Ball") ?? Int.max) < (phrases.firstIndex(of: "open_app") ?? Int.max))
+        #expect(phrases.count <= PaceTranscriptionContextualPhraseBuilder.maximumPhraseCount)
+    }
+
 }

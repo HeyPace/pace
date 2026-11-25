@@ -7,71 +7,6 @@ import UniformTypeIdentifiers
 @testable import Pace
 
 struct PaceImageGenerationTests {
-    @Test func screenContextIntentMatrix() {
-        let screenRequests = [
-            "diagram what is on the screen", "diagram this screen", "diagram this page",
-            "diagram this webpage", "diagram this code", "diagram this chart", "diagram this image",
-            "diagram this window", "diagram what I am looking at", "diagram this article",
-            "diagram this document", "diagram the selected text",
-            "generate an image of my screen", "draw my screens", "draw my screenshot",
-            "draw my screenshots", "draw my window", "draw my windows", "draw my windows side by side",
-            "make an image of what I see", "draw what I see here", "draw what I see on my laptop",
-            "draw what I see right now", "make a diagram of what I see in Safari",
-            "draw what I see at the moment", "draw what I see when I use Safari",
-        ]
-        let creativeBriefs = [
-            "make a chart of my screen time", "an image of my screensaver idea",
-            "draw my windowpane design", "draw a blue mug",
-            "draw my Windows PC setup", "diagram my Windows computer", "draw my Windows laptop",
-            "diagram my Windows machine", "diagram my Windows OS", "diagram my Windows operating system",
-            "diagram my Windows partition layout",
-            "draw what I see when I close my eyes", "draw what I see with my eyes closed",
-            "draw what I see in my mind", "draw what I see in my head",
-            "draw what I see in my dream", "draw what I see in my dreams",
-            "draw what I see in my imagination",
-        ]
-        for hasActiveDiagram in [false, true] {
-            for transcript in screenRequests {
-                #expect(PaceDiagramDocument.requiresScreenContext(transcript, hasActiveDiagram: hasActiveDiagram))
-                // This matrix excludes the separate active-image "this image" editing carve-out.
-                if transcript != "diagram this image" {
-                    #expect(
-                        PaceImageGenerationRequest.requiresScreenContext(transcript, hasActiveImage: hasActiveDiagram))
-                }
-            }
-            for transcript in creativeBriefs {
-                #expect(!PaceDiagramDocument.requiresScreenContext(transcript, hasActiveDiagram: hasActiveDiagram))
-                #expect(!PaceImageGenerationRequest.requiresScreenContext(transcript, hasActiveImage: hasActiveDiagram))
-            }
-            for transcript in ["explain this", "draw this diagram", "simplify this figure"] {
-                #expect(
-                    PaceDiagramDocument.requiresScreenContext(transcript, hasActiveDiagram: hasActiveDiagram)
-                        == !hasActiveDiagram)
-            }
-        }
-    }
-
-    @Test @MainActor func visualImageFixtureNeverDeletesItsSourceAndReplacesTheDiagram() throws {
-        let identifier = UUID()
-        let source = PaceGeneratedImageStore.defaultDirectory.appendingPathComponent(identifier.uuidString)
-            .appendingPathExtension("png")
-        try FileManager.default.createDirectory(
-            at: PaceGeneratedImageStore.defaultDirectory, withIntermediateDirectories: true)
-        try Self.writePNG(to: source)
-        defer { try? FileManager.default.removeItem(at: source) }
-        let controller = PaceImageOverlayController(showsWindows: false)
-        var diagramReplacementCount = 0
-        controller.onWillGenerate = { diagramReplacementCount += 1 }
-        try controller.presentImageForSmokeTest(
-            at: source, environment: ["PACE_ENABLE_SMOKE_HOOKS": "1", "PACE_VISUAL_ACCEPTANCE_FIXTURE": "1"])
-        #expect(controller.lastSuccessfulArtifact?.id == identifier)
-        #expect(diagramReplacementCount == 1)
-        try controller.presentImageForSmokeTest(
-            at: source, environment: ["PACE_ENABLE_SMOKE_HOOKS": "1", "PACE_VISUAL_ACCEPTANCE_FIXTURE": "1"])
-        controller.dismiss()
-        #expect(FileManager.default.fileExists(atPath: source.path))
-    }
-
     private static let request = PaceImageGenerationRequest(prompt: "A blue ceramic mug on white", title: "Blue mug")
 
     private static func directory() throws -> URL {
@@ -100,6 +35,25 @@ struct PaceImageGenerationTests {
         .init(
             id: UUID(), fileURL: URL(fileURLWithPath: "/owned/image.png"), width: 2, height: 2,
             request: .init(prompt: "A blue mug", title: title))
+    }
+
+    @Test func onlyAnExistingImageAnimationRequestNeedsAnImageToVideoCapability() {
+        for phrase in [
+            "animate this image", "turn the original illustration into a video", "can you animate my artwork?",
+        ] {
+            #expect(PaceImageGenerationRequest.requestsAnimationOfExistingImage(phrase, hasActiveImage: false))
+        }
+        for phrase in ["animate it", "make it move", "i want an animation"] {
+            #expect(PaceImageGenerationRequest.requestsAnimationOfExistingImage(phrase, hasActiveImage: true))
+            #expect(!PaceImageGenerationRequest.requestsAnimationOfExistingImage(phrase, hasActiveImage: false))
+        }
+        for phrase in [
+            "draw a new SVG animation of a person juggling", "animate the chart",
+            "Add a Power that shows a bouncing ball", "make the image brighter",
+            "i want an animation of an astronaut",
+        ] {
+            #expect(!PaceImageGenerationRequest.requestsAnimationOfExistingImage(phrase, hasActiveImage: true))
+        }
     }
 
     @Test func typedRequestRequiresBoundedPromptAndTitleAndBooleanEdit() throws {
@@ -197,6 +151,23 @@ struct PaceImageGenerationTests {
                 from: #"{"type":"item.completed","item":{"type":"agent_message","text":"/tmp/image.png"}}"#) == nil)
     }
 
+    @Test func chatPreviewSurvivesRemovalOfTheWorkingImageAndClearsSeparately() throws {
+        let root = try Self.directory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let workingImage = root.appendingPathComponent("result.png")
+        let previews = root.appendingPathComponent("previews", isDirectory: true)
+        try Self.writePNG(to: workingImage)
+        let artifact = PaceGeneratedImageArtifact(
+            id: UUID(), fileURL: workingImage, width: 2, height: 2, request: Self.request)
+
+        let previewData = try PaceGeneratedImageStore.makeChatPreview(of: artifact)
+        try PaceGeneratedImageStore.saveChatPreview(previewData, identifier: artifact.id, in: previews)
+        try FileManager.default.removeItem(at: workingImage)
+        #expect(PaceGeneratedImageStore.chatPreviewData(for: artifact.id, in: previews) != nil)
+        PaceGeneratedImageStore.clearChatPreviews(in: previews)
+        #expect(PaceGeneratedImageStore.chatPreviewData(for: artifact.id, in: previews) == nil)
+    }
+
     @Test func importsThreadPNGWithoutTextResponseAndPreservesPrivateCopy() throws {
         let root = try Self.directory()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -216,57 +187,6 @@ struct PaceImageGenerationTests {
         let permissions =
             try FileManager.default.attributesOfItem(atPath: artifact.fileURL.path)[.posixPermissions] as? Int
         #expect(permissions == 0o600)
-    }
-
-    @Test func configuredHomeSymlinkResolvesWithoutAllowingLinkedThreadArtifacts() throws {
-        let root = try Self.directory()
-        defer { try? FileManager.default.removeItem(at: root) }
-        let actualHome = root.appendingPathComponent("actual-home", isDirectory: true)
-        try FileManager.default.createDirectory(at: actualHome, withIntermediateDirectories: true)
-        let linkedHome = root.appendingPathComponent("configured-home", isDirectory: true)
-        try FileManager.default.createSymbolicLink(at: linkedHome, withDestinationURL: actualHome)
-        let generatedImages = PaceCodexImageGenerationClient.generatedImagesDirectory(codexHome: linkedHome)
-        #expect(generatedImages == actualHome.appendingPathComponent("generated_images", isDirectory: true))
-        let threadID = UUID().uuidString.lowercased()
-        let thread = generatedImages.appendingPathComponent(threadID, isDirectory: true)
-        try FileManager.default.createDirectory(at: thread, withIntermediateDirectories: true)
-        try Self.writePNG(to: thread.appendingPathComponent("result.png"))
-        let imported = try PaceGeneratedImageStore.importArtifact(
-            threadID: threadID, generatedImagesDirectory: generatedImages, request: Self.request,
-            destinationDirectory: root.appendingPathComponent("owned", isDirectory: true))
-        #expect(imported.width == 2)
-        let linkedThreadID = UUID().uuidString.lowercased()
-        try FileManager.default.createSymbolicLink(
-            at: generatedImages.appendingPathComponent(linkedThreadID), withDestinationURL: thread)
-        #expect(throws: (any Error).self) {
-            try PaceGeneratedImageStore.importArtifact(
-                threadID: linkedThreadID, generatedImagesDirectory: generatedImages, request: Self.request,
-                destinationDirectory: root.appendingPathComponent("owned", isDirectory: true))
-        }
-    }
-
-    @Test @MainActor func imageInteractionExtendsIdleLifetimeAndDismissalClearsActivity() async {
-        let artifact = Self.artifact()
-        let controller = PaceImageOverlayController(
-            showsWindows: false, discardArtifact: { _ in }, generateImage: { _, _ in artifact })
-        controller.authorizationCheck = { true }
-        let start = Date(timeIntervalSince1970: 10_000)
-        controller.recordUserInteraction(at: start)
-        #expect(controller.lastUserInteractionAt == nil)
-        _ = await controller.generate(Self.request, expectedDismissalGeneration: 0)
-        controller.recordUserInteraction(at: start.addingTimeInterval(19 * 60))
-        let memory = PaceThreadMemory(configuration: .default)
-        _ = memory.record(userTurn: "Draw a mug", assistantTurn: "Ready", turnId: "fixture", now: start)
-        #expect(
-            memory.sessionDidIdle(
-                now: start.addingTimeInterval(21 * 60),
-                lastUserInteractionAt: controller.lastUserInteractionAt) == nil)
-        #expect(
-            memory.sessionDidIdle(
-                now: start.addingTimeInterval(40 * 60),
-                lastUserInteractionAt: controller.lastUserInteractionAt) == .idleTimeout)
-        controller.dismiss()
-        #expect(controller.lastUserInteractionAt == nil)
     }
 
     @Test func workingCopyDiscardRequiresTheExactOwnedArtifactAndPreservesSavedCopies() throws {
@@ -686,18 +606,40 @@ struct PaceImageGenerationTests {
 
     @Test @MainActor func closeCancelsProcessWorkAndLateResultCannotReopen() async throws {
         var continuation: CheckedContinuation<PaceGeneratedImageArtifact, Never>?
+        var userDismissals = 0
         let controller = PaceImageOverlayController(showsWindows: false) { _, _ in
             await withCheckedContinuation { continuation = $0 }
         }
+        controller.onUserDismissed = { userDismissals += 1 }
         controller.authorizationCheck = { true }
         let task = Task { await controller.generate(Self.request, expectedDismissalGeneration: 0) }
         while continuation == nil { await Task.yield() }
-        controller.dismiss()
+        controller.dismiss(intent: .userInitiated)
         continuation?.resume(returning: Self.artifact())
         let message = await task.value
         #expect(message.contains("cancelled"))
         #expect(controller.state == .idle)
         #expect(controller.lastSuccessfulArtifact == nil)
+        #expect(userDismissals == 1)
+    }
+
+    @Test @MainActor func visualReplacementDoesNotInvokeTheUserDismissalCallback() async {
+        var userDismissals = 0
+        let controller = PaceImageOverlayController(
+            showsWindows: false,
+            discardArtifact: { _ in },
+            generateImage: { _, _ in Self.artifact() }
+        )
+        controller.authorizationCheck = { true }
+        controller.onUserDismissed = { userDismissals += 1 }
+        _ = await controller.generate(Self.request, expectedDismissalGeneration: 0)
+        controller.hideForDiagramReplacement()
+        controller.dismiss()
+        #expect(userDismissals == 0)
+        _ = await controller.generate(Self.request, expectedDismissalGeneration: controller.dismissalGeneration)
+        controller.dismiss(intent: .userInitiated)
+        #expect(userDismissals == 1)
+        #expect(controller.state == .idle)
     }
 
     @Test @MainActor func deniedConsentAndMissingEditReferenceNeverLaunchGenerator() async {

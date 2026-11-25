@@ -13,6 +13,7 @@ import SwiftUI
 
 struct PaceProactiveSettingsTab: View {
     @ObservedObject var companionManager: CompanionManager
+    var showsWatchModeControl = true
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
@@ -56,19 +57,23 @@ struct PaceProactiveSettingsTab: View {
                 Text("Ambient awareness")
                     .font(DS.Typography.captionStrong)
                     .foregroundStyle(DS.Colors.textSecondary)
-                Text("These modes stay local and remain off until you enable them.")
-                    .font(DS.Typography.caption)
+                Text(
+                    "Watch mode sends redacted screen text to your selected planner. Local planners keep it on this Mac. Modes remain off until enabled."
+                )
+                .font(DS.Typography.caption)
                     .foregroundStyle(DS.Colors.textTertiary)
 
-                paceSettingsToggleRow(
-                    title: "Watch mode",
-                    subtitle: companionManager.latestWatchModeSummary
-                        ?? "Watch for meaningful screen changes.",
-                    isOn: Binding(
-                        get: { companionManager.isWatchModeEnabled },
-                        set: { companionManager.setWatchModeEnabled($0) }
+                if showsWatchModeControl {
+                    paceSettingsToggleRow(
+                        title: "Watch mode",
+                        subtitle: companionManager.latestWatchModeSummary
+                            ?? "Offer useful explanations and help about the screen. Requires Read My Screen. Remembers your choice and pauses while locked or asleep.",
+                        isOn: Binding(
+                            get: { companionManager.isWatchModeEnabled },
+                            set: { companionManager.setWatchModeEnabled($0) }
+                        )
                     )
-                )
+                }
                 paceSettingsToggleRow(
                     title: "Always listening",
                     subtitle: "Opt-in ambient command mode. Push-to-talk remains available.",
@@ -106,26 +111,28 @@ struct PaceProactiveSettingsTab: View {
                     .fixedSize(horizontal: false, vertical: true)
 
                 Toggle(
-                    "Calendar pre-meeting nudges",
+                    "Calendar announcements",
                     isOn: Binding(
                         get: { companionManager.areCalendarNudgesEnabled },
                         set: { companionManager.setCalendarNudgesEnabled($0) }
                     )
                 )
-                Text("Five-minute heads-up before meetings on your calendar.")
+                Text("Spoken heads-up before timed events, usually within five minutes. All-day events stay quiet.")
                     .font(.system(size: 11))
                     .foregroundColor(DS.Colors.textTertiary)
                     .fixedSize(horizontal: false, vertical: true)
 
                 Toggle(
-                    "Watch-mode observation nudges",
+                    "Speak screen suggestions",
                     isOn: Binding(
                         get: { companionManager.areWatchObservationNudgesEnabled },
                         set: { companionManager.setWatchObservationNudgesEnabled($0) }
                     )
                 )
-                Text("When watch mode spots an error or failed build on screen, Pace can offer to help.")
-                    .font(.system(size: 11))
+                Text(
+                    "Watch mode shows suggestions quietly. Enable this to also hear them when interruption rules allow."
+                )
+                .font(.system(size: 11))
                     .foregroundColor(DS.Colors.textTertiary)
                     .fixedSize(horizontal: false, vertical: true)
 

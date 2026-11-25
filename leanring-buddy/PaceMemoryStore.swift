@@ -24,14 +24,22 @@ import Foundation
 final class PaceMemoryStore {
     private let fileURL: URL?
 
-    init() {
+    convenience init() {
+        // A test host shares Pace's bundle identity but must not overwrite the user's memory.
+        guard ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil else {
+            self.init(fileURL: nil)
+            return
+        }
         let applicationSupportRootURL = FileManager.default
             .urls(for: .applicationSupportDirectory, in: .userDomainMask)
             .first
-        fileURL = applicationSupportRootURL?
-            .appendingPathComponent("Pace", isDirectory: true)
-            .appendingPathComponent("memory-index.json", isDirectory: false)
+        self.init(
+            fileURL: applicationSupportRootURL?
+                .appendingPathComponent("Pace", isDirectory: true)
+                .appendingPathComponent("memory-index.json", isDirectory: false))
     }
+
+    init(fileURL: URL?) { self.fileURL = fileURL }
 
     /// Load the persisted entries, or an empty list when nothing has been
     /// saved yet / the file is unreadable. A decode failure returns `[]`

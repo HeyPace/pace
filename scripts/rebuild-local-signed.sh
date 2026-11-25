@@ -91,6 +91,8 @@ mkdir -p "$APP_PATH/Contents/Resources/scripts"
 cp "$PROJECT_DIR/scripts/start-tts-server.sh" "$APP_PATH/Contents/Resources/scripts/start-tts-server.sh"
 chmod +x "$APP_PATH/Contents/Resources/scripts/start-tts-server.sh"
 
+/usr/bin/plutil -replace PaceLocalDevelopmentBuild -bool YES "$APP_PATH/Contents/Info.plist"
+
 echo "🔐 Signing frameworks + app with the stable cert ..."
 find "$APP_PATH/Contents/Frameworks" -maxdepth 2 -name "*.framework" -type d 2>/dev/null \
     | while read -r fw; do

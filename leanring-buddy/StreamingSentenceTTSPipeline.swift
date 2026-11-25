@@ -19,6 +19,8 @@ import Foundation
 @MainActor
 final class StreamingSentenceTTSPipeline: ObservableObject {
     private let ttsClient: any BuddyTTSClient
+    var onPlaybackFailure: (() -> Void)?
+    private var hasReportedPlaybackFailureForCurrentTurn = false
     /// Tag-stripped, sentence-bounded text that's already been queued
     /// to the TTS client. We diff against this on each new chunk so
     /// only the new completed sentence(s) get spoken.
@@ -91,15 +93,27 @@ final class StreamingSentenceTTSPipeline: ObservableObject {
     /// dispatch — chat-mode mute. Reset on every turn boundary so the
     /// flag is ephemeral by construction and cannot leak into the next
     /// voice turn.
-    private var isMutedForCurrentTurn: Bool = false
+    private(set) var isMutedForCurrentTurn: Bool = false
 
-    /// True once `drainQueueAndStopForBargeIn()` has been called for the
-    /// current turn. Locks out any further `dispatchDeltaIfReady` work
+    /// True once the user interrupts or closes the current turn.
+    /// Locks out any further `dispatchDeltaIfReady` work
     /// for THIS turn so speculative sentences arriving after the user
     /// interrupted (e.g. a planner chunk still in flight, or a Wave 4
     /// speculative prefetch result) cannot leak audio. Cleared on the
     /// next `markIntentCommitted()` so the next turn starts clean.
-    private var hasBeenDrainedForBargeInThisTurn: Bool = false
+    private var hasStoppedSpeechForCurrentTurn: Bool = false
+    private var dispatchGeneration: UInt64 = 0
+    private var conversationLanguageMode: PaceConversationLanguageMode = .standard
+    private var bilingualReply: PaceBilingualReply?
+
+    func setConversationLanguageModeForCurrentTurn(_ mode: PaceConversationLanguageMode) {
+        conversationLanguageMode = mode
+        bilingualReply = nil
+    }
+
+    func setBilingualReplyForCurrentTurn(_ reply: PaceBilingualReply) {
+        bilingualReply = reply
+    }
 
     /// Public read of whether the LAST completed turn was interrupted
     /// by a barge-in. Tests assert on this; the CompanionManager uses
@@ -116,15 +130,19 @@ final class StreamingSentenceTTSPipeline: ObservableObject {
     /// Called when a new voice turn begins. Clears the dispatch
     /// history so the next chunk starts a fresh queue.
     func resetForNewTurn() {
+        dispatchGeneration &+= 1
+        conversationLanguageMode = .standard
+        bilingualReply = nil
         alreadyDispatchedSafeText = ""
         intentCommittedAt = nil
         hasLoggedTimeToFirstSpokenWord = false
         isMutedForCurrentTurn = false
         inFlightStreamedText = ""
-        hasBeenDrainedForBargeInThisTurn = false
+        hasStoppedSpeechForCurrentTurn = false
         hasDispatchedFirstSentenceOfTurn = false
         firstSpokenWordCharacterCount = 0
         hasFinalizedStreamedTextForTurn = false
+        hasReportedPlaybackFailureForCurrentTurn = false
     }
 
     /// Retires the live streaming-reply mirror at turn completion and
@@ -141,9 +159,8 @@ final class StreamingSentenceTTSPipeline: ObservableObject {
         inFlightStreamedText = ""
     }
 
-    /// Sets the per-turn mute flag. Called by `CompanionManager` right
-    /// before a chat-mode turn dispatches into the planner so the
-    /// session's `isChatTTSMuted` value gates audio for THIS turn only.
+    /// Sets the automatic speech policy for this turn. The next turn
+    /// gets its own policy when the streaming pipeline resets.
     func setMutedForCurrentTurn(_ isMutedForCurrentTurn: Bool) {
         self.isMutedForCurrentTurn = isMutedForCurrentTurn
     }
@@ -159,7 +176,7 @@ final class StreamingSentenceTTSPipeline: ObservableObject {
         intentCommittedAt = Date()
         hasLoggedTimeToFirstSpokenWord = false
         lastTurnWasInterrupted = false
-        hasBeenDrainedForBargeInThisTurn = false
+        hasStoppedSpeechForCurrentTurn = false
         // Wave 4: every per-turn flag controlling the speed levers
         // resets here. The new turn earns its lowered first-sentence
         // threshold regardless of how the previous turn ended.
@@ -179,7 +196,7 @@ final class StreamingSentenceTTSPipeline: ObservableObject {
     ///    from the lite text — replays cleanly as fresh sentences instead
     ///    of being diffed against the lite prefix (which would dispatch
     ///    garbage or nothing).
-    /// 3. Does NOT set `hasBeenDrainedForBargeInThisTurn`, so the full
+    /// 3. Does NOT set `hasStoppedSpeechForCurrentTurn`, so the full
     ///    stream's subsequent `acceptStreamedText` calls are accepted —
     ///    unlike the barge-in lock, which permanently silences the turn.
     /// 4. PRESERVES `intentCommittedAt` and `hasLoggedTimeToFirstSpokenWord`
@@ -187,6 +204,7 @@ final class StreamingSentenceTTSPipeline: ObservableObject {
     ///    not lost or re-logged. The headline latency metric still reflects
     ///    when the user first heard audio, race or not.
     func prepareForSupersedingStreamWithinTurn() {
+        dispatchGeneration &+= 1
         ttsClient.stopPlayback()
         alreadyDispatchedSafeText = ""
         inFlightStreamedText = ""
@@ -208,25 +226,26 @@ final class StreamingSentenceTTSPipeline: ObservableObject {
     /// can include the flag in the paceHistory interrupt log line. Resets
     /// on `markIntentCommitted()` for the next turn.
     func drainQueueAndStopForBargeIn() {
-        // Pre-stamp the stop reason BEFORE stopping. The client's
-        // stopPlayback() reads the pending reason and propagates it
-        // to `lastStopReason` — so a CompanionManager post-stop read
-        // sees `.userBargeIn` instead of `.manualStop`.
-        ttsClient.recordExpectedStopReason(.userBargeIn)
-        // Stop in-flight playback first so the user hears silence
-        // immediately, then mark the lock so subsequent
-        // `dispatchDeltaIfReady` calls skip without speaking. Order
-        // matters: a chunk landing between these two lines should be
-        // dropped, which the flag below ensures.
-        ttsClient.stopPlayback()
-        hasBeenDrainedForBargeInThisTurn = true
+        stopCurrentTurn(reason: .userBargeIn)
+    }
+
+    func stopForUserDismissal() {
+        stopCurrentTurn(reason: .manualStop)
+    }
+
+    private func stopCurrentTurn(reason: PaceTTSStopReason) {
+        hasStoppedSpeechForCurrentTurn = true
+        dispatchGeneration &+= 1
         lastTurnWasInterrupted = true
+        ttsClient.recordExpectedStopReason(reason)
+        ttsClient.stopPlayback()
     }
 
     /// Call on every planner-stream chunk. Computes the new
     /// "speakable, complete sentence" prefix and queues just the
     /// delta to TTS. Cheap; safe to call N times per second.
     func acceptStreamedText(_ accumulatedPlannerText: String) async {
+        guard conversationLanguageMode != .japanesePractice else { return }
         let speakableSafePrefix = Self.computeSpeakableSafePrefix(from: accumulatedPlannerText)
         await dispatchDeltaIfReady(speakableSafePrefix: speakableSafePrefix)
     }
@@ -246,14 +265,31 @@ final class StreamingSentenceTTSPipeline: ObservableObject {
     /// the fully-stripped spoken text from `parsePointingCoordinates`.
     /// Speaks any tail beyond what's already been queued.
     func flushFinal(finalSpokenText: String) async {
-        await dispatchDeltaIfReady(speakableSafePrefix: finalSpokenText, allowShortFinalChunk: true)
+        if conversationLanguageMode == .japanesePractice {
+            guard let bilingualReply else {
+                recordAudioDispatch(outcome: "skipped_missing_bilingual_reply", characterCount: finalSpokenText.count)
+                return
+            }
+            guard bilingualReply.speechRequest.text == finalSpokenText else {
+                recordAudioDispatch(outcome: "failed_bilingual_reply_mismatch", characterCount: finalSpokenText.count)
+                reportPlaybackFailureIfNeeded()
+                return
+            }
+            await dispatchDeltaIfReady(
+                speakableSafePrefix: finalSpokenText, allowShortFinalChunk: true,
+                displayText: bilingualReply.englishSubtitle, speechProfile: bilingualReply.speechRequest.profile)
+        } else {
+            await dispatchDeltaIfReady(speakableSafePrefix: finalSpokenText, allowShortFinalChunk: true)
+        }
     }
 
     // MARK: - Internals
 
     private func dispatchDeltaIfReady(
         speakableSafePrefix: String,
-        allowShortFinalChunk: Bool = false
+        allowShortFinalChunk: Bool = false,
+        displayText: String? = nil,
+        speechProfile: PaceSpeechProfile? = nil
     ) async {
         // Mirror the current speakable prefix to the chat-stream
         // publisher, even when the delta is whitespace-only or below the
@@ -263,8 +299,8 @@ final class StreamingSentenceTTSPipeline: ObservableObject {
         // we STOP mirroring so the live row can't reappear over the
         // committed message — but audio dispatch below still runs, so
         // `flushFinal`'s tail still plays.
-        if !hasFinalizedStreamedTextForTurn && speakableSafePrefix != inFlightStreamedText {
-            inFlightStreamedText = speakableSafePrefix
+        if !hasFinalizedStreamedTextForTurn && (displayText ?? speakableSafePrefix) != inFlightStreamedText {
+            inFlightStreamedText = displayText ?? speakableSafePrefix
         }
 
         // Barge-in lock: once the user has interrupted, no more audio
@@ -272,7 +308,10 @@ final class StreamingSentenceTTSPipeline: ObservableObject {
         // so the text UI sees the rest of the planner output, but the
         // TTS path is silenced — matches the user's expressed intent
         // to stop hearing the response.
-        guard !hasBeenDrainedForBargeInThisTurn else { return }
+        guard !hasStoppedSpeechForCurrentTurn else {
+            recordAudioDispatch(outcome: "skipped_user_stop", characterCount: speakableSafePrefix.count)
+            return
+        }
 
         guard speakableSafePrefix.count > alreadyDispatchedSafeText.count else { return }
 
@@ -307,31 +346,86 @@ final class StreamingSentenceTTSPipeline: ObservableObject {
         // `inFlightStreamedText` above.
         guard !isMutedForCurrentTurn else {
             alreadyDispatchedSafeText = speakableSafePrefix
+            recordAudioDispatch(outcome: "skipped_muted", characterCount: trimmedNewPortion.count)
             return
         }
 
+        // Startup confirmation suspends. Reserve the prefix first so another
+        // streamed callback cannot submit the same sentence while it waits.
+        alreadyDispatchedSafeText = speakableSafePrefix
+        hasDispatchedFirstSentenceOfTurn = true
+        let expectedDispatchGeneration = dispatchGeneration
+        recordAudioDispatch(outcome: "submitted", characterCount: trimmedNewPortion.count)
         do {
-            try await ttsClient.speakText(trimmedNewPortion)
-            alreadyDispatchedSafeText = speakableSafePrefix
-            // Wave 4: the FIRST successful dispatch flips the threshold
-            // gate so subsequent dispatches use the higher 8-char floor.
+            if let speechProfile {
+                let latencyBudget = PaceLatencyBudget.shared.currentTurn
+                var hasRecordedOnset = false
+                try await ttsClient.speakUtterance(
+                    .init(text: trimmedNewPortion, profile: speechProfile, englishSubtitle: displayText),
+                    onStarted: { [weak self] in
+                        guard let self, !hasRecordedOnset, !Task.isCancelled,
+                            self.dispatchGeneration == expectedDispatchGeneration,
+                            !self.hasStoppedSpeechForCurrentTurn
+                        else { return }
+                        hasRecordedOnset = true
+                        self.firstSpokenWordCharacterCount += trimmedNewPortion.count
+                        latencyBudget?.mark(.ttsFirstDispatch)
+                        self.logTimeToFirstSpokenWordIfApplicable()
+                    })
+            } else if let localTTSClient = ttsClient as? LocalTTSClient {
+                // Keep late queued-playback failures scoped to this dispatch;
+                // direct speech and newer turns must not inherit its notice.
+                try await localTTSClient.speakText(
+                    trimmedNewPortion,
+                    onPlaybackFailure: { [weak self] in
+                        guard let self, self.dispatchGeneration == expectedDispatchGeneration else { return }
+                        self.reportPlaybackFailureIfNeeded()
+                    })
+            } else {
+                try await ttsClient.speakText(trimmedNewPortion)
+            }
+            guard speechProfile == nil, expectedDispatchGeneration == dispatchGeneration,
+                !hasStoppedSpeechForCurrentTurn
+            else { return }
             // Track total spoken character count so the speculative-
             // planner-race supersede decision can read "how much has
             // the user already heard" without subscribing to TTS state.
-            hasDispatchedFirstSentenceOfTurn = true
             firstSpokenWordCharacterCount += trimmedNewPortion.count
             PaceLatencyBudget.shared.mark(.ttsFirstDispatch)
             logTimeToFirstSpokenWordIfApplicable()
         } catch {
+            recordAudioDispatch(
+                outcome: error is CancellationError ? "cancelled" : "failed",
+                characterCount: trimmedNewPortion.count
+            )
+            if expectedDispatchGeneration == dispatchGeneration, !(error is CancellationError) {
+                reportPlaybackFailureIfNeeded()
+            }
             print("⚠️ Streaming TTS submission failed: \(error.localizedDescription)")
         }
     }
 
+    private func reportPlaybackFailureIfNeeded() {
+        guard !hasStoppedSpeechForCurrentTurn, !hasReportedPlaybackFailureForCurrentTurn else { return }
+        hasReportedPlaybackFailureForCurrentTurn = true
+        onPlaybackFailure?()
+    }
+
+    private func recordAudioDispatch(outcome: String, characterCount: Int) {
+        PaceAPIAuditLog.shared.record(
+            subsystem: "tts",
+            operation: "streaming_speech.dispatch",
+            target: String(describing: type(of: ttsClient)),
+            durationMilliseconds: 0,
+            outcome: outcome,
+            inputCharacterCount: characterCount
+        )
+    }
+
     /// On the first successful dispatch after `markIntentCommitted()`,
-    /// print the time-to-first-spoken-word. AVSpeechSynthesizer
-    /// typically begins audio playback within ~80-200ms of `speak()`
-    /// returning, so this is the closest in-process proxy for "user
-    /// hears the first syllable" without instrumenting the audio HAL.
+    /// print the time-to-first-spoken-word. The Apple client confirms
+    /// its delegate start before the first dispatch returns; this remains
+    /// an in-process proxy rather than a measurement of audible output.
     private func logTimeToFirstSpokenWordIfApplicable() {
         guard !hasLoggedTimeToFirstSpokenWord,
               let intentCommittedAt else {
@@ -358,7 +452,9 @@ final class StreamingSentenceTTSPipeline: ObservableObject {
     /// thinking blocks first (their `<think>...</think>` would otherwise
     /// look like a "sentence" to the boundary detector), then action
     /// tags + POINT, then sentence segmentation.
-    nonisolated private static func computeSpeakableSafePrefix(from rawAccumulatedText: String) -> String {
+    nonisolated static func computeSpeakableSafePrefix(
+        from rawAccumulatedText: String, requiresCompleteSentence: Bool = true
+    ) -> String {
         // Fast path: every strip stage below only removes `<think>`,
         // `<tool_calls>…</tool_calls>`, and `[…]` action/POINT tags, and the
         // structured-JSON suppression only triggers on a leading `{`. When
@@ -371,7 +467,8 @@ final class StreamingSentenceTTSPipeline: ObservableObject {
         if !rawAccumulatedText.contains("<")
             && !rawAccumulatedText.contains("[")
             && !rawAccumulatedText.contains("{") {
-            return computeLastSentenceBoundedPrefix(of: rawAccumulatedText)
+            return requiresCompleteSentence
+                ? computeLastSentenceBoundedPrefix(of: rawAccumulatedText) : rawAccumulatedText
         }
 
         // 1. Thinking blocks — handles unterminated `<think>` mid-stream
@@ -426,7 +523,8 @@ final class StreamingSentenceTTSPipeline: ObservableObject {
         // 4. Bound to last complete sentence so we don't speak partial
         //    words. Sentence terminators: `.` `!` `?` `\n`. Require
         //    the terminator to be followed by whitespace OR end of text.
-        return computeLastSentenceBoundedPrefix(of: safeFromOpenBracket)
+        return requiresCompleteSentence
+            ? computeLastSentenceBoundedPrefix(of: safeFromOpenBracket) : safeFromOpenBracket
     }
 
     nonisolated private static func looksLikeStructuredPlannerJSON(_ text: String) -> Bool {

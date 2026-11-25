@@ -18,11 +18,13 @@ struct PaceDoctorSettingsTab: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             VStack(alignment: .leading, spacing: 6) {
-                Text("local stack diagnostics")
+                Text("Pace diagnostics")
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundColor(DS.Colors.textSecondary)
-                Text("Probes LM Studio, the planner model, the embedding model, the VLM, and the TTS sidecar. Use this when Pace is misbehaving and you're not sure what's offline — it tells you exactly what's broken and how to fix it.")
-                    .font(.system(size: 12))
+                Text(
+                    "Checks the services used by your selected planner, voice and screen features. Optional memory services are reported separately from requirements."
+                )
+                .font(.system(size: 12))
                     .foregroundColor(DS.Colors.textTertiary)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -98,10 +100,6 @@ struct PaceDoctorSettingsTab: View {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
                 .fill(Color.white.opacity(0.035))
         )
-        .overlay(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .stroke(borderColor(for: check.status), lineWidth: 0.7)
-        )
     }
 
     // MARK: - Visual Helpers
@@ -109,6 +107,10 @@ struct PaceDoctorSettingsTab: View {
     @ViewBuilder
     private func statusGlyph(for status: PaceDoctorStatus) -> some View {
         switch status {
+        case .info:
+            Image(systemName: "info.circle")
+                .font(.system(size: 15, weight: .medium))
+                .foregroundColor(DS.Colors.textSecondary)
         case .ok:
             Image(systemName: "checkmark.circle.fill")
                 .font(.system(size: 15, weight: .medium))
@@ -124,20 +126,9 @@ struct PaceDoctorSettingsTab: View {
         }
     }
 
-    private func borderColor(for status: PaceDoctorStatus) -> Color {
-        switch status {
-        case .ok:
-            return DS.Colors.borderSubtle
-        case .warn:
-            return DS.Colors.warning.opacity(0.35)
-        case .fail:
-            return Color.red.opacity(0.35)
-        }
-    }
-
     private func fixHintColor(for status: PaceDoctorStatus) -> Color {
         switch status {
-        case .ok:
+        case .ok, .info:
             return DS.Colors.textTertiary
         case .warn:
             return DS.Colors.warning
@@ -151,7 +142,10 @@ struct PaceDoctorSettingsTab: View {
     private func runDoctorChecks() async {
         isRunning = true
         let doctor = PaceLocalStackDoctor()
-        checks = await doctor.runChecks()
+        checks = await doctor.runChecks(
+            plannerTier: companionManager.activePlannerTier,
+            cliUpstream: companionManager.activePlannerTierCLIDirectUpstream,
+            readMyScreenEnabled: companionManager.useLocalVLMForScreenContext)
         isRunning = false
     }
 }

@@ -62,12 +62,33 @@ struct PaceTTSVoiceSummary: Equatable {
     }
 
     var recommendationText: String {
-        needsUpgrade
+        if qualityName == "Kokoro" {
+            return "Kokoro speech runs locally on this Mac."
+        }
+        if qualityName == "Local model" {
+            return "Speech runs locally on this Mac."
+        }
+        if qualityName == "Bundled" {
+            return "Qwen3 speech runs locally on this Mac."
+        }
+        return needsUpgrade
             ? "Install an Enhanced or Premium Apple voice for better playback."
             : "High-quality local Apple voice active."
     }
 
     static func current() -> PaceTTSVoiceSummary {
+        let selectedProvider = BuddyTTSClientFactory.selectedProvider(
+            configuredProvider: AppBundleConfiguration.stringValue(forKey: "TTSProvider"),
+            useBundledQwen3: PaceBundledModelsSettings.isUsingQwen3TTSInProcess()
+        )
+        if selectedProvider == .bundledQwen3 {
+            return PaceTTSVoiceSummary(voiceName: "Qwen3 TTS", qualityName: "Bundled", needsUpgrade: false)
+        }
+        if selectedProvider == .localServer {
+            let configuration = LocalServerTTSConfiguration.fromBundle()
+            return localServerSummary(
+                voiceIdentifier: configuration.voiceIdentifier, modelIdentifier: configuration.modelIdentifier)
+        }
         let preferredVoiceIdentifier = AppBundleConfiguration.stringValue(forKey: "LocalTTSVoiceIdentifier")
         guard let voice = PaceTTSVoiceResolver.bestAvailableVoice(
             preferredVoiceIdentifier: preferredVoiceIdentifier
@@ -87,5 +108,17 @@ struct PaceTTSVoiceSummary: Equatable {
         default:
             return PaceTTSVoiceSummary(voiceName: voice.name, qualityName: "Compact", needsUpgrade: true)
         }
+    }
+
+    static func localServerSummary(
+        voiceIdentifier: String,
+        modelIdentifier: String = LocalServerTTSConfiguration.defaultModelIdentifier
+    ) -> PaceTTSVoiceSummary {
+        let isKokoro = modelIdentifier.lowercased().contains("kokoro")
+        return PaceTTSVoiceSummary(
+            voiceName: isKokoro && voiceIdentifier == "af_heart" ? "Heart" : voiceIdentifier,
+            qualityName: isKokoro ? "Kokoro" : "Local model",
+            needsUpgrade: false
+        )
     }
 }

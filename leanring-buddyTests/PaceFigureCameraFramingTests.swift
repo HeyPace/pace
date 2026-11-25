@@ -106,4 +106,13 @@ struct PaceFigureCameraFramingTests {
             #expect(abs(point.y / depth / verticalTangent) <= 1 / PaceFigureCameraFraming.framingMargin + 0.0001)
         }
     }
+    @Test func translationEnvelopeDoesNotInflateAFlatBoardIntoARotationSphere() {
+        var board = PaceFigureCameraFraming.Bounds(minimum: [-2, 0, -1], maximum: [2, 0.2, 1])
+        let ribbon = PaceFigureCameraFraming.Bounds(minimum: [1, 0.2, -0.5], maximum: [3, 0.25, 0.5])
+        board.includeSymmetricTranslation(of: ribbon, by: [0.5, 0.12, 0])
+        #expect(board.minimum == SIMD3<Float>(-2, 0, -1))
+        #expect(board.maximum == SIMD3<Float>(3.5, 0.37, 1))
+        #expect(board.maximum.y - board.minimum.y < 0.4)
+    }
+
 }

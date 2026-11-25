@@ -131,8 +131,9 @@ extension CompanionManager {
         case .userCancelled:
             spokenText = "stopped \(flowName)."
         }
+        recordAssistantNarration(spokenText)
         Task { @MainActor in
-            try? await self.ttsClient.speakText(spokenText)
+            try? await self.speakStandardNarration(spokenText)
         }
     }
 

@@ -26,7 +26,7 @@ struct PaceAutomationDefinitionTests {
             allowSourceTreeFallback: true
         )
         #expect(!definitions.isEmpty)
-        #expect((10...20).contains(definitions.count))
+        #expect(definitions.count == 19)
         #expect(Set(definitions.map(\.identifier)).count == definitions.count)
         let starterLibraryCategories = Set(definitions.map(\.category))
         #expect(
@@ -289,10 +289,10 @@ struct PaceAutomationCatalogTests {
                 .plannerGrounded,
                 .externalOpaque,
             ])
-        #expect(catalog.spokenListResponse().contains("deterministic local: Built in"))
-        #expect(catalog.spokenListResponse().contains("deterministic program: Programmed"))
-        #expect(catalog.spokenListResponse().contains("uses the local planner: Grounded"))
-        #expect(catalog.spokenListResponse().contains("runs in Shortcuts: Opaque"))
+        #expect(catalog.spokenListResponse().contains("Fixed actions: Built in"))
+        #expect(catalog.spokenListResponse().contains("Programs: Programmed"))
+        #expect(catalog.spokenListResponse().contains("Planner-guided workflows: Grounded"))
+        #expect(catalog.spokenListResponse().contains("Apple Shortcuts: Opaque"))
     }
 
     @Test func exactNormalizedMatchIsUniqueAndFuzzyMatchFallsThrough() {

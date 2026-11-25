@@ -29,15 +29,15 @@ nonisolated enum PaceAutomationExecutionMode: String, Codable, Equatable, Hashab
     var displayName: String {
         switch self {
         case .deterministicLocal:
-            return "deterministic local"
+            return "Fixed actions"
         case .deterministicProgram:
-            return "deterministic program"
+            return "Programs"
         case .deterministicReplay:
-            return "deterministic replay"
+            return "Recorded workflows"
         case .plannerGrounded:
-            return "uses the local planner"
+            return "Planner-guided workflows"
         case .externalOpaque:
-            return "runs in Shortcuts"
+            return "Apple Shortcuts"
         }
     }
 }
@@ -98,10 +98,12 @@ nonisolated struct PaceAutomationValidationIssue: Equatable, CustomStringConvert
     }
 }
 
-nonisolated enum PaceAutomationCompilationError: Error, Equatable, CustomStringConvertible {
+nonisolated enum PaceAutomationCompilationError: Error, LocalizedError, Equatable, CustomStringConvertible {
     case invalidDefinition([String])
     case couldNotEncodeToolCalls
     case partiallyParsed(expectedStepActionCounts: [Int], actualStepActionCounts: [Int])
+
+    var errorDescription: String? { description }
 
     var description: String {
         switch self {
@@ -134,6 +136,8 @@ nonisolated enum PaceAutomationDefinitionValidator {
         .codexSession,
         .reminder,
         .startTimer,
+        .presentMedia,
+        .speak,
         .things,
         .volume,
         .window,
@@ -163,6 +167,9 @@ nonisolated enum PaceAutomationDefinitionValidator {
             validationIssues.append(.init(message: "\(fieldName) must not be empty"))
         }
 
+        if !PaceManagedPowerStore.safeIdentifier(definition.identifier) {
+            validationIssues.append(.init(message: "identifier must contain only canonical lowercase slug characters"))
+        }
         if definition.source != .bundled && definition.source != .user {
             validationIssues.append(.init(
                 message: "typed definition source must be bundled or user"

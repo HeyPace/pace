@@ -72,6 +72,12 @@ final class DirectAPIPlannerClient: BuddyPlannerClient {
 
     private let provider: PaceDirectAPIProvider
     private let endpointURL: URL
+    var usesLoopbackEndpoint: Bool {
+        guard let host = endpointURL.host else { return false }
+        return PaceLocalEndpointGuard.isLoopbackHost(
+            host.trimmingCharacters(in: CharacterSet(charactersIn: "[]")).lowercased())
+    }
+
     private let modelIdentifier: String
     private let urlSession: URLSession
 

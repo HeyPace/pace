@@ -409,8 +409,7 @@ extension PaceActionExecutor {
 
         await pressKey(named: "a", withModifiers: [.command])
         try? await Task.sleep(nanoseconds: 25_000_000)
-        await typeText(bodyText)
-        return true
+        return await typeText(bodyText)
     }
 
     func currentMailComposeWindow(matchingSubject subject: String) -> AXUIElement? {

@@ -65,25 +65,16 @@ enum DS {
 
         // ── Backgrounds ──────────────────────────────────────────────
 
-        /// The deepest background — pure black. Sets a premium,
-        /// contrast-forward dark surface that lets the accent blue
-        /// and any white-opacity-elevated cards pop without the
-        /// "off-black gray" muddiness lighter values introduce.
-        static let background = Color(hex: "#080A0D")
+        /// Pure black across Pace's windows, panels, and visual controls.
+        static let background = Color.black
 
-        /// The graphite desk surface used by full-window native experiences.
-        static let surface = Color(hex: "#101318")
+        static let surface = background
 
-        /// Raised operating surface for controls and selected navigation.
-        static let surfaceRaised = Color(hex: "#171B22")
+        static let surfaceRaised = background
 
-        /// Recessed surface for transcript and diagnostic wells.
-        static let surfaceInset = Color(hex: "#080A0D")
+        static let surfaceInset = background
 
-        /// Card / panel surface that sits one elevation above the
-        /// base background. Pure-black main surface means cards need
-        /// their OWN tint (rather than the previous "opacity over
-        /// off-black gray" trick) so they read as elevated. Very dark
+        static let controlFill = Color(hex: "#17181B")
 
         // ── Borders ──────────────────────────────────────────────────
 
@@ -153,8 +144,8 @@ enum DS {
     }
 
     enum Radius {
-        static let control: CGFloat = 10
-        static let surface: CGFloat = 14
+        static let control: CGFloat = 6
+        static let surface: CGFloat = 10
         static let window: CGFloat = 20
     }
 
@@ -226,24 +217,25 @@ private struct PaceControlHoverHighlight: ViewModifier {
     let isEnabled: Bool
 
     @State private var isHovered = false
+    @Environment(\.isEnabled) private var controlIsEnabled
     @FocusState private var isKeyboardFocused: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     func body(content: Content) -> some View {
         content
-            .focusable(isEnabled)
             .focused($isKeyboardFocused)
             .overlay {
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .stroke(
-                        DS.Colors.localSignal.opacity(
-                            isEnabled && (isHovered || isKeyboardFocused) ? 0.72 : 0
-                        ),
-                        lineWidth: isKeyboardFocused ? 1.6 : 1
-                    )
+                    .fill(.white.opacity(isEnabled && controlIsEnabled && isHovered ? 0.075 : 0))
                     .allowsHitTesting(false)
             }
-            .scaleEffect(reduceMotion || !isEnabled ? 1 : (isHovered ? 1.015 : 1))
+            .overlay {
+                if isEnabled && controlIsEnabled && isKeyboardFocused {
+                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                        .strokeBorder(Color.accentColor, lineWidth: 1.5)
+                        .allowsHitTesting(false)
+                }
+            }
             .animation(
                 reduceMotion ? nil : .easeOut(duration: DS.Motion.micro),
                 value: isHovered

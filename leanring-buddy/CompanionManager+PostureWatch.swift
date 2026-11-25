@@ -46,6 +46,7 @@ extension CompanionManager {
             // Speak only when no turn is in flight — a posture nudge should
             // never talk over an answer the user asked for.
             guard voiceState == .idle else { return }
+            recordAssistantNarration(assessment.spokenNudge, origin: .proactive)
             Task {
                 await streamingSentenceTTSPipeline.flushFinal(
                     finalSpokenText: assessment.spokenNudge
@@ -54,70 +55,26 @@ extension CompanionManager {
         }
     }
 
-    func handleWatchModeEvent(_ event: PaceScreenWatchEvent) async {
-        let summary = "\(event.category.displayName): \(event.screenLabel)"
-        latestWatchModeSummary = summary
-        print("👀 Watch mode: \(summary) meanDelta=\(String(format: "%.2f", event.diff.meanPixelDelta)) changedRatio=\(String(format: "%.3f", event.diff.changedPixelRatio))")
-
-        // Journal before the idle guard — that guard only exists to avoid
-        // speaking over an in-flight turn, but history should be captured
-        // regardless of what the voice pipeline is doing.
-        recordWatchModeEventInJournal(event)
-
-        guard voiceState == .idle else { return }
-
-        responseOverlayManager.showOverlayAndBeginStreaming()
-        let spokenWatchModeSummary = "i noticed a \(event.category.displayName)."
-        responseOverlayManager.updateStreamingText(spokenWatchModeSummary)
-        currentResponseTask = Task {
-            voiceState = .responding
-            await streamingSentenceTTSPipeline.flushFinal(finalSpokenText: spokenWatchModeSummary)
-            while ttsClient.isPlaying {
-                try? await Task.sleep(nanoseconds: 80_000_000)
-            }
-            guard !Task.isCancelled else { return }
-            responseOverlayManager.finishStreaming()
-            voiceState = .idle
-        }
-    }
-
-    func recordWatchModeEventInJournal(_ event: PaceScreenWatchEvent) {
-        // Frontmost app name is a cheap synchronous NSWorkspace read — the
-        // same source the ASR contextual-phrase builder uses.
-        let frontmostApplicationName = NSWorkspace.shared.frontmostApplication?.localizedName
-        // Reuse the per-screen VLM cache only while it is fresh enough to
-        // still describe roughly what the user is looking at. Never run the
-        // VLM from here — journaling must stay free.
-        let freshCachedScreenDescription = screenContextService.cachedDescriptionIfFresh(
-            screenLabel: event.screenLabel,
-            maxAgeSeconds: 120,
-            referenceDate: event.detectedAt
-        )
-        localRetriever.recordScreenWatchObservation(
-            screenLabel: event.screenLabel,
-            categoryDisplayName: event.category.displayName,
-            frontmostApplicationName: frontmostApplicationName,
-            screenDescription: freshCachedScreenDescription,
-            now: event.detectedAt
-        )
-        refreshLocalRetrievalPublishedState()
-    }
-
     func requestUserApprovalForActionPlan(
         _ actionExecutionPlan: PaceActionExecutionPlan,
         preflightIssues: [PaceToolPreflightIssue] = [],
         smokeAutoCancelAfter: TimeInterval? = nil
     ) -> Bool {
+        let otherSteps = actionExecutionPlan.steps.compactMap { step -> PaceActionExecutionStep? in
+            let actions = step.actions.filter { action in
+                if case .codingSession = action { return false }
+                return true
+            }
+            return actions.isEmpty ? nil : PaceActionExecutionStep(actions: actions)
+        }
+        let approvalPlan = PaceActionExecutionPlan(steps: otherSteps)
+        guard !approvalPlan.flattenedActions.isEmpty else { return true }
         let hasBlockingPreflightIssue = preflightIssues.contains { $0.severity == .blocking }
-        let shouldRequestApproval = hasBlockingPreflightIssue
-            || (
-                requiresActionApproval
-                    && PaceActionApprovalPolicy.requiresExplicitApproval(
-                        for: actionExecutionPlan
-                    )
-            )
+        let shouldRequestApproval =
+            hasBlockingPreflightIssue
+            || (requiresActionApproval && PaceActionApprovalPolicy.requiresExplicitApproval(for: approvalPlan))
         let approvalRequest = PaceActionApprovalRequest(
-            approvalSummary: actionExecutionPlan.approvalSummary,
+            approvalSummary: approvalPlan.approvalSummary,
             preflightSummary: PaceToolPreflightIssue.formatForApproval(preflightIssues),
             requiresActionApproval: shouldRequestApproval
         )
@@ -128,6 +85,16 @@ extension CompanionManager {
             )
         }
 
+        return presentActionApproval(approvalRequest, smokeAutoCancelAfter: smokeAutoCancelAfter)
+    }
+
+    func presentActionApproval(
+        _ approvalRequest: PaceActionApprovalRequest, smokeAutoCancelAfter: TimeInterval? = nil,
+        willPresent: ((NSWindow) -> Void)? = nil
+    ) -> Bool {
+        if let actionApprovalPresentationOverride {
+            return actionApprovalPresentationOverride(approvalRequest) == .allowOnce
+        }
         let alert = NSAlert()
         alert.alertStyle = .warning
         alert.messageText = approvalRequest.messageText
@@ -142,6 +109,7 @@ extension CompanionManager {
             }
         }
 
+        willPresent?(alert.window)
         NSApp.activate(ignoringOtherApps: true)
         let approvalDecision: PaceActionApprovalDecision =
             alert.runModal() == .alertSecondButtonReturn ? .allowOnce : .cancel
@@ -153,11 +121,12 @@ extension CompanionManager {
 
     func smokeRequestApprovalForSyntheticActionPlan() -> Bool {
         let syntheticActionPlan = PaceActionExecutionPlan.serial(actions: [
-            .composeMail(PaceMailDraft(
-                recipients: ["smoke@example.com"],
-                subject: "Pace approval smoke",
-                body: "Synthetic draft used only to verify approval cancellation."
-            ))
+            .composeMail(
+                PaceMailDraft(
+                    recipients: ["smoke@example.com"],
+                    subject: "Pace approval smoke",
+                    body: "Synthetic draft used only to verify approval cancellation."
+                ))
         ])
         return requestUserApprovalForActionPlan(
             syntheticActionPlan,
@@ -190,10 +159,12 @@ extension CompanionManager {
 
     func smokeResolveSyntheticClarification() -> String? {
         guard let pendingIntentClarification else { return nil }
-        guard let clarifiedTranscript = PaceIntentClarificationResolver.clarifiedTranscript(
-            for: pendingIntentClarification,
-            selectedOption: "Selected text"
-        ) else {
+        guard
+            let clarifiedTranscript = PaceIntentClarificationResolver.clarifiedTranscript(
+                for: pendingIntentClarification,
+                selectedOption: "Selected text"
+            )
+        else {
             return nil
         }
 
@@ -230,7 +201,8 @@ extension CompanionManager {
 
     func smokeResolveClickTargetClarification() -> String? {
         guard pendingClickTargetClarification != nil else { return nil }
-        let selectedLabel = pendingClickTargetClarification?
+        let selectedLabel =
+            pendingClickTargetClarification?
             .options
             .first?
             .label ?? "Save"
@@ -251,7 +223,7 @@ extension CompanionManager {
                     label: "Missing button",
                     confidence: 0.7,
                     expectStateChange: true
-                ),
+                )
             ],
             clickCount: 1
         )
@@ -265,13 +237,36 @@ extension CompanionManager {
         return "Click failed after trying 1 of 1 candidate: \"Missing button\"."
     }
 
-    func appendActionResult(_ actionResult: PaceActionRunRecord) {
+    func appendActionResult(_ actionResult: PaceActionRunRecord, turnIdentifier: String? = nil) {
+        var actionResult = actionResult
+        actionResult.turnIdentifier = actionResult.turnIdentifier ?? turnIdentifier
         var updatedActionResults = recentActionResults
         updatedActionResults.insert(actionResult, at: 0)
         if updatedActionResults.count > 8 {
             updatedActionResults.removeLast(updatedActionResults.count - 8)
         }
         recentActionResults = updatedActionResults
+        updateActionResultHUD(actionResult)
+    }
+
+    func updateActionResultHUD(_ actionResult: PaceActionRunRecord) {
+        if actionResult.status == .failed, actionResult.showsInConversation {
+            currentTurnHUDState = .failed(actionResult.detail)
+            return
+        }
+        if let targetResolution = actionResult.targetResolution {
+            switch targetResolution {
+            case .discovering:
+                currentTurnHUDState = .acting("Finding the right window")
+            case .retryingInspection:
+                currentTurnHUDState = .acting("Checking that again")
+            case .clarification(let question):
+                currentTurnHUDState = .clarification(question: question, options: [])
+            case .interrupted(let message):
+                currentTurnHUDState = .failed(message)
+            }
+            return
+        }
 
         switch actionResult.status {
         case .planned:
@@ -299,6 +294,7 @@ extension CompanionManager {
             updatedDebugRecords.removeLast(updatedDebugRecords.count - maximumRetainedDebugRecords)
         }
         recentToolCallDebugRecords = updatedDebugRecords
+        guard persistsDebugTraces else { return }
         // Persist to the JSONL trace file so the history survives restarts
         // and can be inspected outside the app (off the main actor).
         PaceToolCallDebugTrace.append(record)
@@ -339,7 +335,8 @@ extension CompanionManager {
     ) -> String {
         let parsedActions = executionPlan.flattenedActions
         guard !parsedActions.isEmpty else { return "no actions parsed" }
-        return parsedActions
+        return
+            parsedActions
             .map { "\($0.auditOperationName): \($0.approvalDescription)" }
             .joined(separator: "\n")
     }

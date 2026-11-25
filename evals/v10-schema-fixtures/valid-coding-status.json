@@ -1,0 +1,13 @@
+{
+  "valid": true,
+  "response": {
+    "spokenText": "Coding",
+    "intent": "action",
+    "payload": {
+      "name": "coding_session",
+      "args": {
+        "operation": "status"
+      }
+    }
+  }
+}

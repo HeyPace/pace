@@ -6,7 +6,7 @@
 
 ## What Pace is
 
-Pace is a macOS menu-bar voice agent. It lives entirely in the menu-bar/notch surface (no dock icon, no main window). Hold a hotkey (`ctrl+option`), speak, and Pace transcribes on-device, optionally reads the screen with a local VLM, plans with the selected reasoner, streams TTS, and (with `EnableActions=true`) executes approved macOS actions. Audio, transcription, speech, and storage remain on-device. Planning can use an explicitly selected and consented Codex/cloud backend; off-device turns must be disclosed and audited. The owner prioritizes a usable agent over requiring local planning.
+Pace is a macOS menu-bar voice agent. It lives entirely in the menu-bar/notch surface (no dock icon, no main window). Hold Right Option, speak, and Pace transcribes on-device, optionally reads the screen with a local VLM, plans with the selected reasoner, streams TTS, and (with `EnableActions=true`) executes approved macOS actions. Audio, transcription, speech, and storage remain on-device. Planning can use an explicitly selected and consented Codex/cloud backend; off-device turns must be disclosed and audited. The owner prioritizes a usable agent over requiring local planning.
 
 ## Critical constraints (read first)
 
@@ -15,7 +15,7 @@ Pace is a macOS menu-bar voice agent. It lives entirely in the menu-bar/notch su
 - **Do NOT rename the project directory or scheme** — the `leanring` typo is intentional/legacy.
 - **Do NOT fix the known non-blocking warnings** (Swift 6 concurrency, deprecated `onChange` in `OverlayWindow.swift`).
 - **Releases cut from clean, synced `main` only**, via `scripts/release-pace.sh`. Walk `docs/operations/release-smoke-checklist.md` on real hardware first — the unit suite injects synthetic data and is blind to hardware-boundary defects.
-- **Never commit secrets.** Direct-API keys live in macOS Keychain via `PaceKeychainStore` — never UserDefaults, never a plist, never a log line. Do not edit `.env`, SSH keys, or cloud credentials.
+- **Never commit secrets.** Direct-API keys live in macOS Keychain via `PaceKeychainStore`. Fast answers may instead use explicitly configured Infisical via `PacePlannerCredentialStore`, caching its key only in memory. Never put keys in UserDefaults, a plist, process arguments or logs. Do not edit `.env`, SSH keys, or cloud credentials.
 
 ## Build & Run
 

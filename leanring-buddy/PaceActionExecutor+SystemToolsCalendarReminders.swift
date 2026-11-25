@@ -26,7 +26,8 @@ extension PaceActionExecutor {
         guard await requestCalendarAccessIfNeeded() else {
             return PaceActionExecutionObservation(
                 toolName: "calendar",
-                summary: "Calendar access not granted. Open System Settings → Privacy & Security → Calendars and toggle Pace on."
+                summary:
+                    "Calendar access not granted. Open System Settings → Privacy & Security → Calendars and toggle Pace on."
             )
         }
 
@@ -58,7 +59,8 @@ extension PaceActionExecutor {
             let safeTitle = title?.isEmpty == false ? title! : "Untitled event"
             let locationSuffix: String = {
                 guard let location = event.location?.trimmingCharacters(in: .whitespacesAndNewlines),
-                      !location.isEmpty else {
+                    !location.isEmpty
+                else {
                     return ""
                 }
                 return " at \(location)"
@@ -68,7 +70,8 @@ extension PaceActionExecutor {
 
         return PaceActionExecutionObservation(
             toolName: "calendar",
-            summary: "Calendar events for \(calendarQuery.range.displayName):\n" + eventSummaries.joined(separator: "\n")
+            summary: "Calendar events for \(calendarQuery.range.displayName):\n"
+                + eventSummaries.joined(separator: "\n")
         )
     }
 
@@ -86,7 +89,8 @@ extension PaceActionExecutor {
         guard await requestCalendarAccessIfNeeded() else {
             return PaceActionExecutionObservation(
                 toolName: "calendar_create",
-                summary: "Calendar access not granted. Open System Settings → Privacy & Security → Calendars and toggle Pace on."
+                summary:
+                    "Calendar access not granted. Open System Settings → Privacy & Security → Calendars and toggle Pace on."
             )
         }
 
@@ -121,13 +125,16 @@ extension PaceActionExecutor {
     }
 
     func calendarForNewEvent(matching requestedCalendarTitle: String?) -> EKCalendar? {
-        guard let requestedCalendarTitle = requestedCalendarTitle?
-            .trimmingCharacters(in: .whitespacesAndNewlines),
-              !requestedCalendarTitle.isEmpty else {
+        guard
+            let requestedCalendarTitle = requestedCalendarTitle?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+            !requestedCalendarTitle.isEmpty
+        else {
             return eventStore.defaultCalendarForNewEvents
         }
 
-        let matchingCalendar = eventStore
+        let matchingCalendar =
+            eventStore
             .calendars(for: .event)
             .first { calendar in
                 calendar.allowsContentModifications
@@ -140,39 +147,96 @@ extension PaceActionExecutor {
         return matchingCalendar ?? eventStore.defaultCalendarForNewEvents
     }
 
-    func createReminder(_ reminderRequest: PaceReminderRequest) async -> PaceActionExecutionObservation {
+    func createReminder(_ reminderRequest: PaceReminderRequest, maySave: () -> Bool = { true }) async
+        -> PaceActionExecutionObservation
+    {
         print("🧰 Create reminder \"\(reminderRequest.title)\" (enabled: \(actionsAreEnabled))")
         guard actionsAreEnabled else {
             return PaceActionExecutionObservation(
                 toolName: "reminder",
-                summary: "Would create reminder: \(reminderRequest.title)"
+                summary: "Would create reminder: \(reminderRequest.displayTitle)"
             )
         }
 
+        let creationGeneration = applicationTargetGeneration
         guard await requestReminderAccessIfNeeded() else {
             return PaceActionExecutionObservation(
                 toolName: "reminder",
-                summary: "Reminders access not granted. Open System Settings → Privacy & Security → Reminders and toggle Pace on."
+                summary:
+                    "Reminders access not granted. Open System Settings → Privacy & Security → Reminders and toggle Pace on."
             )
         }
 
-        guard let reminderCalendar = eventStore.defaultCalendarForNewReminders() else {
+        guard creationGeneration == applicationTargetGeneration, maySave(), !Task.isCancelled else {
+            return PaceActionExecutionObservation(toolName: "reminder", summary: "Reminder creation cancelled.")
+        }
+        let reminderCalendar: EKCalendar
+        if let listName = reminderRequest.listName {
+            let matchingLists = eventStore.calendars(for: .reminder).filter { list in
+                list.allowsContentModifications && list.title.caseInsensitiveCompare(listName) == .orderedSame
+            }
+            guard matchingLists.count == 1, let matchingList = matchingLists.first else {
+                let reason =
+                    matchingLists.isEmpty
+                    ? "Could not find a writable Reminders list called \(listName)."
+                    : "More than one Reminders list is called \(listName)."
+                return PaceActionExecutionObservation(toolName: "reminder", summary: reason)
+            }
+            reminderCalendar = matchingList
+        } else {
+            guard let defaultList = eventStore.defaultCalendarForNewReminders() else {
+                return PaceActionExecutionObservation(
+                    toolName: "reminder", summary: "Could not find a default reminders list.")
+            }
+            reminderCalendar = defaultList
+        }
+
+        let key = ReminderCreationKey(
+            calendarIdentifier: reminderCalendar.calendarIdentifier,
+            title: PaceReminderRequest.comparisonTitle(reminderRequest.title),
+            dueDateComponents: reminderRequest.dueDateComponents
+        )
+        let existingReminder = PaceActionExecutionObservation(
+            toolName: "reminder",
+            summary: "Already in Apple Reminders: \(reminderRequest.displayTitle)"
+        )
+        if remindersSavedThisTurn.contains(key) { return existingReminder }
+        guard reminderCreationsInFlight.insert(key).inserted else {
             return PaceActionExecutionObservation(
                 toolName: "reminder",
-                summary: "Could not find a default reminders list."
+                summary: "Already saving reminder: \(reminderRequest.displayTitle)"
             )
         }
+        defer { reminderCreationsInFlight.remove(key) }
+
+        let connector = PaceRemindersRetrievalConnector(eventStore: eventStore)
+        let predicate = eventStore.predicateForIncompleteReminders(
+            withDueDateStarting: nil, ending: nil, calendars: [reminderCalendar]
+        )
+        let openReminders = await connector.fetchReminders(matching: predicate)
+        guard creationGeneration == applicationTargetGeneration, maySave(), !Task.isCancelled, actionsAreEnabled else {
+            return PaceActionExecutionObservation(toolName: "reminder", summary: "Reminder creation cancelled.")
+        }
+        guard let openReminders else {
+            return PaceActionExecutionObservation(
+                toolName: "reminder",
+                summary: "Could not check the existing reminders. Try again."
+            )
+        }
+        if openReminders.contains(where: reminderRequest.matchesOpenReminder) { return existingReminder }
 
         let reminder = EKReminder(eventStore: eventStore)
         reminder.calendar = reminderCalendar
         reminder.title = reminderRequest.title
         reminder.notes = reminderRequest.notes
+        reminderRequest.applySchedule(to: reminder)
 
         do {
             try eventStore.save(reminder, commit: true)
+            remindersSavedThisTurn.insert(key)
             return PaceActionExecutionObservation(
                 toolName: "reminder",
-                summary: "Created reminder: \(reminderRequest.title)"
+                summary: "Created reminder: \(reminderRequest.displayTitle)"
             )
         } catch {
             return PaceActionExecutionObservation(
@@ -182,4 +246,46 @@ extension PaceActionExecutor {
         }
     }
 
+}
+
+extension PaceReminderRequest {
+    var dueDateComponents: DateComponents? {
+        guard let schedule else { return nil }
+        // EventKit requires Gregorian components even on Macs using another calendar.
+        var calendar = Calendar(identifier: .gregorian)
+        let localTimeZone = TimeZone.current
+        calendar.timeZone = TimeZone(secondsFromGMT: localTimeZone.secondsFromGMT(for: schedule.date)) ?? localTimeZone
+        let fields: Set<Calendar.Component> =
+            schedule.isDateOnly
+            ? [.year, .month, .day]
+            : [.year, .month, .day, .hour, .minute]
+        var components = calendar.dateComponents(fields, from: schedule.date)
+        components.calendar = calendar
+        if !schedule.isDateOnly {
+            components.timeZone = calendar.timeZone
+        }
+        return components
+    }
+
+    func applySchedule(to reminder: EKReminder) {
+        reminder.dueDateComponents = dueDateComponents
+        if let schedule, !schedule.isDateOnly {
+            reminder.addAlarm(EKAlarm(absoluteDate: schedule.date))
+        }
+    }
+
+    func matchesOpenReminder(_ reminder: EKReminder) -> Bool {
+        guard !reminder.isCompleted, Self.comparisonTitle(reminder.title ?? "") == Self.comparisonTitle(title) else {
+            return false
+        }
+        guard let expected = dueDateComponents else { return reminder.dueDateComponents == nil }
+        guard let actual = reminder.dueDateComponents else { return false }
+        if expected.hour == nil {
+            return actual.hour == nil && expected.year == actual.year && expected.month == actual.month
+                && expected.day == actual.day
+        }
+        guard actual.hour != nil, let requestedDate = schedule?.date else { return false }
+        let actualDate = actual.date ?? Calendar.current.date(from: actual)
+        return actualDate.map { Calendar.current.isDate($0, equalTo: requestedDate, toGranularity: .minute) } ?? false
+    }
 }

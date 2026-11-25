@@ -11,6 +11,7 @@ import AppKit
 import ScreenCaptureKit
 
 struct CompanionScreenCapture {
+    var displayIdentifier: UInt32 = 0
     let imageData: Data
     let label: String
     let isCursorScreen: Bool
@@ -19,6 +20,17 @@ struct CompanionScreenCapture {
     let displayFrame: CGRect
     let screenshotWidthInPixels: Int
     let screenshotHeightInPixels: Int
+    var cursorPixelLocation: CGPoint? = nil
+
+    var plannerImage: (data: Data, label: String) {
+        var imageLabel = label
+        if let cursorPixelLocation {
+            imageLabel +=
+                " — pointer at screenshot pixel (\(Int(cursorPixelLocation.x)), \(Int(cursorPixelLocation.y)))"
+        }
+        imageLabel += " (image dimensions: \(screenshotWidthInPixels)x\(screenshotHeightInPixels) pixels)"
+        return (imageData, imageLabel)
+    }
 }
 
 @MainActor
@@ -27,9 +39,15 @@ enum CompanionScreenCaptureUtility {
     /// Captures all connected displays as JPEG data, labeling each with
     /// whether the user's cursor is on that screen. This gives the AI
     /// full context across multiple monitors.
-    static func captureAllScreensAsJPEG() async throws -> [CompanionScreenCapture] {
+    static func captureAllScreensAsJPEG(watchOnly: Bool = false, showsCursor: Bool = true) async throws
+        -> [CompanionScreenCapture]
+    {
+        let readIdentifier = PaceScreenReadActivity.shared.beginReading()
+        defer { PaceScreenReadActivity.shared.endReading(readIdentifier) }
+        try Task.checkCancellation()
         let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
 
+        try Task.checkCancellation()
         guard !content.displays.isEmpty else {
             throw NSError(domain: "CompanionScreenCapture", code: -1,
                           userInfo: [NSLocalizedDescriptionKey: "No display available for capture"])
@@ -42,6 +60,8 @@ enum CompanionScreenCaptureUtility {
         let ownBundleIdentifier = Bundle.main.bundleIdentifier
         let ownAppWindows = content.windows.filter { window in
             window.owningApplication?.bundleIdentifier == ownBundleIdentifier
+                || (watchOnly
+                    && PaceScreenSuggestionPrivacy.isSensitiveApplication(window.owningApplication?.bundleIdentifier))
         }
 
         // Build a lookup from display ID to NSScreen so we can use AppKit-coordinate
@@ -70,6 +90,8 @@ enum CompanionScreenCaptureUtility {
         var capturedScreens: [CompanionScreenCapture] = []
 
         for (displayIndex, display) in sortedDisplays.enumerated() {
+            try Task.checkCancellation()
+            if watchOnly && displayIndex > 0 { break }
             // Use NSScreen.frame (AppKit coordinates, bottom-left origin) so
             // displayFrame is in the same coordinate system as NSEvent.mouseLocation
             // and the overlay window's screenFrame in BlueCursorView.
@@ -81,6 +103,7 @@ enum CompanionScreenCaptureUtility {
             let filter = SCContentFilter(display: display, excludingWindows: ownAppWindows)
 
             let configuration = SCStreamConfiguration()
+            configuration.showsCursor = showsCursor
             let maxDimension = 1280
             let aspectRatio = CGFloat(display.width) / CGFloat(display.height)
             if display.width >= display.height {
@@ -96,6 +119,8 @@ enum CompanionScreenCaptureUtility {
                 configuration: configuration
             )
 
+            try Task.checkCancellation()
+
             // JPEG encoding is pure CPU work on an immutable CGImage with no
             // dependency on this @MainActor enum's state. Run it off the main
             // actor so it cannot serialize against the speculative planner
@@ -107,6 +132,7 @@ enum CompanionScreenCaptureUtility {
                 NSBitmapImageRep(cgImage: cgImage)
                     .representation(using: .jpeg, properties: [.compressionFactor: 0.8])
             }.value
+            try Task.checkCancellation()
             guard let jpegData = encodedJPEGData else {
                 continue
             }
@@ -120,15 +146,26 @@ enum CompanionScreenCaptureUtility {
                 screenLabel = "screen \(displayIndex + 1) of \(sortedDisplays.count) — secondary screen"
             }
 
+            // Keep the pointer available for “what am I pointing at?” without changing the image digest or cache key.
+            var cursorPixelLocation: CGPoint?
+            if !showsCursor, isCursorScreen, displayFrame.width > 0, displayFrame.height > 0 {
+                let x = (mouseLocation.x - displayFrame.minX) / displayFrame.width * CGFloat(configuration.width)
+                let y = (displayFrame.maxY - mouseLocation.y) / displayFrame.height * CGFloat(configuration.height)
+                cursorPixelLocation = CGPoint(
+                    x: min(CGFloat(configuration.width - 1), x),
+                    y: min(CGFloat(configuration.height - 1), y))
+            }
             capturedScreens.append(CompanionScreenCapture(
-                imageData: jpegData,
+                    displayIdentifier: display.displayID,
+                    imageData: jpegData,
                 label: screenLabel,
                 isCursorScreen: isCursorScreen,
                 displayWidthInPoints: Int(displayFrame.width),
                 displayHeightInPoints: Int(displayFrame.height),
                 displayFrame: displayFrame,
                 screenshotWidthInPixels: configuration.width,
-                screenshotHeightInPixels: configuration.height
+                    screenshotHeightInPixels: configuration.height,
+                    cursorPixelLocation: cursorPixelLocation
             ))
         }
 

@@ -13,6 +13,88 @@ import Testing
 
 struct PaceSkillLoaderTests {
 
+    @Test func preinstalledSkillsShipAsUsableBundleResources() throws {
+        let emptyUserDirectory = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("pace-no-user-skills-\(UUID().uuidString)")
+        let skills = PaceSkillLoader.loadAllSkills(userSkillsDirectoryURL: emptyUserDirectory)
+        let expected = Set([
+            "standup-notes", "computer-use", "browser-use", "teach-on-screen", "coding-session", "research",
+        ])
+        #expect(expected.isSubset(of: Set(skills.map(\.slug))))
+        let resourceDirectory = try #require(Bundle.main.resourceURL?.appendingPathComponent("skills"))
+        let resourceFiles = try FileManager.default.contentsOfDirectory(
+            at: resourceDirectory,
+            includingPropertiesForKeys: nil
+        ).filter { $0.lastPathComponent.hasSuffix(".skill.md") }
+        let bundledSkills = try resourceFiles.map { resourceFile in
+            try #require(PaceSkillLoader.parse(skillMarkdown: String(contentsOf: resourceFile, encoding: .utf8)))
+        }
+        #expect(bundledSkills.count == skills.count)
+        #expect(Set(bundledSkills.map { $0.slug.lowercased() }).count == bundledSkills.count)
+        #expect(skills.allSatisfy { !$0.steps.isEmpty && !$0.description.isEmpty })
+        for skill in skills {
+            #expect(
+                PaceSkillLoader.resolveSkillForRunRequest(
+                    requestedSlug: skill.slug,
+                    requestedName: skill.name, in: skills)?.slug == skill.slug)
+        }
+    }
+
+    @Test func userWorkflowWinsWhenBundledSkillsShareItsIdentity() throws {
+        let root = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("pace-skill-precedence-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundledDirectory = root.appendingPathComponent("bundled", isDirectory: true)
+        let userDirectory = root.appendingPathComponent("user", isDirectory: true)
+        for directory in [bundledDirectory, userDirectory] {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        }
+        func writeSkill(_ name: String, slug: String, instruction: String, directory: URL) throws {
+            let markdown = "---\nname: \"\(name)\"\nslug: \"\(slug)\"\n---\n\n## Steps\n\n1. \(instruction)\n"
+            try markdown.write(
+                to: directory.appendingPathComponent(name + ".skill.md"), atomically: true, encoding: .utf8)
+        }
+        try writeSkill("Use Apps", slug: "computer-use", instruction: "Bundled task", directory: bundledDirectory)
+        try writeSkill("My Apps", slug: "computer-use", instruction: "User task", directory: userDirectory)
+        try writeSkill("Research", slug: "research", instruction: "Bundled research", directory: bundledDirectory)
+        try writeSkill("Research", slug: "my-research", instruction: "User research", directory: userDirectory)
+        let skills = PaceSkillLoader.loadAllSkills(
+            bundledSkillsDirectoryURL: bundledDirectory,
+            userSkillsDirectoryURL: userDirectory)
+        #expect(skills.count == 3)
+        #expect(
+            PaceSkillLoader.resolveSkillForRunRequest(
+                requestedSlug: "computer-use",
+                requestedName: "Use Apps", in: skills)?.steps.first?.instruction == "User task")
+        #expect(
+            PaceSkillLoader.resolveSkillForRunRequest(
+                requestedSlug: "research",
+                requestedName: "Research", in: skills)?.steps.first?.instruction == "User research")
+    }
+
+    @Test func mixedCaseUserSkillOverridesActualBundledDefault() throws {
+        let userDirectory = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("pace-skill-bundle-collision-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: userDirectory) }
+        try FileManager.default.createDirectory(at: userDirectory, withIntermediateDirectories: true)
+        let markdown = "---\nname: My Apps\nslug: Computer-Use\n---\n\n## Steps\n\n1. Ask for my current task\n"
+        try markdown.write(
+            to: userDirectory.appendingPathComponent("my-apps.skill.md"), atomically: true, encoding: .utf8)
+        let skills = PaceSkillLoader.loadAllSkills(userSkillsDirectoryURL: userDirectory)
+        #expect(skills.filter { $0.slug.lowercased() == "computer-use" }.count == 1)
+        #expect(
+            PaceSkillLoader.resolveSkillForRunRequest(
+                requestedSlug: "computer-use",
+                requestedName: "use apps", in: skills)?.name == "My Apps")
+        #expect(
+            PaceSkillLoader.resolveSkillForRunRequest(
+                requestedSlug: "COMPUTER",
+                requestedName: "no matching name", in: skills)?.name == "My Apps")
+        #expect(
+            Set(["standup-notes", "browser-use", "teach-on-screen", "coding-session", "research"])
+                .isSubset(of: Set(skills.map(\.slug))))
+    }
+
     // MARK: - Parsing
 
     /// A complete .skill.md file with frontmatter and steps parses
@@ -534,9 +616,9 @@ struct PaceSkillLoaderTests {
         #expect(PaceSkillLoader.listUserSkills(in: temporaryDirectory).isEmpty)
     }
 
-    /// Saving twice with the same name overwrites rather than duplicating.
+    /// Updates require the managed compare-and-swap path; create never silently overwrites.
     @Test
-    func saveOverwritesSameSlug() throws {
+    func saveRejectsSameSlugWithoutOverwriting() throws {
         let temporaryDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent("pace-skill-tests-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
@@ -545,13 +627,15 @@ struct PaceSkillLoaderTests {
             makeSkill(name: "Dupe", steps: ["Step one"]),
             to: temporaryDirectory
         )
-        try PaceSkillLoader.save(
-            makeSkill(name: "Dupe", steps: ["Step one", "Step two"]),
-            to: temporaryDirectory
-        )
+        #expect(throws: PaceManagedPowerError.self) {
+            try PaceSkillLoader.save(
+                makeSkill(name: "Dupe", steps: ["Step one", "Step two"]),
+                to: temporaryDirectory
+            )
+        }
         let listed = PaceSkillLoader.listUserSkills(in: temporaryDirectory)
         #expect(listed.count == 1)
-        #expect(listed.first?.steps.count == 2)
+        #expect(listed.first?.steps.count == 1)
     }
 
     // MARK: - Structured JSON → skill

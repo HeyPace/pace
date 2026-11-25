@@ -185,9 +185,10 @@ preferences.
 - **Don't** fabricate customer names, quantified claims, or measured accuracy.
 - **Don't** hide off-device exceptions behind an absolute privacy claim.
 
-## Native quiet graphite
+## Native pure black
 
-The native app uses quiet graphite, selected on 29 October 2026. Conversations
+The native app uses pure-black surfaces throughout, as requested on 3 November
+2026. The native color contract lives in [the native design system](leanring-buddy/DESIGN.md). Conversations
 use unboxed assistant text, subtle inset user turns, a compact state row, and an
 integrated composer. Serif type is reserved for scene titles and empty states;
 working controls keep the existing Geist and system typography. Settings use

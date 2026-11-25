@@ -35,7 +35,7 @@ struct PaceTurnHUDState: Equatable {
     static let listening = PaceTurnHUDState(
         status: .listening,
         title: "Listening",
-        detail: "Hold Control+Option",
+        detail: "Hold \(BuddyPushToTalkShortcut.currentShortcutOption.notchDisplayLabel)",
         options: []
     )
 

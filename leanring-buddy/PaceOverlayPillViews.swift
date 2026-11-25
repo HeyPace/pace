@@ -61,44 +61,8 @@ struct WhisperFlowVoicePillView: View {
                 }
             }
             .frame(width: pillSize.width, height: pillSize.height)
-            .background(
-                ZStack {
-                    // Dark glassmorphic fill — keeps the pill legible on
-                    // any wallpaper without the heavy ultraThinMaterial
-                    // blurring out the bars.
-                    Capsule(style: .continuous)
-                        .fill(Color.black.opacity(0.55))
-                    // Inner glow to match the cursor's overlayCursorBlue accent
-                    Capsule(style: .continuous)
-                        .fill(
-                            RadialGradient(
-                                colors: [
-                                    DS.Colors.overlayCursorBlue.opacity(0.25),
-                                    Color.clear
-                                ],
-                                center: .center,
-                                startRadius: 0,
-                                endRadius: pillSize.width * 0.55
-                            )
-                        )
-                    // Hairline gradient stroke for the Whisper Flow edge feel
-                    Capsule(style: .continuous)
-                        .strokeBorder(
-                            LinearGradient(
-                                colors: [
-                                    Color.white.opacity(0.45),
-                                    Color.white.opacity(0.05),
-                                    DS.Colors.overlayCursorBlue.opacity(0.45)
-                                ],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            ),
-                            lineWidth: 0.8
-                        )
-                }
-            )
-            .shadow(color: DS.Colors.overlayCursorBlue.opacity(0.45), radius: 10, x: 0, y: 0)
-            .shadow(color: Color.black.opacity(0.35), radius: 6, x: 0, y: 3)
+            .background(Color.black.opacity(0.86), in: Capsule())
+            .shadow(color: .black.opacity(0.28), radius: 5, y: 2)
             .scaleEffect(isFullyPresented ? 1.0 : 0.85)
             .opacity(isFullyPresented ? 1.0 : 0.0)
             .onAppear {

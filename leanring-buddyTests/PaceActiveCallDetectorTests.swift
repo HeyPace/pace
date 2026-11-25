@@ -1,127 +1,145 @@
-//
-//  PaceActiveCallDetectorTests.swift
-//  leanring-buddyTests
-//
-//  Exercises the bundle-identifier classifier directly via the
-//  injected provider seam. The live `NSWorkspace.runningApplications`
-//  path is exercised only by the production initializer; tests stub
-//  the provider so they're deterministic without launching real call
-//  apps.
-//
-
 import XCTest
 @testable import Pace
 
 @MainActor
 final class PaceActiveCallDetectorTests: XCTestCase {
+    private let slackBundleIdentifier = "com.tinyspeck.slackmacgap"
 
-    func testNoCallBundlesReturnsFalse() {
+    func testIdleSlackDoesNotPauseWatch() {
         let detector = PaceActiveCallDetector(
-            runningApplicationBundleIdentifiersProvider: {
-                return [
-                    "com.apple.Xcode",
-                    "com.apple.Safari",
-                    "com.apple.finder",
-                ]
-            }
+            runningApplicationBundleIdentifiersProvider: { [self.slackBundleIdentifier] },
+            processAudioSnapshotProvider: { .idle }
         )
-
         detector.recomputeForTesting()
-
         XCTAssertFalse(detector.isOnActiveCall)
     }
 
-    func testZoomBundlePresentReturnsTrue() {
-        let detector = PaceActiveCallDetector(
-            runningApplicationBundleIdentifiersProvider: {
-                return [
-                    "com.apple.Xcode",
-                    "us.zoom.xos",
-                ]
+    func testAudioActivityOrUnknownStatePausesEveryKnownCallApp() {
+        for bundleIdentifier in PaceActiveCallDetector.callBundleIdentifiers {
+            for snapshot in [PaceActiveCallDetector.ProcessAudioSnapshot.active, .unavailable] {
+                XCTAssertTrue(
+                    PaceActiveCallDetector.hasActiveCall(
+                        runningBundleIdentifiers: [bundleIdentifier], processAudioSnapshot: snapshot
+                    ))
             }
-        )
-
-        detector.recomputeForTesting()
-
-        XCTAssertTrue(detector.isOnActiveCall)
+        }
     }
 
-    func testSlackBundleAlonePresentReturnsTrue() {
-        // Slack alone is treated as "user might be on a call". This is
-        // intentionally over-cautious for v1 because we err toward
-        // staying quiet; the v1.1 CoreAudio check is what will let us
-        // distinguish open-Slack from active-Slack-huddle. The test
-        // pins the v1 behavior so a future tightening is an explicit
-        // change, not an accidental regression.
-        let detector = PaceActiveCallDetector(
-            runningApplicationBundleIdentifiersProvider: {
-                return [
-                    "com.tinyspeck.slackmacgap",
-                ]
-            }
-        )
-
-        detector.recomputeForTesting()
-
-        XCTAssertTrue(detector.isOnActiveCall)
-    }
-
-    func testFaceTimeBundlePresentReturnsTrue() {
-        let detector = PaceActiveCallDetector(
-            runningApplicationBundleIdentifiersProvider: {
-                return [
-                    "com.apple.FaceTime",
-                ]
-            }
-        )
-
-        detector.recomputeForTesting()
-
-        XCTAssertTrue(detector.isOnActiveCall)
-    }
-
-    func testTeamsBundlePresentReturnsTrue() {
-        let detector = PaceActiveCallDetector(
-            runningApplicationBundleIdentifiersProvider: {
-                return [
-                    "com.microsoft.teams2",
-                ]
-            }
-        )
-
-        detector.recomputeForTesting()
-
-        XCTAssertTrue(detector.isOnActiveCall)
-    }
-
-    func testCaseInsensitiveBundleMatching() {
-        // The macOS bundle identifier is canonically lowercase, but
-        // some apps capitalize letters (`com.apple.FaceTime` vs
-        // `com.apple.facetime`). The matching layer normalizes both
-        // sides — pin that here so a refactor can't silently drop it.
-        let detector = PaceActiveCallDetector(
-            runningApplicationBundleIdentifiersProvider: {
-                return [
-                    "US.ZOOM.XOS",
-                ]
-            }
-        )
-
-        detector.recomputeForTesting()
-
-        XCTAssertTrue(detector.isOnActiveCall)
-    }
-
-    func testPureClassifierMatchesInjectedSet() {
-        XCTAssertFalse(
-            PaceActiveCallDetector.anyCallBundleIdentifierIsRunning(
-                among: ["com.apple.Xcode", "com.apple.Safari"]
-            )
-        )
+    func testUnattributedOrUnrelatedAudioConservativelyPausesIdleSlack() {
+        let snapshot = PaceActiveCallDetector.processAudioSnapshot(processObjects: [1], ownProcessIdentifier: 100) {
+            _ in
+            .init(processIdentifier: 200, inputIsRunning: true, outputIsRunning: false)
+        }
         XCTAssertTrue(
-            PaceActiveCallDetector.anyCallBundleIdentifierIsRunning(
-                among: ["com.apple.facetime"]
-            )
+            PaceActiveCallDetector.hasActiveCall(
+                runningBundleIdentifiers: [slackBundleIdentifier], processAudioSnapshot: snapshot
+            ))
+    }
+
+    func testOwnWakeWordCaptureAndSpeechDoNotPauseIdleSlack() {
+        let snapshot = PaceActiveCallDetector.processAudioSnapshot(processObjects: [1], ownProcessIdentifier: 100) {
+            _ in
+            .init(processIdentifier: 100, inputIsRunning: true, outputIsRunning: true)
+        }
+        XCTAssertEqual(snapshot, .idle)
+        XCTAssertFalse(
+            PaceActiveCallDetector.hasActiveCall(
+                runningBundleIdentifiers: [slackBundleIdentifier], processAudioSnapshot: snapshot
+            ))
+    }
+
+    func testOtherProcessInputOrOutputPausesEvenAlongsidePaceAudio() {
+        for inputIsRunning in [true, false] {
+            let snapshot = PaceActiveCallDetector.processAudioSnapshot(
+                processObjects: [1, 2], ownProcessIdentifier: 100
+            ) { processObject in
+                if processObject == 1 {
+                    return .init(processIdentifier: 100, inputIsRunning: true, outputIsRunning: true)
+                }
+                return .init(processIdentifier: 200, inputIsRunning: inputIsRunning, outputIsRunning: !inputIsRunning)
+            }
+            XCTAssertEqual(snapshot, .active)
+            XCTAssertTrue(
+                PaceActiveCallDetector.hasActiveCall(
+                    runningBundleIdentifiers: [slackBundleIdentifier], processAudioSnapshot: snapshot
+                ))
+        }
+    }
+
+    func testMatchingIsCaseInsensitiveAndKnownIdentifiersAreNormalized() {
+        XCTAssertTrue(PaceActiveCallDetector.callBundleIdentifiers.allSatisfy { $0 == $0.lowercased() })
+        XCTAssertTrue(
+            PaceActiveCallDetector.hasActiveCall(
+                runningBundleIdentifiers: ["COM.APPLE.FACETIME"], processAudioSnapshot: .active
+            ))
+    }
+
+    func testNoCallAppSkipsCoreAudioSampling() {
+        let detector = PaceActiveCallDetector(
+            runningApplicationBundleIdentifiersProvider: { ["com.apple.Safari"] },
+            processAudioSnapshotProvider: {
+                XCTFail("No call app requires no CoreAudio process read")
+                return .unavailable
+            }
         )
+        detector.recomputeForTesting()
+        XCTAssertFalse(detector.isOnActiveCall)
+    }
+
+    func testExitedAudioProcessDoesNotInterruptIdleSlackNotes() {
+        var snapshot: PaceActiveCallDetector.ProcessAudioSnapshot = .idle
+        let detector = PaceActiveCallDetector(
+            runningApplicationBundleIdentifiersProvider: { [self.slackBundleIdentifier] },
+            processAudioSnapshotProvider: { snapshot }
+        )
+        for processExited in [false, true, false] {
+            snapshot = PaceActiveCallDetector.processAudioSnapshot(processObjects: [1], ownProcessIdentifier: 100) {
+                _ in
+                if processExited { throw PaceActiveCallDetector.ProcessAudioReadError.exited }
+                return .init(processIdentifier: 200, inputIsRunning: false, outputIsRunning: false)
+            }
+            detector.recomputeForTesting()
+            XCTAssertFalse(detector.isOnActiveCall)
+        }
+    }
+
+    func testExitedProcessDoesNotEraseAnotherActiveCall() {
+        let snapshot = PaceActiveCallDetector.processAudioSnapshot(processObjects: [1, 2], ownProcessIdentifier: 100) {
+            processObject in
+            if processObject == 1 { throw PaceActiveCallDetector.ProcessAudioReadError.exited }
+            return .init(processIdentifier: 200, inputIsRunning: true, outputIsRunning: false)
+        }
+        XCTAssertTrue(
+            PaceActiveCallDetector.hasActiveCall(
+                runningBundleIdentifiers: [slackBundleIdentifier], processAudioSnapshot: snapshot
+            ))
+    }
+
+    func testUnreadableProcessRetainsPrivacyPause() {
+        let snapshot = PaceActiveCallDetector.processAudioSnapshot(processObjects: [1], ownProcessIdentifier: 100) {
+            _ in
+            throw PaceActiveCallDetector.ProcessAudioReadError.unavailable
+        }
+        XCTAssertEqual(snapshot, .unavailable)
+        XCTAssertTrue(
+            PaceActiveCallDetector.hasActiveCall(
+                runningBundleIdentifiers: [slackBundleIdentifier], processAudioSnapshot: snapshot
+            ))
+    }
+
+    func testAudioTransitionsResumeAndPauseWatch() {
+        var snapshot: PaceActiveCallDetector.ProcessAudioSnapshot = .idle
+        let detector = PaceActiveCallDetector(
+            runningApplicationBundleIdentifiersProvider: { [self.slackBundleIdentifier] },
+            processAudioSnapshotProvider: { snapshot }
+        )
+        for (nextSnapshot, expectedPause) in [
+            (PaceActiveCallDetector.ProcessAudioSnapshot.idle, false), (.active, true), (.unavailable, true),
+            (.idle, false),
+        ] {
+            snapshot = nextSnapshot
+            detector.recomputeForTesting()
+            XCTAssertEqual(detector.isOnActiveCall, expectedPause)
+        }
     }
 }

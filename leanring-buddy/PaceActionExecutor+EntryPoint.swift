@@ -6,12 +6,37 @@
 //  executeActionPlan dispatch and streaming mail draft entry points.
 //
 
+import CryptoKit
 import Foundation
+
+struct PacePlannerClickFingerprint: Equatable {
+    let x: Int
+    let y: Int
+    let displayIdentifier: UInt32
+    let displayFrame: CGRect
+    let imageDigest: SHA256.Digest
+
+    init?(plan: PaceActionExecutionPlan, captures: [CompanionScreenCapture]) {
+        let actions = plan.flattenedActions
+        guard actions.count == 1, case .click(let location) = actions[0] else { return nil }
+        let capture: CompanionScreenCapture?
+        if let screen = location.screenNumber {
+            guard screen >= 1, screen <= captures.count else { return nil }
+            capture = captures[screen - 1]
+        } else {
+            capture = captures.first(where: { $0.isCursorScreen }) ?? captures.first
+        }
+        guard let capture, !capture.imageData.isEmpty else { return nil }
+        x = location.xInScreenshotPixels
+        y = location.yInScreenshotPixels
+        displayIdentifier = capture.displayIdentifier
+        displayFrame = capture.displayFrame
+        imageDigest = SHA256.hash(data: capture.imageData)
+    }
+}
 
 @MainActor
 extension PaceActionExecutor {
-
-    // MARK: - High-level entry point
 
     // MARK: - High-level entry point
 
@@ -24,21 +49,54 @@ extension PaceActionExecutor {
         _ actionExecutionPlan: PaceActionExecutionPlan,
         screenCaptures: [CompanionScreenCapture]
     ) async -> [PaceActionExecutionObservation] {
-        guard !actionExecutionPlan.steps.isEmpty else { return [] }
+        let receipt = await executeActionPlanWithReceipt(actionExecutionPlan, screenCaptures: screenCaptures)
+        return receipt.observations
+    }
 
+    func executeActionPlanWithReceipt(
+        _ actionExecutionPlan: PaceActionExecutionPlan,
+        screenCaptures: [CompanionScreenCapture],
+        checksRepeatedClick: Bool = false
+    ) async -> PaceActionExecutionReceipt {
         var observations: [PaceActionExecutionObservation] = []
+        var executedActions: [PaceParsedAction] = []
+        func receipt() -> PaceActionExecutionReceipt {
+            .init(observations: observations, executedPlan: .serial(actions: executedActions))
+        }
+        let executionGeneration = applicationTargetGeneration
+        let currentClick =
+            checksRepeatedClick && actionsAreEnabled && readMyScreenIsEnabled()
+            ? PacePlannerClickFingerprint(plan: actionExecutionPlan, captures: screenCaptures) : nil
+        guard !Task.isCancelled else { return receipt() }
+        if let currentClick, previousPlannerClick == currentClick,
+            managedPowerExecutionCheck?() != false, accessibilityPermissionCheck()
+        {
+            let canInspect = !hasAttemptedInspectionRecovery
+            if canInspect { hasAttemptedInspectionRecovery = true }
+            observations.append(
+                .init(
+                    toolName: "click",
+                    summary:
+                        "Skipped a repeated click at the same point on an unchanged screenshot. Inspect the intended control by name or report what is missing.",
+                    userFacingSummary: canInspect ? "" : "I couldn’t verify that control.",
+                    terminalReason: canInspect ? .recoverableInspectionFailure : .inspectionInterrupted))
+            return receipt()
+        }
+        previousPlannerClick = nil
 
         for (stepIndex, step) in actionExecutionPlan.steps.enumerated() {
-            guard !Task.isCancelled else { return observations }
+            guard !Task.isCancelled else { return receipt() }
             guard !step.actions.isEmpty else { continue }
 
             for (actionIndex, action) in step.actions.enumerated() {
-                guard !Task.isCancelled else { return observations }
+                guard !Task.isCancelled, executionGeneration == applicationTargetGeneration else { return receipt() }
 
                 if let observation = await executeSingleAction(action, screenCaptures: screenCaptures) {
                     observations.append(observation)
+                    if observation.stopsActionPlan { return receipt() }
                 }
-                guard !Task.isCancelled else { return observations }
+                executedActions.append(action)
+                guard !Task.isCancelled else { return receipt() }
 
                 let isLastActionInStep = (actionIndex == step.actions.count - 1)
                 if !isLastActionInStep {
@@ -52,7 +110,12 @@ extension PaceActionExecutor {
             }
         }
 
-        return observations
+        if executionGeneration == applicationTargetGeneration,
+            observations.count == 1, observations.first?.didDispatchCoordinateClick == true
+        {
+            previousPlannerClick = currentClick
+        }
+        return receipt()
     }
 
     var hasActiveStreamingMailDraft: Bool {
@@ -111,10 +174,13 @@ extension PaceActionExecutor {
         _ action: PaceParsedAction,
         screenCaptures: [CompanionScreenCapture]
     ) async -> PaceActionExecutionObservation? {
+        let startedAt = ProcessInfo.processInfo.systemUptime
         let observation = await dispatchSingleAction(action, screenCaptures: screenCaptures)
         let outcomeText: String
-        if let observation, observation.summary.lowercased().contains("fail")
-            || observation.summary.lowercased().contains("error")
+        if let observation,
+            observation.stopsAgentLoop
+                || observation.summary.lowercased().contains("fail")
+                || observation.summary.lowercased().contains("error")
             || observation.summary.lowercased().contains("could not") {
             outcomeText = "error"
         } else {
@@ -124,7 +190,7 @@ extension PaceActionExecutor {
             subsystem: "action",
             operation: action.auditOperationName,
             target: action.auditTarget,
-            durationMilliseconds: 0,
+            durationMilliseconds: Int((ProcessInfo.processInfo.systemUptime - startedAt) * 1_000),
             outcome: outcomeText,
             outputCharacterCount: observation?.summary.count,
             detail: observation?.summary.prefix(160).description
@@ -136,6 +202,12 @@ extension PaceActionExecutor {
         _ action: PaceParsedAction,
         screenCaptures: [CompanionScreenCapture]
     ) async -> PaceActionExecutionObservation? {
+        guard managedPowerExecutionCheck?() != false else {
+            return .init(
+                toolName: action.auditOperationName,
+                summary: "Power was disabled, removed, or changed; execution stopped.",
+                terminalReason: .managedWorkflowUnavailable)
+        }
         // Input posting can silently do nothing without Accessibility access.
         // Return a real observation so the agent does not treat that as success.
         if actionsAreEnabled, Self.requiresAccessibility(action), !accessibilityPermissionCheck() {
@@ -147,13 +219,25 @@ extension PaceActionExecutor {
         }
         switch action {
         case .click(let location):
-            await clickAtScreenshotLocation(location, screenCaptures: screenCaptures, clickCount: 1)
+            return await clickWithReceipt(at: location, screenCaptures: screenCaptures, clickCount: 1)
         case .doubleClick(let location):
-            await clickAtScreenshotLocation(location, screenCaptures: screenCaptures, clickCount: 2)
+            return await clickWithReceipt(at: location, screenCaptures: screenCaptures, clickCount: 2)
         case .clickCandidates(let clickCandidateSet):
             return await clickBestCandidate(clickCandidateSet, screenCaptures: screenCaptures)
         case .type(let textToType):
-            await typeText(textToType)
+            guard actionsAreEnabled else { return nil }
+            guard await typeText(textToType) else {
+                return .init(
+                    toolName: "type",
+                    summary: "Could not finish typing into the frontmost app. No remaining plan actions were run.",
+                    userFacingSummary: "I couldn’t finish typing. Check the draft before trying again.",
+                    terminalReason: .inspectionInterrupted)
+            }
+            return .init(
+                toolName: "type",
+                summary:
+                    "Posted keyboard input for \(textToType.count) characters. Inspect the focused field to verify the text. Do not repeat typing if the text already appears."
+            )
         case .setTextValue(let setTextValueRequest):
             return setTextValue(setTextValueRequest)
         case .editSelectedText(let voiceEditRequest):
@@ -166,14 +250,24 @@ extension PaceActionExecutor {
             return readClipboardText()
         case .snapWindow(let snapWindowRequest):
             return snapFocusedWindow(snapWindowRequest)
-        case .scroll(let direction, let amount):
-            await scroll(direction: direction, amountInLines: amount)
+        case .scroll(let direction, let amount, let location):
+            return scroll(
+                direction: direction, amountInLines: amount, location: location, screenCaptures: screenCaptures)
         case .openApplication(let applicationName):
             return await openApplication(named: applicationName)
         case .openURL(let urlString):
             return await openURL(urlString)
         case .openBrowser(let request):
             return await openBrowser(request)
+        case .codingSession(let command):
+            guard !command.requiresExecutionConsent || actionsAreEnabled else {
+                return .init(toolName: "coding_session", summary: "Coding not started. EnableActions is disabled.")
+            }
+            guard let executeCodingSession else {
+                return .init(
+                    toolName: "coding_session", summary: "Coding is unavailable. The lifecycle binding is missing.")
+            }
+            return await executeCodingSession(command)
         case .codexSession(let request):
             return startCodexSession(request)
         case .screenCapture(let kind):
@@ -218,6 +312,22 @@ extension PaceActionExecutor {
             return await openMessages(messageRequest)
         case .downloadFile(let downloadRequest):
             return await downloadFile(downloadRequest)
+        case .presentMedia(let request):
+            guard actionsAreEnabled else {
+                return .init(toolName: "present_media", summary: "Would present \(request.presentationSummary)")
+            }
+            return await presentLocalMedia?(request)
+                ?? .init(
+                    toolName: "present_media", summary: "Media unavailable; lifecycle binding missing.",
+                    terminalReason: .managedWorkflowUnavailable)
+        case .speak(let request):
+            guard actionsAreEnabled else { return .init(toolName: "speak", summary: "Would speak local text.") }
+            guard let speakLocalText else {
+                return .init(
+                    toolName: "speak", summary: "Local speech unavailable; lifecycle binding missing.",
+                    terminalReason: .managedWorkflowUnavailable)
+            }
+            return await speakLocalText(request)
         case .startTimer(let timerRequest):
             return await startTimer(timerRequest)
         case .recordFlow(let flowRequest):

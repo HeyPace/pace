@@ -3,7 +3,7 @@
 //  leanring-buddy
 //
 //  Phase C: in-process VLM. Runs Qwen3-VL-4B-Instruct-4bit (default)
-//  directly via `mlx-swift-examples` MLXVLM instead of LM Studio's
+//  directly via `mlx-swift-lm` MLXVLM instead of LM Studio's
 //  loopback HTTP. Conforms to `PaceScreenAnalysisClient` so the
 //  existing PaceScreenContextService consumes it unchanged.
 //
@@ -36,7 +36,8 @@ nonisolated enum PaceMLXScreenAnalysisError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .runtimeNotLinked:
-            return "MLXVLM runtime not linked. Add the MLXVLM product from mlx-swift-examples in Xcode → Project → Package Dependencies."
+            return
+                "MLXVLM runtime not linked. Add the MLXVLM product from mlx-swift-lm in Xcode → Project → Package Dependencies."
         case .modelLoadFailed(let underlyingErrorDescription):
             return "MLXVLM model load failed: \(underlyingErrorDescription)"
         case .inferenceFailed(let underlyingErrorDescription):
@@ -237,6 +238,8 @@ final class PaceMLXScreenAnalysisClient: PaceScreenAnalysisClient, @unchecked Se
         let factory = VLMModelFactory.shared
         let configuration = ModelConfiguration(id: modelIdentifier)
         let loaded = try await factory.loadContainer(
+                from: PaceMLXHuggingFaceDownloader(),
+                using: PaceMLXHuggingFaceTokenizerLoader(),
             configuration: configuration,
             progressHandler: progressHandler
         )

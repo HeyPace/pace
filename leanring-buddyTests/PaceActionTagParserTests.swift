@@ -172,7 +172,7 @@ struct PaceActionTagParserTests {
     @Test func scrollTagParsesDirectionAndAmount() async throws {
         let parseResult = PaceActionTagParser.parseActions(from: "[SCROLL:down:5]")
 
-        guard case .scroll(let direction, let amountInLines) = parseResult.actions.first else {
+        guard case .scroll(let direction, let amountInLines, _) = parseResult.actions.first else {
             Issue.record("Expected a SCROLL action")
             return
         }
@@ -183,7 +183,7 @@ struct PaceActionTagParserTests {
     @Test func scrollTagWithoutAmountFallsBackToDefault() async throws {
         let parseResult = PaceActionTagParser.parseActions(from: "[SCROLL:up]")
 
-        guard case .scroll(let direction, let amountInLines) = parseResult.actions.first else {
+        guard case .scroll(let direction, let amountInLines, _) = parseResult.actions.first else {
             Issue.record("Expected a SCROLL action")
             return
         }
@@ -756,6 +756,84 @@ struct PaceActionTagParserTests {
         }
         #expect(reminderRequest.title == "send invoice")
         #expect(reminderRequest.notes == "today")
+    }
+
+    @Test func targetedScrollPreservesThePaneCoordinatesAndRejectsPartialTargets() {
+        let requests = [
+            #"{"spokenText":"","intent":"action","payload":{"name":"AX.scroll","args":{"direction":"up","amount":5,"x":640,"y":280,"screen":2}}}"#,
+            #"<tool_calls>[{"tool":"scroll","direction":"up","amount":5,"x":640,"y":280,"screen":2}]</tool_calls>"#,
+        ]
+        for request in requests {
+            let result = PaceActionTagParser.parseActions(from: request)
+            guard case .scroll(let direction, let amount, let location) = result.actions.first else {
+                Issue.record("Expected a scroll action with a pane target")
+                continue
+            }
+            #expect(direction == .up)
+            #expect(amount == 5)
+            #expect(location?.xInScreenshotPixels == 640)
+            #expect(location?.yInScreenshotPixels == 280)
+            #expect(location?.screenNumber == 2)
+        }
+
+        for args in [#""x":640"#, #""x":640,"y":280,"screen":0"#, #""x":1e99,"y":280"#] {
+            let prefix = #"{"spokenText":"","intent":"action","payload":{"name":"AX.scroll","args":{"direction":"up","#
+            let input = prefix + args + "}}}"
+            #expect(PaceActionTagParser.parseActions(from: input).actions.isEmpty)
+        }
+    }
+
+    @Test func scheduledReminderPayloadPreservesTheRequestedInstant() throws {
+        let requests = [
+            """
+            {"spokenText":"","intent":"action","payload":{"name":"Reminders.add","args":{"title":"Pick up the library books","due":"2026-11-22T14:00:00+05:30"}}}
+            """,
+            """
+            <tool_calls>[{"tool":"reminder","title":"Pick up the library books","dueDate":"2026-11-22T14:00:00+05:30"}]</tool_calls>
+            """,
+            """
+            {"spokenText":"","intent":"action","payload":{"name":"MCP.call","args":{"server":"apple","name":"reminders","arguments":{"operation":"create","name":"Pick up the library books","dueDate":"2026-11-22T14:00:00+05:30"}}}}
+            """,
+        ]
+        let expectedDate = try #require(ISO8601DateFormatter().date(from: "2026-11-22T08:30:00Z"))
+        for input in requests {
+            let actions = PaceActionTagParser.parseActions(from: input).actions
+            guard case .createReminder(let request) = actions.first else {
+                Issue.record("Expected a timed reminder creation")
+                continue
+            }
+            #expect(request.schedule == .init(date: expectedDate, isDateOnly: false))
+        }
+    }
+
+    @Test func namedListReminderPreservesAnOffsetlessLocalTimeForBothRoutes() throws {
+        let requests = [
+            """
+            {"spokenText":"","intent":"action","payload":{"name":"Reminders.add","args":{"title":"Buy milk","listName":"Groceries","due":"2026-11-22T14:00"}}}
+            """,
+            """
+            {"spokenText":"","intent":"action","payload":{"name":"MCP.call","args":{"server":"apple","tool":"reminders","arguments":{"operation":"create","name":"Buy milk","listName":"Groceries","dueDate":"2026-11-22T14:00:00"}}}}
+            """,
+        ]
+        let calendar = Calendar(identifier: .gregorian)
+        let expected = try #require(calendar.date(from: DateComponents(year: 2026, month: 11, day: 22, hour: 14)))
+        for input in requests {
+            let result = PaceActionTagParser.parseActions(from: input)
+            guard case .createReminder(let request) = result.actions.first else {
+                Issue.record("Expected a native reminder that retains its list and due time")
+                continue
+            }
+            #expect(request.listName == "Groceries")
+            #expect(request.schedule == .init(date: expected, isDateOnly: false))
+        }
+    }
+
+    @Test func invalidReminderTimeDoesNotBecomeAnUnscheduledReminder() {
+        let result = PaceActionTagParser.parseActions(
+            from: """
+                {"spokenText":"","intent":"action","payload":{"name":"Reminders.add","args":{"title":"Call Sam","due":"perhaps later"}}}
+                """)
+        #expect(result.actions.isEmpty)
     }
 
     @Test func v10MultiCallPayloadParsesIntoSerialExecutionPlan() async throws {
@@ -1514,10 +1592,24 @@ struct PaceActionTagParserTests {
         #expect(sendCommandResult?.executionPlan.flattenedActions.isEmpty ?? true)
     }
 
+    @Test func basicScrollRunsLocallyOnlyWhenTheUtteranceIsComplete() throws {
+        for direction in ["up", "down"] {
+            let result = PaceFastActionCommandParser.parse(transcript: "Hey Pace scroll \(direction).")
+            guard case .scroll(let parsed, let amount, nil) = result?.executionPlan.flattenedActions.first else {
+                Issue.record("Expected local scroll")
+                return
+            }
+            #expect(parsed.rawValue == direction)
+            #expect(amount == 3)
+            #expect(
+                PaceFastActionCommandParser.parse(transcript: "scroll \(direction)", isFinalTranscript: false) == nil)
+        }
+    }
+
     @Test func fastActionParserDoesNotGrabAmbiguousScreenCommands() async throws {
         let ambiguousMenuResult = PaceFastActionCommandParser.parse(transcript: "open the file menu")
         let clickResult = PaceFastActionCommandParser.parse(transcript: "click the blue button")
-        let scrollResult = PaceFastActionCommandParser.parse(transcript: "scroll down")
+        let scrollResult = PaceFastActionCommandParser.parse(transcript: "scroll down in the conversation")
         let genericMoveResult = PaceFastActionCommandParser.parse(transcript: "move left")
 
         #expect(ambiguousMenuResult?.executionPlan.flattenedActions.isEmpty ?? true)

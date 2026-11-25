@@ -12,11 +12,165 @@
 //  itself part of the contract.
 //
 
+import ApplicationServices
 import Foundation
 import Testing
 @testable import Pace
 
 struct PaceChatTranscriptModelTests {
+
+    @Test func appTargetClarificationHasOneHumanReplyWhileTechnicalDetailsRemainAvailable() {
+        let observation = PaceActionExecutionObservation(
+            toolName: "mcp.peekaboo.window",
+            summary: "Application target remains ambiguous. Provider diagnostic: PID:111 PID:222",
+            userFacingSummary: "Which Google Chrome window do you mean?",
+            terminalReason: .ambiguousApplicationTarget)
+        let record = PaceActionRunRecord.completed(observations: [observation])
+        #expect(record.status == .failed)
+        #expect(!record.showsInConversation)
+        #expect(!record.detail.contains("PID:111"))
+        #expect(record.diagnosticDetail?.contains("PID:111") == true)
+        #expect(PaceActionExecutionObservation.formatForPlanner([observation]).contains("PID:222"))
+        #expect(
+            PaceActionExecutionObservation.formatForUserFeedback([observation])
+                == "Which Google Chrome window do you mean?")
+        #expect(PaceChatTranscriptModel.toolActivityRowModels(fromNewestFirstActionRunRecords: [record]).isEmpty)
+    }
+
+    @Test func recoveryDoesNotCreateAnInterimChipAndUncoveredFailuresStayVisible() {
+        let recovery = PaceActionExecutionObservation(
+            toolName: "mcp.peekaboo.window",
+            summary: "Read-only candidate inventory", userFacingSummary: "", terminalReason: .ambiguousInspectionTarget)
+        let recoveryRecord = PaceActionRunRecord.completed(observations: [recovery])
+        #expect(recoveryRecord.status == .skipped)
+        #expect(recoveryRecord.title == "Choosing a window")
+        #expect(!recoveryRecord.showsInConversation)
+        #expect(PaceActionExecutionObservation.formatForUserFeedback([recovery]) == nil)
+
+        let unrelatedFailure = PaceActionExecutionObservation(toolName: "notes", summary: "Failed to save the note.")
+        let mixedRecord = PaceActionRunRecord.completed(observations: [unrelatedFailure, recovery])
+        #expect(mixedRecord.status == .failed)
+        #expect(mixedRecord.showsInConversation)
+        let rows = PaceChatTranscriptModel.toolActivityRowModels(fromNewestFirstActionRunRecords: [
+            mixedRecord, recoveryRecord,
+        ])
+        #expect(rows.count == 1)
+        #expect(PaceActionRunRecord(status: .failed, title: "Failed", detail: "Other failure").showsInConversation)
+    }
+
+    @Test func completedEarlierActionsRemainVisibleWhenAWindowNeedsClarification() {
+        let success = PaceActionExecutionObservation(toolName: "notes", summary: "Created the meeting note.")
+        let clarification = PaceActionExecutionObservation(
+            toolName: "mcp.peekaboo.window",
+            summary: "Multiple apps match, PID:111 PID:222", userFacingSummary: "Which Chrome window do you mean?",
+            terminalReason: .ambiguousApplicationTarget)
+        let record = PaceActionRunRecord.completed(observations: [success, clarification])
+        #expect(record.showsInConversation)
+        #expect(record.status == .completed)
+        #expect(record.title == "Earlier actions completed")
+        #expect(record.detail == "Created the meeting note.")
+        #expect(record.targetResolution == .clarification("Which Chrome window do you mean?"))
+        #expect(record.diagnosticDetail?.contains("PID:111") == true)
+        let rows = PaceChatTranscriptModel.toolActivityRowModels(fromNewestFirstActionRunRecords: [record])
+        #expect(rows.count == 1)
+        #expect(rows.first?.resultSummaryLine == "Created the meeting note.")
+    }
+
+    @MainActor @Test func actualManagerKeepsTargetDiagnosticsOutOfTheHUD() {
+        let (manager, _, _) = PaceConversationRecorderTests().makeDismissalFixture()
+        let recovery = PaceActionExecutionObservation(
+            toolName: "mcp.peekaboo.window",
+            summary: "RAW PRIVATE INVENTORY PID:111", userFacingSummary: "", terminalReason: .ambiguousInspectionTarget)
+        manager.appendActionResult(.completed(observations: [recovery]))
+        #expect(manager.currentTurnHUDState.status == .acting)
+        #expect(manager.currentTurnHUDState.detail == "Finding the right window")
+        #expect(manager.recentActionResults.first?.detail == "Checking which window you mean.")
+        #expect(manager.recentActionResults.first?.diagnosticDetail?.contains("RAW PRIVATE INVENTORY") == true)
+
+        let clarification = PaceActionExecutionObservation(
+            toolName: "mcp.peekaboo.window",
+            summary: "RAW PRIVATE INVENTORY PID:222", userFacingSummary: "Which Chrome window do you mean?",
+            terminalReason: .ambiguousApplicationTarget)
+        manager.appendActionResult(.completed(observations: [clarification]))
+        #expect(manager.currentTurnHUDState.status == .needsClarification)
+        #expect(manager.currentTurnHUDState.title == "Which Chrome window do you mean?")
+        #expect(manager.currentTurnHUDState.detail?.contains("PID:") != true)
+
+        let stale = PaceActionExecutionObservation(
+            toolName: "mcp.peekaboo.window", summary: "PID:999 exited",
+            userFacingSummary: "Chrome closed. Please reopen it so I can continue.",
+            terminalReason: .staleApplicationTarget)
+        manager.appendActionResult(.completed(observations: [stale]))
+        #expect(manager.currentTurnHUDState.status == .failed)
+        #expect(manager.currentTurnHUDState.detail == "Chrome closed. Please reopen it so I can continue.")
+        let retry = PaceActionExecutionObservation(
+            toolName: "mcp.peekaboo.app", summary: "Invalid parameter",
+            userFacingSummary: "", terminalReason: .recoverableInspectionFailure)
+        manager.appendActionResult(.completed(observations: [retry]))
+        #expect(manager.currentTurnHUDState.detail == "Checking that again")
+        #expect(manager.recentActionResults.first?.title == "Checking that again")
+    }
+
+    @MainActor @Test func earlierFailureIsNotMaskedByTargetDiscovery() {
+        let (manager, _, _) = PaceConversationRecorderTests().makeDismissalFixture()
+        let failure = PaceActionExecutionObservation(
+            toolName: "notes", summary: "Failed internal note implementation",
+            userFacingSummary: "I couldn’t save the note.")
+        let terminalReasons: [PaceActionExecutionObservation.TerminalReason] = [
+            .recoverableInspectionFailure, .inspectionInterrupted, .staleApplicationTarget, .ambiguousApplicationTarget,
+        ]
+        for reason in terminalReasons {
+            let discovery = PaceActionExecutionObservation(
+                toolName: "mcp.peekaboo.window", summary: "PRIVATE PID:111",
+                userFacingSummary: "I stopped that inspection.", terminalReason: reason)
+            let record = PaceActionRunRecord.completed(observations: [failure, discovery])
+            manager.appendActionResult(record)
+            #expect(manager.currentTurnHUDState.status == .failed)
+            #expect(manager.currentTurnHUDState.detail == "I couldn’t save the note.")
+            #expect(manager.recentActionResults.first?.showsInConversation == true)
+            let recordCount = manager.recentActionResults.count
+            manager.currentTurnHUDState = .done("Fixture before loop finalization")
+            manager.updateActionResultHUD(record)
+            #expect(manager.currentTurnHUDState.status == .failed)
+            #expect(manager.currentTurnHUDState.detail == "I couldn’t save the note.")
+            #expect(manager.recentActionResults.count == recordCount)
+        }
+    }
+
+    @MainActor @Test func cancelledExecutionDoesNotAdvertiseUndo() async {
+        let (manager, _, _) = PaceConversationRecorderTests().makeDismissalFixture()
+        let previousMutationCount = manager.actionExecutor.mutationLog.count
+        manager.actionExecutor.mutationLog.append(
+            .axValue(
+                element: AXUIElementCreateApplication(1), oldValue: "before", summary: "Actual edit"))
+        let task = Task { @MainActor in
+            withUnsafeCurrentTask { $0?.cancel() }
+            manager.noteReversibleActionExecuted(sinceMutationCount: previousMutationCount)
+        }
+        await task.value
+        #expect(manager.mostRecentReversibleActionAt == nil)
+    }
+
+    @Test func technicalDetailsAreBoundedWithoutChangingPlannerReceipts() {
+        let observations = (0..<4).map { index in
+            PaceActionExecutionObservation(
+                toolName: "fixture-\(index)",
+                summary: String(repeating: "é", count: 4_000)
+                    + "\nTool structuredContent:\nPRIVATE STRUCTURE\nTool _meta:\nPRIVATE META",
+                userFacingSummary: "I couldn’t finish that step.")
+        }
+        let record = PaceActionRunRecord.completed(observations: observations)
+        #expect((record.diagnosticDetail?.utf8.count ?? 0) <= 8_000)
+        #expect(record.diagnosticDetail?.contains("PRIVATE STRUCTURE") == false)
+        #expect(record.diagnosticDetail?.contains("PRIVATE META") == false)
+        #expect(record.diagnosticDetail?.contains("truncated") == true)
+        #expect(PaceActionExecutionObservation.formatForPlanner(observations).contains("PRIVATE STRUCTURE"))
+        let metadataOnly = PaceActionExecutionObservation(
+            toolName: "fixture", summary: "A short error\nTool _meta:\nPRIVATE META",
+            userFacingSummary: "I couldn’t finish that step.")
+        #expect(
+            PaceActionRunRecord.completed(observations: [metadataOnly]).diagnosticDetail == "fixture: A short error")
+    }
 
     // MARK: - Fixtures
 

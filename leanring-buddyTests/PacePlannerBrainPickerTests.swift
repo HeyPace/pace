@@ -5,13 +5,10 @@
 //  Tests the shared planner-brain selection helper
 //  (`CompanionManager.selectPlannerTierWithConsent`) that both the
 //  Planner tab and the RAM-aware budget picker in the Models tab call.
-//  We exercise only the tiers that DON'T raise an NSAlert (`.local`,
-//  `.appleFoundationModels`) so the test stays headless — the consent-
-//  gated tiers show a modal dialog and their gate is covered separately
-//  in PaceCLIDirectPlannerTierTests / PaceCloudBridgeConsentTests.
+//  The consent tests dismiss the real gate through a headless alert presenter.
 //
 
-import Foundation
+import AppKit
 import Testing
 @testable import Pace
 
@@ -44,6 +41,43 @@ struct PacePlannerBrainPickerTests {
             #expect(applied)
             #expect(companionManager.activePlannerTier == .local)
             #expect(PacePlannerTierStore.loadConfiguration().tier == .local)
+        }
+    }
+
+    @Test(arguments: [PacePlannerTier.cliBridge, .cliDirect])
+    func cancellingConsentPreservesPriorPlanner(_ requestedTier: PacePlannerTier) {
+        withRestoredSelectedTier {
+            let consentKey =
+                requestedTier == .cliBridge
+                ? "pace.cloudBridge.hasAcceptedConsent" : "pace.cloudBridge.hasAcceptedDirectSpawnConsent"
+            let defaults = UserDefaults.standard
+            let savedConsent = defaults.object(forKey: consentKey)
+            defer {
+                if let savedConsent {
+                    defaults.set(savedConsent, forKey: consentKey)
+                } else {
+                    defaults.removeObject(forKey: consentKey)
+                }
+            }
+            defaults.set(false, forKey: consentKey)
+            PacePlannerTierStore.saveTier(.appleFoundationModels)
+            let manager = CompanionManager()
+            let previousClient = manager.plannerClient
+            let previousMode = manager.cloudBridgeMode
+            var presentations = 0
+            let applied = manager.selectPlannerTierWithConsent(requestedTier) { alert in
+                presentations += 1
+                #expect(alert.buttons.last?.title == "Cancel")
+                return .alertSecondButtonReturn
+            }
+
+            #expect(presentations == 1)
+            #expect(!applied)
+            #expect(!defaults.bool(forKey: consentKey))
+            #expect(manager.activePlannerTier == .appleFoundationModels)
+            #expect(PacePlannerTierStore.loadConfiguration().tier == .appleFoundationModels)
+            #expect(manager.plannerClient === previousClient)
+            #expect(manager.cloudBridgeMode == previousMode)
         }
     }
 

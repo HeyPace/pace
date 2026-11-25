@@ -238,6 +238,60 @@ enum BuddyPlannerClientFactory {
         }
     }
 
+    /// Background observations must never silently substitute a different selected tier.
+    @MainActor
+    static func hasScreenSuggestionPlannerConsent() -> Bool {
+        switch PacePlannerTierStore.loadConfiguration().tier {
+        case .cliDirect:
+            return PaceCloudBridgeConsent.hasAcceptedDirectSpawnConsent()
+                && PaceCloudBridgeConsent.canRunDirectSpawnTurn(now: Date())
+        case .cliBridge:
+            let bridge = PaceCloudBridgeConsent.loadConfiguration()
+            return bridge.hasUserAcceptedConsent && bridge.mode != .off
+        case .local, .appleFoundationModels, .directAPI:
+            return true
+        }
+    }
+
+    @MainActor
+    static func makeScreenSuggestionClient() throws -> (client: any BuddyPlannerClient, isOffDevice: Bool) {
+        guard hasScreenSuggestionPlannerConsent() else {
+            throw PaceScreenSuggestionBoundary.BoundaryError.plannerUnavailable
+        }
+        let configuration = PacePlannerTierStore.loadConfiguration()
+        switch configuration.tier {
+        case .cliDirect:
+            return (makeCLIDirectPlannerOrLocalFallback(configuration: configuration), true)
+        case .cliBridge:
+            let bridge = PaceCloudBridgeConsent.loadConfiguration()
+            // Screen suggestions use the selected bridge directly, with no complexity
+            // escalation or local fallback hidden inside a hybrid foreground session.
+            return (CloudBridgePlannerClient(configuration: bridge), true)
+        case .directAPI:
+            guard let client = makeDirectAPIPlannerOrNil(configuration: configuration) else {
+                throw PaceScreenSuggestionBoundary.BoundaryError.plannerUnavailable
+            }
+            return (client, true)
+        case .appleFoundationModels:
+            guard PacePlannerTierStore.isAppleIntelligenceAvailableOnThisDevice() else {
+                throw PaceScreenSuggestionBoundary.BoundaryError.plannerUnavailable
+            }
+            return (AppleFoundationModelsPlannerClient(), false)
+        case .local:
+            let bridge = PaceCloudBridgeConsent.loadConfiguration()
+            if bridge.hasUserAcceptedConsent, bridge.mode != .off {
+                return (CloudBridgePlannerClient(configuration: bridge), true)
+            }
+            guard
+                !PaceBundledModelsSettings.isUsingMLXInProcessPlanner()
+                    || PaceMLXPlannerClient.hasResidentModelContainer
+            else {
+                throw PaceScreenSuggestionBoundary.BoundaryError.plannerUnavailable
+            }
+            return (makeLocalOrFoundationModelsPlanner(requestsStructuredActionOutput: false), false)
+        }
+    }
+
     /// Builds the Direct-API client when the user has a stored key + a
     /// valid endpoint URL. Returns nil in either of two cases:
     ///   - No key in Keychain for the configured provider.

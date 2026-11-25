@@ -117,10 +117,6 @@ struct PaceDebugSettingsTab: View {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
                 .fill(Color.white.opacity(0.035))
         )
-        .overlay(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .stroke(DS.Colors.borderSubtle, lineWidth: 0.7)
-        )
     }
 
     private func laneBadge(_ lane: PaceToolCallDebugRecord.Lane) -> some View {
