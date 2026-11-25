@@ -3459,43 +3459,19 @@ extension CompanionManager {
                 responseOverlayManager.finishStreaming()
                 currentTurnHUDState = .failed(error.localizedDescription)
                 speakCreditsErrorFallback()
-                // Plain-language failure narration — see PRD
-                // docs/prds/trust-and-failures.md. The cloud bridge
-                // gets its own kind so the user knows which CLI to
-                // inspect; everything else maps onto plannerOffline.
-                if (error as NSError).domain == "PaceActionScope" {
-                    speakPlainLanguageFailure(
-                        PaceFailureNarrator.kindForPlannerPipelineError(error as NSError),
-                        context: "planner-catch-action-scope",
-                        respondingToUserTranscript: transcript
-                    )
-                } else if plannerClient is CloudBridgePlannerClient {
-                    speakPlainLanguageFailure(
-                        .cloudBridgeUpstreamError(
-                            provider: cloudBridgeUpstream.displayLabel
-                        ),
-                        context: "planner-catch",
-                        respondingToUserTranscript: transcript
-                    )
+                let upstreamProvider: String?
+                if plannerClient is CloudBridgePlannerClient {
+                    upstreamProvider = cloudBridgeUpstream.displayLabel
                 } else if plannerClient is PaceLocalCLIPlannerClient {
-                    // `.cliDirect` tier: the direct-spawned CLI errored /
-                    // is unauthenticated / exited non-zero. Fail loud with
-                    // the upstream named so the user knows which CLI to
-                    // sign in — NO silent local fallback (the moat).
-                    speakPlainLanguageFailure(
-                        .cloudBridgeUpstreamError(
-                            provider: activePlannerTierCLIDirectUpstream.displayLabel
-                        ),
-                        context: "planner-catch-cliDirect",
-                        respondingToUserTranscript: transcript
-                    )
+                    upstreamProvider = activePlannerTierCLIDirectUpstream.displayLabel
                 } else {
-                    speakPlainLanguageFailure(
-                        PaceFailureNarrator.kindForPlannerPipelineError(error as NSError),
-                        context: "planner-catch",
-                        respondingToUserTranscript: transcript
-                    )
+                    upstreamProvider = nil
                 }
+                speakPlainLanguageFailure(
+                    PaceFailureNarrator.kindForPlannerPipelineError(error as NSError, upstreamProvider: upstreamProvider),
+                    context: "planner-catch",
+                    respondingToUserTranscript: transcript
+                )
             }
 
             if !Task.isCancelled {
@@ -3817,7 +3793,6 @@ extension CompanionManager {
     /// never spoken through NSSpeechSynthesizer. The previous Apple-voice
     /// "Something went wrong" line was rated worse than no audio.
     func speakCreditsErrorFallback() {
-        currentTurnHUDState = .failed("response error")
         PaceAPIAuditLog.shared.record(
             subsystem: "pipeline",
             operation: "error",

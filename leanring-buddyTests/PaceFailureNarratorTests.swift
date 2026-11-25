@@ -69,7 +69,7 @@ final class PaceFailureNarratorTests: XCTestCase {
         )
 
         XCTAssertEqual(
-            PaceFailureNarrator.kindForPlannerPipelineError(screenCaptureDenial),
+            PaceFailureNarrator.kindForPlannerPipelineError(screenCaptureDenial, upstreamProvider: "Codex"),
             .missingPermission(permission: .screenRecording)
         )
     }

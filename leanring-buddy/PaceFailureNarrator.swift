@@ -137,7 +137,7 @@ nonisolated struct PaceFailureNarration: Equatable {
 }
 
 nonisolated enum PaceFailureNarrator {
-    static func kindForPlannerPipelineError(_ error: NSError) -> PaceFailureKind {
+    static func kindForPlannerPipelineError(_ error: NSError, upstreamProvider: String? = nil) -> PaceFailureKind {
         if error.domain == "PaceActionScope", error.code == 1 {
             return .observationOnlyViolation
         }
@@ -146,6 +146,7 @@ nonisolated enum PaceFailureNarrator {
         {
             return .missingPermission(permission: .screenRecording)
         }
+        if let upstreamProvider { return .cloudBridgeUpstreamError(provider: upstreamProvider) }
         return .plannerOffline
     }
 
