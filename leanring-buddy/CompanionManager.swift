@@ -188,6 +188,7 @@ final class CompanionManager: ObservableObject {
     /// timer. See PRD tuition-mode annotations.
     let annotationOverlayController = PaceAnnotationOverlayController()
     let diagramOverlayController: PaceDiagramOverlayController
+    let canRunForegroundDirectSpawnTurn: () -> Bool
     let teachingPreviewDirectSpawnAvailability: (() -> Bool)?
     struct PendingTeachingPreviewOwnership {
         let turnLease: PaceTurnLease
@@ -1381,9 +1382,13 @@ final class CompanionManager: ObservableObject {
         threadMemoryStore: PaceThreadMemoryStore? = nil,
         memoryStore: PaceMemoryStore? = nil,
         spotlightMemoryIndexer: PaceSpotlightMemoryIndexer? = nil,
+        canRunForegroundDirectSpawnTurn: @escaping () -> Bool = {
+            PaceCloudBridgeConsent.canRunDirectSpawnTurn(now: Date())
+        },
         teachingPreviewDirectSpawnAvailability: (() -> Bool)? = nil
     ) {
         self.diagramOverlayController = diagramOverlayController ?? PaceDiagramOverlayController()
+        self.canRunForegroundDirectSpawnTurn = canRunForegroundDirectSpawnTurn
         self.teachingPreviewDirectSpawnAvailability = teachingPreviewDirectSpawnAvailability
         self.threadMemoryStore = threadMemoryStore ?? PaceThreadMemoryStore()
         self.memoryStore = memoryStore ?? PaceMemoryStore()

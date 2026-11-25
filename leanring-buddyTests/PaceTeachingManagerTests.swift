@@ -96,6 +96,7 @@ struct PaceTeachingManagerTests {
             watchModeDefaults: preferences, recordsDerivedConversationMemory: derivedMemory,
             persistsDebugTraces: false, diagramOverlayController: PaceDiagramOverlayController(showsWindows: false),
             threadMemoryStore: PaceThreadMemoryStore(fileURL: nil),
+            canRunForegroundDirectSpawnTurn: { directSpawnAvailable ?? false },
             teachingPreviewDirectSpawnAvailability: availabilityOverride)
         manager.threadMemory = PaceThreadMemory(configuration: .default)
         manager.chatSession = session

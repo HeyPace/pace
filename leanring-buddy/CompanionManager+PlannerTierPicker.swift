@@ -197,11 +197,7 @@ extension CompanionManager {
             return bridgeConfiguration.hasUserAcceptedConsent
                 && bridgeConfiguration.mode != .off
         case .cliDirect:
-            // Off-device only once the direct-spawn consent is accepted
-            // AND the soak has elapsed — matches the factory gate so the
-            // UI flag stays honest (before that, the tier falls back to
-            // local and nothing leaves the Mac).
-            return PaceCloudBridgeConsent.canRunDirectSpawnTurn(now: Date())
+            return canRunForegroundDirectSpawnTurn()
         case .directAPI:
             return PaceKeychainStore.loadAPIKey(for: directAPIProvider) != nil
         }
