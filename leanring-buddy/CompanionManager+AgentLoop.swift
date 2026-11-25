@@ -3372,14 +3372,10 @@ extension CompanionManager {
                     // Set up the next iteration.
                     // Intermediate inventories must not overwrite the final answer.
                     pendingPostActionFeedbackText = nil
-                    let toolObservationPromptText = PaceActionExecutionObservation.formatForPlanner(toolObservations)
-                    if needsInspectionAnswer {
-                        inspectionHistory.append(plannerRequest: fullResponseText, observations: toolObservations)
-                    }
-                    let inspectionHistoryPromptText =
-                        needsInspectionAnswer
-                        ? inspectionHistory.formattedForPlanner : toolObservationPromptText
-                    if toolObservationPromptText.isEmpty {
+                    let inspectionHistoryPromptText = inspectionHistory.continuationEvidence(
+                        plannerRequest: fullResponseText, observations: toolObservations,
+                        needsInspectionAnswer: needsInspectionAnswer)
+                    if inspectionHistoryPromptText.isEmpty {
                         currentTurnUserPrompt =
                             """
                             original request:
@@ -3392,7 +3388,7 @@ extension CompanionManager {
                             original request:
                             \(transcript)
 
-                            completed tool requests and results (most recent inspection steps retained within the prompt budget):
+                            completed tool requests and results, oldest first. Earlier observations are historical evidence. Verify the current target before acting:
                             \(inspectionHistoryPromptText)
                             \(observedUIChange ?? "")
 

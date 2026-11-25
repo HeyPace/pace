@@ -206,6 +206,23 @@ struct PaceMCPClientIntegrationTests {
         }
     }
 
+    @Test func navigationKeepsEarlierEvidenceAlongsideTheLatestActionResult() {
+        var history = PaceAgentInspectionHistory()
+        _ = history.continuationEvidence(
+            plannerRequest: "Inspect the document", observations: [.init(toolName: "inspect", summary: "Edition 42")],
+            needsInspectionAnswer: true)
+        let next = history.continuationEvidence(
+            plannerRequest: "Next page", observations: [.init(toolName: "key", summary: "Dispatched; unverified")],
+            needsInspectionAnswer: false)
+        #expect(next.contains("Edition 42"))
+        #expect(next.hasSuffix("Dispatched; unverified"))
+        let largeResult = String(repeating: "x", count: PaceAgentInspectionHistory.maximumCharacterCount)
+        let observations = [PaceActionExecutionObservation(toolName: "action", summary: largeResult)]
+        #expect(
+            history.continuationEvidence(plannerRequest: "", observations: observations, needsInspectionAnswer: false)
+                == PaceActionExecutionObservation.formatForPlanner(observations))
+    }
+
     @MainActor @Test(.enabled(if: PaceMCPFixture.isFixtureRunnable))
     func timedOutReadOnlyInspectionsStopQueuedClicksWithoutAnAmbiguityGuess() async throws {
         let program = #"""

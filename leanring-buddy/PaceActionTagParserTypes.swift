@@ -41,6 +41,29 @@ nonisolated struct PaceAgentInspectionHistory {
         }
     }
 
+    mutating func continuationEvidence(
+        plannerRequest: String, observations: [PaceActionExecutionObservation],
+        needsInspectionAnswer: Bool
+    ) -> String {
+        if needsInspectionAnswer && !observations.isEmpty {
+            append(plannerRequest: plannerRequest, observations: observations)
+            return formattedForPlanner
+        }
+
+        let latest = PaceActionExecutionObservation.formatForPlanner(observations)
+        let separator = "\n\nLatest action result:\n"
+        var remaining = Self.maximumCharacterCount - latest.count - separator.count
+        var retained: [String] = []
+        for step in completedSteps.reversed() {
+            guard step.count <= remaining else { break }
+            retained.append(step)
+            remaining -= step.count + 2
+        }
+        guard !retained.isEmpty else { return latest }
+        let earlier = retained.reversed().joined(separator: "\n\n")
+        return latest.isEmpty ? earlier : earlier + separator + latest
+    }
+
     var formattedForPlanner: String {
         completedSteps.joined(separator: "\n\n")
     }
