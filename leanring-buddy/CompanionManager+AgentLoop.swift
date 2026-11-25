@@ -742,7 +742,6 @@ extension CompanionManager {
                         includeInteractiveDiagrams: true))
                 let everydaySystemPromptForTurn = CompanionSystemPrompt.buildTextOnly(
                     threadSummaryInjection: threadSummaryInjectionForTurn,
-                    ambientContextInjection: ambientContextInjectionForTurn,
                     includeInteractiveDiagrams: false)
                 let plannerForTextOnlyTurn = BuddyPlannerClientFactory.makeTextAnswerPlanner(
                     purpose: effectivePurpose, selectedPlanner: selectedTextPlanner,
