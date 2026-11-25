@@ -122,7 +122,7 @@ final class PaceScreenRecordingController {
     }
 
     private func pressNativeStopRecordingButton() -> Bool {
-        guard
+        guard AXIsProcessTrusted(),
             let application = NSWorkspace.shared.runningApplications.first(where: {
                 $0.bundleIdentifier == "com.apple.screencaptureui"
             })

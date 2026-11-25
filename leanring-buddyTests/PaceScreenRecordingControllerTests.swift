@@ -32,6 +32,22 @@ struct PaceScreenRecordingControllerTests {
         controller.shutdown()
     }
 
+    @Test func onlyOpeningNativeCaptureControlsRequiresAccessibility() {
+        for kind in [PaceScreenCaptureKind.startRecording, .stopRecording, .recordingStatus] {
+            #expect(!PaceActionExecutor.requiresAccessibility(.screenCapture(kind)))
+        }
+        for kind in [PaceScreenCaptureKind.screenshot, .recording] {
+            #expect(PaceActionExecutor.requiresAccessibility(.screenCapture(kind)))
+        }
+    }
+
+    @Test func checkingRecordingStatusWithAccessibilityDeniedReachesTheRecorder() async {
+        let executor = PaceActionExecutor(actionsAreEnabledOverride: true, accessibilityPermissionCheck: { false })
+        let observations = await executor.executeActionPlan(
+            .serial(actions: [.screenCapture(.recordingStatus)]), screenCaptures: [])
+        #expect(observations.map(\.summary) == [PaceScreenRecordingController.shared.status().summary])
+    }
+
     @Test func recordingLifecycleCanBeComposedByThePlanner() {
         for (mode, expectedKind) in [
             ("start_recording", PaceScreenCaptureKind.startRecording),

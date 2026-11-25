@@ -348,7 +348,8 @@ extension PaceActionExecutor {
     static func requiresAccessibility(_ action: PaceParsedAction) -> Bool {
         switch action {
         case .click, .doubleClick, .clickCandidates, .type, .setTextValue,
-            .editSelectedText, .undoLastMutation, .pressKey, .snapWindow, .scroll, .screenCapture:
+            .editSelectedText, .undoLastMutation, .pressKey, .snapWindow, .scroll,
+            .screenCapture(.screenshot), .screenCapture(.recording):
             return true
         default:
             return false
