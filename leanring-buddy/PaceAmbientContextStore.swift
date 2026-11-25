@@ -136,8 +136,21 @@ final class PaceAmbientContextStore: ObservableObject {
 
     // MARK: - Lifecycle
 
-    func start() {
-        guard !isRunning else { return }
+    enum Consumer {
+        case planner, companion
+    }
+
+    private var consumers: Set<Consumer> = []
+
+    func start(for consumer: Consumer = .planner) {
+        guard consumers.insert(consumer).inserted else { return }
+        if isRunning {
+            if consumer == .planner {
+                clearSnapshot()
+                refreshSnapshot(forcePublish: true)
+            }
+            return
+        }
         isRunning = true
         lastClipboardChangeCount = NSPasteboard.general.changeCount
         print("🌐 Ambient context store started (polling every \(Int(pollIntervalSeconds))s)")
@@ -158,16 +171,24 @@ final class PaceAmbientContextStore: ObservableObject {
         pollTimer = timer
     }
 
-    func stop() {
-        guard isRunning else { return }
-        observationGeneration += 1
-        currentSnapshot = nil
-        clipboardChangeCount = 0
-        clipboardLastChangedAt = nil
+    func stop(for consumer: Consumer = .planner) {
+        guard consumers.remove(consumer) != nil else { return }
+        if consumers.isEmpty || consumer == .planner {
+            clearSnapshot()
+        }
+        guard consumers.isEmpty else { return }
         pollTimer?.invalidate()
         pollTimer = nil
         isRunning = false
         print("🌐 Ambient context store stopped")
+    }
+
+    private func clearSnapshot() {
+        observationGeneration += 1
+        currentSnapshot = nil
+        clipboardChangeCount = 0
+        clipboardLastChangedAt = nil
+        lastClipboardChangeCount = NSPasteboard.general.changeCount
     }
 
     // MARK: - Snapshot
@@ -353,7 +374,7 @@ final class PaceAmbientContextStore: ObservableObject {
     /// into the planner system prompt. Returns empty string if
     /// no snapshot is available.
     var ambientPromptFragment: String {
-        guard let snapshot = currentSnapshot else { return "" }
+        guard consumers.contains(.planner), let snapshot = currentSnapshot else { return "" }
         let fragment = snapshot.promptFragment
         return fragment.isEmpty ? "" : "<ambient_context>\(fragment)\n</ambient_context>"
     }

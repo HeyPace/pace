@@ -113,6 +113,9 @@ final class PaceCompanionRuntime {
         )
         perceptionCoordinator = coordinator
         activeSources = Set(adapters.map(\.sourceKind))
+        if activeSources.contains(.macOSContext) {
+            ambientContextStore.start(for: .companion)
+        }
         await coordinator.start(enabledSources: activeSources)
         do { try modeController.markReady() } catch { }
 
@@ -173,7 +176,7 @@ final class PaceCompanionRuntime {
     }
 
     private func acceptObservation(_ observation: PaceWorldObservation) {
-        let ambientSnapshot = ambientContextStore.currentSnapshot
+        let ambientSnapshot = activeSources.contains(.macOSContext) ? ambientContextStore.currentSnapshot : nil
         let context = PaceWorldObservationContext(
             applicationName: ambientSnapshot?.frontmostAppName,
             applicationBundleIdentifier: ambientSnapshot?.frontmostBundleID,
@@ -206,6 +209,8 @@ final class PaceCompanionRuntime {
     }
 
     private func stopCoordinatorOnly() async {
+        ambientContextStore.stop(for: .companion)
+        activeSources.removeAll()
         if let perceptionCoordinator {
             await perceptionCoordinator.stop()
         }

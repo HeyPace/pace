@@ -276,7 +276,7 @@ hooks, apps, browser, computer-use, and multi-agent tools disabled. Research
 explicitly enables web search. The stream runner handles UTF-8 boundaries, drains
 stderr to a private file, cancels the subprocess, and bounds calls with a timeout.
 CLI turns avoid local VLM prewarming and use permitted images plus AX/OCR context.
-Research and Read My Screen off skip automatic screen capture entirely. Read My Screen also gates ambient window and accessibility sampling. Disabling it clears the snapshot and invalidates pending reads. Screenless text and headless subagent requests omit that snapshot.
+Research and Read My Screen off skip automatic screen capture entirely. Read My Screen also gates the planner’s ambient window and accessibility sampling. Disabling it clears the planner snapshot and invalidates pending reads. Companion Mode can independently sample its explicitly enabled macOS Context source without granting the planner access. Screenless text and headless subagent requests omit that snapshot.
 
 ### Lightweight computer use and text dogfood
 

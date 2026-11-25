@@ -137,6 +137,22 @@ struct PaceAmbientContextStoreTests {
     }
 
     @Test
+    func companionConsentDoesNotAuthorizePlannerContext() {
+        let store = PaceAmbientContextStore()
+        store.start(for: .companion)
+        #expect(store.currentSnapshot != nil)
+        #expect(store.ambientPromptFragment.isEmpty)
+        store.start()
+        #expect(!store.ambientPromptFragment.isEmpty)
+        store.stop()
+        #expect(store.isRunning)
+        #expect(store.ambientPromptFragment.isEmpty)
+        store.stop(for: .companion)
+        #expect(!store.isRunning)
+        #expect(store.currentSnapshot == nil)
+    }
+
+    @Test
     func start_isIdempotent() {
         let store = PaceAmbientContextStore()
         store.start()

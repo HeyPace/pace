@@ -548,7 +548,7 @@ final class CompanionManager: ObservableObject {
 
     lazy var companionRuntime: PaceCompanionRuntime = {
         PaceCompanionRuntime(
-            ambientContextStore: .shared,
+            ambientContextStore: ambientContextStore,
             watchModeController: screenWatchModeController,
             localRetriever: localRetriever,
             statusConsumer: { [weak self] state, activeSources, lastObservationAt in
