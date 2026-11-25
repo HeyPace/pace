@@ -98,16 +98,18 @@ struct PaceFrontmostAppAXTreeSource: PaceAXTreeSource {
     func resolveAXPressTarget(rolePath: [String], label: String) -> PaceAXPressResolution? {
         guard let app = NSWorkspace.shared.frontmostApplication else { return nil }
         let root = AXUIElementCreateApplication(app.processIdentifier)
-        guard let target = Self.uniqueTarget(
-            root: root, rolePath: rolePath, label: label,
-            role: { stringAXAttribute(kAXRoleAttribute as String, of: $0) ?? "" },
-            labels: { element in
-                [kAXTitleAttribute, kAXDescriptionAttribute, kAXIdentifierAttribute].compactMap {
-                    stringAXAttribute($0 as String, of: element)
-                }
-            },
-            children: axChildren
-        ) else { return nil }
+        guard
+            let target = Self.uniqueTarget(
+                root: root, rolePath: rolePath, label: label,
+                role: { stringAXAttribute(kAXRoleAttribute as String, of: $0) ?? "" },
+                labels: { element in
+                    [kAXTitleAttribute, kAXDescriptionAttribute, kAXIdentifierAttribute].compactMap {
+                        stringAXAttribute($0 as String, of: element)
+                    }
+                },
+                children: axChildren
+            )
+        else { return nil }
         return PaceAXPressResolution(debugLabel: label, element: target)
     }
 
@@ -136,7 +138,8 @@ struct PaceFrontmostAppAXTreeSource: PaceAXTreeSource {
             remainingVisits -= 1
             let branch = ancestors + [role(node)]
             if paths.contains(where: { branch.suffix($0.count).elementsEqual($0) }),
-               labels(node).contains(where: { $0.caseInsensitiveCompare(label) == .orderedSame }) {
+                labels(node).contains(where: { $0.caseInsensitiveCompare(label) == .orderedSame })
+            {
                 guard match == nil else { return nil }
                 match = node
             }
@@ -241,10 +244,12 @@ final class PaceLiveFlowReplayActionSink: PaceFlowReplayActionSink {
 
     func performAXPress(_ resolution: PaceAXPressResolution) async -> Bool {
         guard let element = resolution.element,
-              let frontmostApp = NSWorkspace.shared.frontmostApplication else { return false }
+            let frontmostApp = NSWorkspace.shared.frontmostApplication
+        else { return false }
         var targetPID: pid_t = 0
         guard AXUIElementGetPid(element, &targetPID) == .success,
-              targetPID == frontmostApp.processIdentifier else { return false }
+            targetPID == frontmostApp.processIdentifier
+        else { return false }
         return AXUIElementPerformAction(element, kAXPressAction as CFString) == .success
     }
 

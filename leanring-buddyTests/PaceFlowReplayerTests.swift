@@ -97,10 +97,12 @@ final class PaceFlowReplayerTests: XCTestCase {
         sink.pressSucceeds = false
         var outcome: PaceFlowReplayOutcome?
         await PaceFlowReplayer(axTreeSource: source, actionSink: sink).play(
-            PaceRecordedFlow(name: "Fixture", createdAt: Date(), steps: [
-                .axPress(rolePath: ["AXButton"], label: "Fixture"),
-                .keyShortcut(key: "cmd+s")
-            ]),
+            PaceRecordedFlow(
+                name: "Fixture", createdAt: Date(),
+                steps: [
+                    .axPress(rolePath: ["AXButton"], label: "Fixture"),
+                    .keyShortcut(key: "cmd+s"),
+                ]),
             onProgress: { _ in XCTFail("Rejected press must stop before reporting progress") },
             onCompletion: { outcome = $0 }
         )
