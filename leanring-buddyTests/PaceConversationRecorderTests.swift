@@ -84,6 +84,28 @@ struct PaceConversationRecorderTests {
         #expect(persister.events.values.filter { $0.role == .user }.count == 1)
     }
 
+    @Test func voiceReplyAndLateProgressStayWithTheOriginalMessageAfterNavigation() throws {
+        let (manager, persister, _) = makeDismissalFixture()
+        let root = manager.conversationRecorder.record(
+            ConversationEvent(role: .pace, origin: .assistant, text: "Compare both routes"))
+        let rootMessage = try #require(manager.chatSession.messages.first)
+        manager.chatSession.openThread(for: rootMessage)
+        let captureRoot = manager.chatSession.activeThreadRootID
+        manager.chatSession.returnToMainChat()
+        manager.beginConversationRequest("Which is faster?", voiceThreadRootID: captureRoot)
+        let request = try #require(manager.activeConversationUserEvent)
+        #expect(request.threadRootID == root.eventID)
+        #expect(manager.conversationHistory.contains { $0.assistantResponse.contains("Compare both routes") })
+        manager.recordConversationTurn(userTranscript: request.text, assistantResponse: "The second route")
+        manager.beginConversationRequest("Another question")
+        let progress = manager.recordAssistantNarration("Route comparison complete", turnIdentifier: request.eventID)
+        #expect(persister.events[progress]?.threadRootID == root.eventID)
+        #expect(!manager.chatSession.visibleMessages.contains { $0.body == "The second route" })
+        manager.chatSession.openThread(for: rootMessage)
+        #expect(manager.chatSession.visibleMessages.contains { $0.body == "The second route" })
+        #expect(!manager.chatSession.visibleMessages.contains { $0.body == "Another question" })
+    }
+
     @Test func persistedImagePreviewRemainsAttachedWhenHistoryReloads() throws {
         let (persister, session, recorder) = makeFixture()
         let identifier = UUID()

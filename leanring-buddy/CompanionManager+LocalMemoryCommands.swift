@@ -232,7 +232,7 @@ extension CompanionManager {
     }
 
     func discoverAutomationCatalog(
-        refreshShortcutCatalog: Bool = true
+        refreshShortcutCatalog: Bool = true, warmShortcutCache: Bool = true
     ) async -> PaceDiscoveredAutomationCatalog {
         if let powerCatalogDiscoveryOverride { return await powerCatalogDiscoveryOverride() }
         let bundledDefinitions = PaceAutomationDefinitionLibrary.loadBundledDefinitions()
@@ -260,8 +260,10 @@ extension CompanionManager {
             shortcutNames = []
             // Warm discovery for a later turn without adding up to the CLI's
             // ten-second timeout to this latency-sensitive transcript.
-            Task { @MainActor in
-                _ = await PaceShortcutsAutomationProvider.shared.catalog()
+            if warmShortcutCache {
+                Task { @MainActor in
+                    _ = await PaceShortcutsAutomationProvider.shared.catalog()
+                }
             }
         }
 
@@ -536,15 +538,18 @@ extension CompanionManager {
         spokenText: String,
         shouldRecordConversationTurn: Bool = true,
         spokenSummary: String? = nil,
-        showsResponseOverlay: Bool = true
+        showsResponseOverlay: Bool = true,
+        powerCatalog: PaceChatPowerCatalog? = nil
     ) {
-        currentTurnHUDState = .done(spokenText)
+        let displayText = powerCatalog?.countSummary ?? spokenText
+        currentTurnHUDState = .done(displayText)
         if shouldRecordConversationTurn {
-            recordConversationTurn(userTranscript: transcript, assistantResponse: spokenText)
+            recordConversationTurn(
+                userTranscript: transcript, assistantResponse: spokenText, powerCatalog: powerCatalog)
         }
         if showsResponseOverlay {
             responseOverlayManager.showOverlayAndBeginStreaming()
-            responseOverlayManager.updateStreamingText(spokenText)
+            responseOverlayManager.updateStreamingText(displayText)
         } else {
             responseOverlayManager.hideOverlay()
         }

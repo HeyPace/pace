@@ -46,6 +46,35 @@ struct PaceRequestFeedbackTests {
         #expect(manager.currentTurnHUDState.options.count == 2)
     }
 
+    @Test func requestDetailsStayWithTheirOwnerAndGlobalFailuresRemainReachable() {
+        #expect(!PaceChatRequestLocation.conversation(nil).showsDetails(in: "thread", hasFailure: true))
+        #expect(!PaceChatRequestLocation.conversation("other").showsDetails(in: "thread", hasFailure: false))
+        #expect(PaceChatRequestLocation.conversation("thread").showsDetails(in: "thread", hasFailure: false))
+        #expect(PaceChatRequestLocation.unowned.showsDetails(in: "thread", hasFailure: true))
+    }
+
+    @Test func openingQueuedWorkKeepsAnotherChatsQueueAndDraftIntact() throws {
+        let (directory, manager, _, _) = try PacePowerManagerTests().fixture()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let session = manager.chatSession
+        let root = manager.acceptConversationRequest("Parent", origin: .typed)
+        let child = manager.acceptConversationRequest("Reply", origin: .typed, threadRootID: root.id)
+        let main = manager.acceptConversationRequest("Main request", origin: .typed)
+        for event in [child, main] {
+            manager.chatTurnQueue.enqueue(
+                .init(transcript: event.text, shouldMuteTTS: true, optimisticMessageIdentifier: event.id))
+        }
+        session.draftMessageText = "Main draft"
+        #expect(manager.firstQueuedLocationOutsideCurrentChat == .conversation(root.id))
+        session.navigate(to: root.id)
+        #expect(manager.firstQueuedLocationOutsideCurrentChat == .conversation(nil))
+        #expect(manager.queuedRequestIDsInCurrentChat == [child.id])
+        manager.cancelQueuedChatTurns(eventIdentifiers: manager.queuedRequestIDsInCurrentChat)
+        session.returnToMainChat()
+        #expect(manager.queuedRequestIDsInCurrentChat == [main.id])
+        #expect(session.draftMessageText == "Main draft")
+    }
+
     @Test func physicalMicWingRoutesToVoiceInsteadOfTheChatCatchAll() {
         #expect(
             PaceNotchTapAction.resolve(

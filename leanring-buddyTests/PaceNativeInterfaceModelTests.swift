@@ -916,7 +916,6 @@ final class PaceNativeInterfaceModelTests: XCTestCase {
 
         XCTAssertEqual(groupedDestinations.count, PaceCommandCenterDestination.allCases.count)
         XCTAssertEqual(Set(groupedDestinations).count, PaceCommandCenterDestination.allCases.count)
-        XCTAssertEqual(PaceCommandCenterDestination.conversations.group, .work)
         XCTAssertEqual(PaceCommandCenterDestination.privacy.group, .observe)
         XCTAssertEqual(PaceCommandCenterDestination.models.group, .configure)
         XCTAssertEqual(PaceCommandCenterDestination.doctor.group, .diagnostics)
@@ -977,9 +976,9 @@ final class PaceNativeInterfaceModelTests: XCTestCase {
         XCTAssertEqual(
             PaceCommandCenterDestination.resolve(
                 requestedDestination: nil,
-                storedDestinationRawValue: "removed-destination"
+                storedDestinationRawValue: "conversations"
             ),
-            .conversations
+            .general
         )
     }
 

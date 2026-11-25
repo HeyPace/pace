@@ -105,30 +105,46 @@ extension CompanionManager {
             shouldMuteTTS: chatSession.isChatTTSMuted, screenSuggestionContext: .notification(suggestion))
     }
 
+    func submitChatPowerCatalogAction(_ action: PaceChatPowerCatalog.Action, entry: PaceChatPowerCatalog.Entry) {
+        let selection = PaceChatPowerCatalog.Selection(action: action, entry: entry)
+        guard selection.command != nil else { return }
+        pendingSpokenPowerClarification = nil
+        let label = action == .run ? "Run power" : "Show power"
+        submitChatTranscript(
+            "\(label) \(entry.name)", optimisticMessageIdentifier: nil, shouldMuteTTS: true,
+            allowsPermissionPrompt: true, catalogSelection: selection)
+    }
+
     private func submitChatTranscript(
         _ transcript: String,
         optimisticMessageIdentifier: String?,
         shouldMuteTTS: Bool,
         allowsPermissionPrompt: Bool = false,
-        screenSuggestionContext: PaceScreenSuggestionRequestContext? = nil
+        screenSuggestionContext: PaceScreenSuggestionRequestContext? = nil,
+        catalogSelection: PaceChatPowerCatalog.Selection? = nil
     ) {
         revealRequestFeedback()
         let acceptedEvent = acceptConversationRequest(
             transcript, origin: .typed,
-            eventIdentifier: optimisticMessageIdentifier ?? UUID().uuidString)
+            eventIdentifier: optimisticMessageIdentifier ?? UUID().uuidString,
+            threadRootID: catalogSelection == nil
+                ? optimisticMessageIdentifier.flatMap { chatSession.threadRootID(forTurnID: $0) }
+                : chatSession.activeThreadRootID)
         let queuedTurn = PaceQueuedChatTurn(
             transcript: transcript,
             shouldMuteTTS: shouldMuteTTS,
             allowsPermissionPrompt: allowsPermissionPrompt,
             optimisticMessageIdentifier: acceptedEvent.eventID,
             screenSuggestionContext: screenSuggestionContext
-                ?? screenSuggestionCoordinator.followUpSuggestion(for: transcript).map(
-                    PaceScreenSuggestionRequestContext.followUp)
+                ?? (catalogSelection == nil && acceptedEvent.threadRootID == nil
+                    ? screenSuggestionCoordinator.followUpSuggestion(for: transcript).map(
+                        PaceScreenSuggestionRequestContext.followUp) : nil),
+            catalogSelection: catalogSelection
         )
 
         // A permission prompt can suspend meeting startup. Its stop command
         // must cancel that lifecycle rather than queue behind the pending start.
-        if PaceMeetingModeController.shared.state == .starting,
+        if catalogSelection == nil, PaceMeetingModeController.shared.state == .starting,
             PaceMeetingModeCommandParser.parse(transcript) == .stop
         {
             cancelActiveTurnTasks()
@@ -205,7 +221,7 @@ extension CompanionManager {
         pendingTypedConversationEventIdentifier = queuedTurn.optimisticMessageIdentifier
         sendTranscriptToPlannerWithScreenshot(
             transcript: transcript, screenSuggestionContext: screenSuggestionContext,
-            allowsPermissionPrompt: queuedTurn.allowsPermissionPrompt)
+            allowsPermissionPrompt: queuedTurn.allowsPermissionPrompt, catalogSelection: queuedTurn.catalogSelection)
     }
 
     func cancelQueuedChatTurns(eventIdentifiers: Set<String>) {
@@ -259,6 +275,7 @@ extension CompanionManager {
     func bindVisualExplanationCallbacks() {
         var diagramPresentationTurnLease: PaceTurnLease?
         var diagramRequestIdentifiers: Set<String> = []
+        var imageGenerationTurnID: String?
         var imageGenerationTurnLease: PaceTurnLease?
         annotationOverlayController.onActiveAnnotationsPresenceChanged = { [weak self] annotationsArePresent in
             guard let self else { return }
@@ -297,6 +314,7 @@ extension CompanionManager {
             return self.canGenerateImagesWithCodex
         }
         imageOverlayController.onWillGenerate = { [weak self] in
+            imageGenerationTurnID = self?.activeConversationUserEvent?.eventID
             imageGenerationTurnLease = self?.turnLeaseRegistry.currentLease
             self?.diagramOverlayController.hideForImageReplacement()
         }
@@ -307,7 +325,7 @@ extension CompanionManager {
                 try PaceGeneratedImageStore.saveChatPreview(previewData, identifier: artifact.id)
                 self.recordAssistantNarration(
                     artifact.request.title, eventIdentifier: "image-" + artifact.id.uuidString,
-                    turnIdentifier: self.activeConversationUserEvent?.eventID, recordsDerivedMemory: false,
+                    turnIdentifier: imageGenerationTurnID, recordsDerivedMemory: false,
                     generatedImagePreviewID: artifact.id)
             } catch {
                 PaceAPIAuditLog.shared.record(
@@ -318,7 +336,7 @@ extension CompanionManager {
         imageOverlayController.onGenerationProgress = { [weak self] message in
             self?.currentTurnHUDState = .acting(message)
             self?.recordAssistantNarration(
-                message, origin: .progress, turnIdentifier: self?.activeConversationUserEvent?.eventID)
+                message, origin: .progress, turnIdentifier: imageGenerationTurnID)
             self?.responseOverlayManager.updateStreamingText(message)
         }
         diagramOverlayController.onWrittenLessonStep = { [weak self] step in
@@ -330,6 +348,10 @@ extension CompanionManager {
         diagramOverlayController.onAskAboutPart = { [weak self] transcript in
             guard let self else { return }
             let eventIdentifier = UUID().uuidString
+            let lessonTurnID = self.diagramOverlayController.lessonConversationTurnIdentifier
+            let rootID = lessonTurnID.flatMap { self.conversationRecorder.event(withIdentifier: $0)?.threadRootID }
+            self.acceptConversationRequest(
+                transcript, origin: .typed, eventIdentifier: eventIdentifier, threadRootID: rootID)
             diagramRequestIdentifiers.insert(eventIdentifier)
             self.submitChatTranscript(
                 transcript, optimisticMessageIdentifier: eventIdentifier,

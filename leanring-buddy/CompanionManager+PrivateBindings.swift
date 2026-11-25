@@ -514,7 +514,9 @@ extension CompanionManager {
                     PaceAnalytics.trackUserMessageSent(transcript: rescuedPartial)
                     self.currentTurnHUDState = .understanding("classifying intent")
                     self.responseOverlayManager.updateStreamingText("Heard you")
-                    self.sendTranscriptToPlannerWithScreenshot(transcript: rescuedPartial, allowsPermissionPrompt: true)
+                    self.sendTranscriptToPlannerWithScreenshot(
+                        transcript: rescuedPartial, allowsPermissionPrompt: true,
+                        voiceThreadRootID: self.captureThreadRootID)
                     return
                 }
                 print("⚠️ Transcript didn't arrive within 12s — resetting state")
@@ -542,6 +544,11 @@ extension CompanionManager {
         switch transition {
         case .pressed:
             shortcutPressOwnsCapture = false
+            let chatVisible =
+                NSApp.windows.contains { $0 is PaceConversationPanelWindow && $0.isVisible }
+            let usesChatLocation = currentDictationTrigger == .microphoneButton || chatVisible
+            let voiceThreadRootID = usesChatLocation ? chatSession.activeThreadRootID : nil
+            if !usesChatLocation { chatSession.returnToMainChat() }
             revealRequestFeedback()
             guard !buddyDictationManager.isDictationInProgress else { return }
             currentRequestStartedAt = Date()
@@ -595,6 +602,7 @@ extension CompanionManager {
                 cancelActiveTurnTasks()
                 ttsClient.stopPlayback()
             }
+            captureThreadRootID = voiceThreadRootID
             resetCaptureTranscriptFeedback()
             // Clear the streaming-TTS dispatch state so the new turn
             // starts fresh — without this, the diff tracker would think
@@ -695,8 +703,9 @@ extension CompanionManager {
             shortcutPressOwnsCapture = true
             let captureMode = currentDictationTrigger.captureMode
             let allowsSpeculativeAction =
-                BuddyPushToTalkShortcut.currentShortcutOption != .rightOption
-                || currentDictationTrigger != .keyboard
+                voiceThreadRootID == nil
+                && (BuddyPushToTalkShortcut.currentShortcutOption != .rightOption
+                    || currentDictationTrigger != .keyboard)
             pendingKeyboardShortcutStartTask = Task { [weak self] in
                 guard let self else { return }
                 await self.buddyDictationManager.startDictation(
@@ -736,7 +745,8 @@ extension CompanionManager {
                         self.currentTurnHUDState = .understanding("Heard you · Working…")
                         self.responseOverlayManager.updateStreamingText("Heard you")
                         self.sendTranscriptToPlannerWithScreenshot(
-                            transcript: finalTranscript, allowsPermissionPrompt: true)
+                            transcript: finalTranscript, allowsPermissionPrompt: true,
+                            voiceThreadRootID: voiceThreadRootID)
                     },
                     speculativeFastAction: allowsSpeculativeAction
                         ? { [weak self] stablePartial in

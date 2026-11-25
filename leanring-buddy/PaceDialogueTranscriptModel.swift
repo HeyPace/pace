@@ -67,7 +67,7 @@ nonisolated enum PaceDialogueTranscriptModel {
 
     static func items(
         messages: [PaceChatTranscriptMessageRowModel],
-        activities: [PaceChatToolActivityRowModel]
+        activities: [PaceChatToolActivityRowModel], threadRootID: String? = nil
     ) -> [PaceDialogueTranscriptItem] {
         var items: [PaceDialogueTranscriptItem] = []
         var groupedEntries: [String: [PaceDialogueActivityEntry]] = [:]
@@ -79,7 +79,8 @@ nonisolated enum PaceDialogueTranscriptModel {
             groupedEntries[groupIdentifier, default: []].append(entry)
         }
 
-        for message in messages {
+        let anchor = threadRootID.flatMap { rootID in messages.first { $0.id == "message-" + rootID } }
+        for message in messages where message.id != anchor?.id {
             if let turnIdentifier = message.turnIdentifier {
                 latestMessageDates[turnIdentifier] = max(
                     latestMessageDates[turnIdentifier] ?? .distantPast, message.createdAt)
@@ -124,10 +125,12 @@ nonisolated enum PaceDialogueTranscriptModel {
                     PaceDialogueActivityGroup(
                         id: groupIdentifier, entries: orderedEntries, occurredAt: occurredAt, needsAttention: false)))
         }
-        return items.enumerated().sorted {
+        let ordered = items.enumerated().sorted {
             $0.element.occurredAt == $1.element.occurredAt
                 ? $0.offset < $1.offset : $0.element.occurredAt < $1.element.occurredAt
         }.map(\.element)
+        if let anchor { return [.message(anchor)] + ordered }
+        return ordered
     }
 
     static func shouldShowStreamingReply(

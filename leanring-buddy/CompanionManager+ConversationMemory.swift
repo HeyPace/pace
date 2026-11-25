@@ -38,13 +38,15 @@ extension CompanionManager {
     @discardableResult
     func acceptConversationRequest(
         _ transcript: String, origin: ConversationEvent.Origin,
-        eventIdentifier: String = UUID().uuidString
+        eventIdentifier: String = UUID().uuidString, threadRootID: String? = nil
     ) -> ConversationEvent {
-        conversationRecorder.acceptRequest(transcript, origin: origin, eventIdentifier: eventIdentifier)
+        conversationRecorder.acceptRequest(
+            transcript, origin: origin, eventIdentifier: eventIdentifier, threadRootID: threadRootID)
     }
 
     func beginConversationRequest(
-        _ transcript: String, screenSuggestionContext: PaceScreenSuggestionRequestContext? = nil
+        _ transcript: String, screenSuggestionContext: PaceScreenSuggestionRequestContext? = nil,
+        voiceThreadRootID: String? = nil
     ) {
         if replayPreservesOriginalConversationHistory { interruptConversationRequest() }
         replayPreservesOriginalConversationHistory = false
@@ -56,7 +58,7 @@ extension CompanionManager {
         pendingTypedConversationEventIdentifier = nil
         activeConversationScreenSuggestionContext = screenSuggestionContextForCurrentPrivacyGate(
             screenSuggestionContext
-                ?? (typedEventIdentifier == nil
+                ?? (typedEventIdentifier == nil && voiceThreadRootID == nil
                     ? screenSuggestionCoordinator.followUpSuggestion(for: transcript).map(
                         PaceScreenSuggestionRequestContext.followUp) : nil))
         if typedEventIdentifier == nil, activeConversationScreenSuggestionContext != nil {
@@ -67,7 +69,7 @@ extension CompanionManager {
         activeConversationUserEvent = acceptConversationRequest(
             transcript,
             origin: typedEventIdentifier == nil ? .voice : .typed,
-            eventIdentifier: typedEventIdentifier ?? UUID().uuidString)
+            eventIdentifier: typedEventIdentifier ?? UUID().uuidString, threadRootID: voiceThreadRootID)
         activeConversationPlannerTranscript = transcript
         activeConversationAssistantEventIdentifier = UUID().uuidString
         activeConversationVisibleAssistantText = ""
@@ -150,8 +152,8 @@ extension CompanionManager {
             role: .pace, origin: origin, text: text, createdAt: recordedAt, speechRequest: speechRequest,
             generatedImagePreviewID: generatedImagePreviewID)
         let isNewEvent = conversationRecorder.event(withIdentifier: eventIdentifier) == nil
-        conversationRecorder.record(event)
-        if recordsDerivedMemory, recordsDerivedConversationMemory,
+        let recorded = conversationRecorder.record(event)
+        if recorded.threadRootID == nil, recordsDerivedMemory, recordsDerivedConversationMemory,
             isNewEvent && !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         {
             let displacedTurnPair = threadMemory.record(
@@ -171,7 +173,8 @@ extension CompanionManager {
         assistantResponse: String,
         userEventIdentifier: String? = nil,
         recordsAssistantEvent: Bool = true,
-        recordsAssistantDerivedMemory: Bool = true
+        recordsAssistantDerivedMemory: Bool = true,
+        powerCatalog: PaceChatPowerCatalog? = nil
     ) {
         let isRemoteResponse = activePacePadTurnIdentifier != nil
         let visibleAssistantResponse = conversationDisplayText(for: assistantResponse)
@@ -232,7 +235,7 @@ extension CompanionManager {
                 ConversationEvent(
                     eventID: assistantEventIdentifier,
                     turnID: stableTurnId, role: .pace, origin: .assistant, text: visibleAssistantResponse,
-                    createdAt: recordedAt, speechRequest: spokenRequest))
+                    createdAt: recordedAt, speechRequest: spokenRequest, powerCatalog: powerCatalog))
         }
         if ownsActiveStream {
             if recordsAssistantEvent { lastConversationAssistantEventIdentifier = assistantEventIdentifier }
@@ -247,7 +250,8 @@ extension CompanionManager {
 
         guard recordsDerivedConversationMemory else { return }
         let displacedTurnPair: PaceThreadTurnPair?
-        if recordsAssistantDerivedMemory {
+        if recordsAssistantDerivedMemory, conversationRecorder.event(withIdentifier: stableTurnId)?.threadRootID == nil
+        {
             displacedTurnPair = threadMemory.record(
                 userTurn: shouldExtractUserFacts ? userTranscriptForDerivedMemory : "",
                 assistantTurn: assistantResponse, turnId: assistantEventIdentifier, now: recordedAt)
@@ -287,7 +291,8 @@ extension CompanionManager {
         )
 
         // Dual-write the turn into the unified memory index (ships dark).
-        if recordsAssistantDerivedMemory {
+        if recordsAssistantDerivedMemory, conversationRecorder.event(withIdentifier: stableTurnId)?.threadRootID == nil
+        {
             recordUnifiedMemoryTurn(
                 userTranscript: userTranscriptForDerivedMemory,
                 assistantResponse: assistantResponse,
@@ -496,6 +501,7 @@ extension CompanionManager {
         diagramOverlayController.dismiss()
         imageOverlayController.dismiss()
         threadMemory.resetSession(cause: .userReset, now: now)
+        PaceUserPreferencesStore.setDate(now, for: .replyThreadContextResetDate, defaults: watchModeDefaults)
         // Reset only the persisted thread snapshot. Conversation history, saved
         // images and Codex-managed artifacts have separate retention boundaries.
         threadMemoryStore.clear()

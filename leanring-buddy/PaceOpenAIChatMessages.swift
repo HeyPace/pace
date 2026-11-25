@@ -25,8 +25,12 @@ nonisolated enum PaceOpenAIChatMessages {
         var messages: [[String: Any]] = []
         messages.append(["role": "system", "content": systemPrompt])
         for (userPlaceholder, assistantResponse) in conversationHistory {
-            messages.append(["role": "user", "content": userPlaceholder])
-            messages.append(["role": "assistant", "content": assistantResponse])
+            if !userPlaceholder.isEmpty {
+                messages.append(["role": "user", "content": userPlaceholder])
+            }
+            if !assistantResponse.isEmpty {
+                messages.append(["role": "assistant", "content": assistantResponse])
+            }
         }
         messages.append(["role": "user", "content": userPrompt])
         return messages

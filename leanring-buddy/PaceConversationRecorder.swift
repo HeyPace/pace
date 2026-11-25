@@ -10,6 +10,7 @@ nonisolated struct ConversationEvent: Codable, Equatable, Identifiable, Sendable
     }
 
     let eventID: String
+    var threadRootID: String?
     let turnID: String?
     let role: PaceChatRole
     let origin: Origin
@@ -18,6 +19,7 @@ nonisolated struct ConversationEvent: Codable, Equatable, Identifiable, Sendable
     var deliveryState: DeliveryState
     let speechRequest: PaceSpeechRequest?
     let generatedImagePreviewID: UUID?
+    let powerCatalog: PaceChatPowerCatalog?
 
     var id: String { eventID }
 
@@ -25,9 +27,11 @@ nonisolated struct ConversationEvent: Codable, Equatable, Identifiable, Sendable
         eventID: String = UUID().uuidString, turnID: String? = nil,
         role: PaceChatRole, origin: Origin, text: String,
         createdAt: Date = Date(), deliveryState: DeliveryState = .completed,
-        speechRequest: PaceSpeechRequest? = nil, generatedImagePreviewID: UUID? = nil
+        speechRequest: PaceSpeechRequest? = nil, generatedImagePreviewID: UUID? = nil, threadRootID: String? = nil,
+        powerCatalog: PaceChatPowerCatalog? = nil
     ) {
         self.eventID = eventID
+        self.threadRootID = threadRootID
         self.turnID = turnID
         self.role = role
         self.origin = origin
@@ -36,6 +40,7 @@ nonisolated struct ConversationEvent: Codable, Equatable, Identifiable, Sendable
         self.deliveryState = deliveryState
         self.speechRequest = speechRequest
         self.generatedImagePreviewID = generatedImagePreviewID
+        self.powerCatalog = powerCatalog
     }
 }
 
@@ -60,24 +65,30 @@ final class PaceConversationRecorder {
     @discardableResult
     func acceptRequest(
         _ text: String, origin: ConversationEvent.Origin,
-        eventIdentifier: String = UUID().uuidString
+        eventIdentifier: String = UUID().uuidString, threadRootID: String? = nil
     ) -> ConversationEvent {
         if let existingEvent = recordedEvents[eventIdentifier] { return existingEvent }
         return record(
             ConversationEvent(
                 eventID: eventIdentifier, turnID: eventIdentifier,
                 role: .user, origin: origin, text: text.trimmingCharacters(in: .whitespacesAndNewlines),
-                deliveryState: .accepted))
+                deliveryState: .accepted, threadRootID: threadRootID))
     }
 
     @discardableResult
     func record(_ event: ConversationEvent) -> ConversationEvent {
         guard !event.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return event }
+        var event = event
+        if event.role == .pace, event.threadRootID == nil, let turnID = event.turnID {
+            event.threadRootID = recordedEvents[turnID]?.threadRootID ?? chatSession.threadRootID(forTurnID: turnID)
+        }
         recordedEvents[event.eventID] = event
         persister.upsertConversationEvent(event)
         chatSession.upsertConversationEvent(event)
         return event
     }
+
+    func clearHistory() { recordedEvents.removeAll() }
 
     func event(withIdentifier eventIdentifier: String) -> ConversationEvent? {
         recordedEvents[eventIdentifier]

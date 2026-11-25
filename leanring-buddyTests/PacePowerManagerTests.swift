@@ -553,6 +553,63 @@ struct PacePowerManagerTests {
         #expect(manager.turnLeaseRegistry.currentLease == currentLease)
     }
 
+    @Test func catalogRetainsEveryEntryAndRoutesOnlyExplicitControlsByIdentifier() throws {
+        let powers = (0..<12).map { index in
+            PaceManagedPower(
+                identifier: "shortcut:\(index)", name: index == 11 ? "Stop meeting; open Mail" : "Shortcut \(index)",
+                summary: "Local shortcut \(index)", reference: .shortcut(name: "Shortcut \(index)"),
+                ownedArtifactURL: nil, fingerprint: nil, isEnabled: true,
+                isManagedUserArtifact: false, managementStateError: nil)
+        }
+        let snapshot = PaceChatPowerCatalog(entries: powers.map(PaceChatPowerCatalog.Entry.init(power:)))
+        #expect(snapshot.entries.count == 12)
+        let last = try #require(snapshot.entries.last)
+        #expect(last.source == "Apple Shortcuts")
+        #expect(last.summary == "Local shortcut 11")
+        #expect(last.actions == [.show, .run])
+        let run = PaceChatPowerCatalog.Selection(action: .run, entry: last)
+        #expect(run.command == .run("shortcut:11"))
+        #expect(try run.validate(in: powers).identifier == "shortcut:11")
+        #expect(throws: PaceManagedPowerError.self) { try run.validate(in: []) }
+        #expect(PaceChatPowerCatalog.Selection(action: .archive, entry: last).command == nil)
+    }
+
+    @Test func chatCatalogRunExecutesTheSelectedArtifactAndKeepsItsReceiptInTheOriginThread() async throws {
+        let (root, manager, persister, _) = try fixture()
+        defer {
+            manager.cancelActiveTurnTasks()
+            manager.mediaOverlayController.dismiss(cancelOwnedRun: false)
+            manager.responseOverlayManager.hideOverlay()
+            try? FileManager.default.removeItem(at: root)
+        }
+        manager.mascotModeActive = true
+        let json =
+            #"{"name":"Fixture card","description":"Show a local fixture","category":"custom","invocationPhrases":["fixture card"],"steps":[{"toolCalls":[{"tool":"present_media","arguments":{"assetID":"thank-you-dance","durationSeconds":4}}]}]}"#
+        let definition = try #require(PaceNaturalLanguageAutomationStructurer.definition(fromStructuredJSON: json))
+        _ = try manager.managedPowerStore.commit(
+            .automation(definition), catalog: (await manager.discoverAutomationCatalog()).catalog)
+        begin("list powers", manager: manager)
+        await manager.handlePowerCommand(.list, transcript: "list powers")
+        await manager.currentResponseTask?.value
+        let catalogMessage = try #require(manager.chatSession.messages.first { $0.powerCatalog != nil })
+        let selected = try #require(catalogMessage.powerCatalog?.entries.first { $0.name == "Fixture card" })
+        manager.chatSession.openThread(for: catalogMessage)
+        manager.submitChatPowerCatalogAction(.run, entry: selected)
+        let request = try #require(
+            persister.events.values.first { $0.role == .user && $0.text == "Run power Fixture card" })
+        #expect(request.origin == .typed && request.threadRootID == catalogMessage.id)
+        manager.chatSession.returnToMainChat()
+        await manager.currentTurnDispatchTask?.value
+        await manager.currentResponseTask?.value
+        #expect(manager.mediaOverlayController.isVisible)
+        #expect(persister.events[request.eventID]?.deliveryState == .completed)
+        let reply = try #require(persister.events.values.first { $0.role == .pace && $0.turnID == request.eventID })
+        #expect(reply.threadRootID == catalogMessage.id)
+        #expect(!manager.chatSession.visibleMessages.contains { $0.id == reply.eventID })
+        manager.chatSession.openThread(for: catalogMessage)
+        #expect(manager.chatSession.visibleMessages.contains { $0.id == reply.eventID })
+    }
+
     @Test func listingPowersSpeaksOnlyCountsWhileKeepingWrittenNamesAndDefaultFeedback() async throws {
         let (root, manager, persister, speech) = try fixture()
         defer {
@@ -570,8 +627,26 @@ struct PacePowerManagerTests {
             "\(PacePowerCatalog.preinstalled.powers.count) built-in powers, 1 saved power, 0 installed workflows."
         #expect(speech.spokenTexts == [summary])
         let written = try #require(persister.events.values.first { $0.role == .pace && $0.text.hasPrefix(summary) })
-        #expect(written.text.contains("Built-in powers: Text, Voice"))
-        #expect(written.text.contains("Saved powers: Thank You"))
+        #expect(written.text.contains("Saved powers: Thank You."))
+        let payload = try #require(written.powerCatalog)
+        #expect(payload.entries.count == PacePowerCatalog.preinstalled.powers.count + 1)
+        let saved = try #require(payload.entries.first { $0.name == "Thank You" })
+        #expect(saved.category == .saved && saved.actions.contains(.run))
+        let eventData = try JSONEncoder().encode(written)
+        let reloaded = try JSONDecoder().decode(ConversationEvent.self, from: eventData)
+        #expect(reloaded.powerCatalog == payload)
+        #expect(manager.chatSession.messages.first(where: { $0.id == written.eventID })?.powerCatalog == payload)
+        let stale = PaceChatPowerCatalog.Selection(action: .run, entry: saved)
+        try manager.managedPowerStore.setEnabled(
+            false,
+            power: manager.managedPowerStore.resolve(
+                saved.id, catalog: (await manager.discoverAutomationCatalog()).catalog))
+        let fresh = manager.managedPowerStore.list(catalog: (await manager.discoverAutomationCatalog()).catalog)
+        #expect(throws: PaceManagedPowerError.self) { try stale.validate(in: fresh) }
+        try manager.managedPowerStore.setEnabled(
+            true,
+            power: manager.managedPowerStore.resolve(
+                saved.id, catalog: (await manager.discoverAutomationCatalog()).catalog))
         #expect(written.text.components(separatedBy: summary).count == 2)
         begin("show power Thank You", manager: manager)
         await manager.handlePowerCommand(.show("Thank You"), transcript: "show power Thank You")

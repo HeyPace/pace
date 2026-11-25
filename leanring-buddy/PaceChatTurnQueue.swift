@@ -12,6 +12,7 @@ struct PaceQueuedChatTurn: Identifiable, Equatable, Sendable {
     let allowsPermissionPrompt: Bool
     let optimisticMessageIdentifier: String?
     let screenSuggestionContext: PaceScreenSuggestionRequestContext?
+    let catalogSelection: PaceChatPowerCatalog.Selection?
 
     init(
         id: UUID = UUID(),
@@ -19,7 +20,8 @@ struct PaceQueuedChatTurn: Identifiable, Equatable, Sendable {
         shouldMuteTTS: Bool,
         allowsPermissionPrompt: Bool = false,
         optimisticMessageIdentifier: String? = nil,
-        screenSuggestionContext: PaceScreenSuggestionRequestContext? = nil
+        screenSuggestionContext: PaceScreenSuggestionRequestContext? = nil,
+        catalogSelection: PaceChatPowerCatalog.Selection? = nil
     ) {
         self.id = id
         self.transcript = transcript
@@ -27,6 +29,7 @@ struct PaceQueuedChatTurn: Identifiable, Equatable, Sendable {
         self.allowsPermissionPrompt = allowsPermissionPrompt
         self.optimisticMessageIdentifier = optimisticMessageIdentifier
         self.screenSuggestionContext = screenSuggestionContext
+        self.catalogSelection = catalogSelection
     }
 }
 

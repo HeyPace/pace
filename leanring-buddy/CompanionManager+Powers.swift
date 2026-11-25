@@ -118,7 +118,8 @@ extension CompanionManager {
                             turnIdentifier: self.activeConversationUserEvent?.eventID, plannerContext: userContext,
                             speechRequest: request)
                         self.hasRecordedCurrentTurnSpeechUserContext = true
-                        if self.recordsDerivedConversationMemory {
+                        if self.recordsDerivedConversationMemory, self.activeConversationUserEvent?.threadRootID == nil
+                        {
                             self.recordUnifiedMemoryTurn(
                                 userTranscript: userContext, assistantResponse: displayedText,
                                 turnId: eventIdentifier, recordedAt: Date())
@@ -172,7 +173,10 @@ extension CompanionManager {
         return true
     }
 
-    func handlePowerCommand(_ command: PacePowerCommand, transcript: String, expectedPower: PaceManagedPower? = nil)
+    func handlePowerCommand(
+        _ command: PacePowerCommand, transcript: String, expectedPower: PaceManagedPower? = nil,
+        catalogSelection: PaceChatPowerCatalog.Selection? = nil
+    )
         async
     {
         pendingPowerDescription = nil
@@ -223,7 +227,8 @@ extension CompanionManager {
         let store = managedPowerStore
         let isSavedPowerRun: Bool
         if case .run(let target) = command {
-            isSavedPowerRun = store.hasExactSavedPowerName(target)
+            isSavedPowerRun =
+                catalogSelection.map { $0.entry.category == .saved } ?? store.hasExactSavedPowerName(target)
         } else {
             isSavedPowerRun = false
         }
@@ -231,35 +236,25 @@ extension CompanionManager {
             refreshShortcutCatalog: expectedPower == nil && !isSavedPowerRun)
         guard isActiveTurn(turnLease) else { return }
         do {
+            let catalogPower: PaceManagedPower?
+            if let catalogSelection {
+                guard catalogSelection.command == command else { throw PaceManagedPowerError.changed }
+                catalogPower = try catalogSelection.validate(in: store.list(catalog: discovered.catalog))
+            } else {
+                catalogPower = nil
+            }
+            var powerCatalog: PaceChatPowerCatalog?
             let feedback: String
             var spokenSummary: String? = nil
             switch command {
             case .list:
                 let powers = store.list(catalog: discovered.catalog)
-                let builtIn = powers.filter { $0.reference == nil }
-                let builtInNames = builtIn.map(\.name).joined(separator: ", ")
-                let custom = powers.filter(\.isUserOwned)
-                let installed = powers.filter { $0.reference != nil && !$0.isUserOwned }
-                let customNames = custom.prefix(8).map {
-                    $0.name
-                        + ($0.managementStateError != nil
-                            ? " (settings unreadable)" : ($0.isEnabled ? "" : " (disabled)"))
-                }.joined(separator: ", ")
-                let installedNames = installed.prefix(8).map(\.name).joined(separator: ", ")
-                let countSummary =
-                    "\(builtIn.count) built-in powers, \(custom.count) saved \(custom.count == 1 ? "power" : "powers"), \(installed.count) installed \(installed.count == 1 ? "workflow" : "workflows")."
-                spokenSummary = countSummary
-                feedback =
-                    countSummary + "\nBuilt-in powers: \(builtInNames)."
-                    + (custom.isEmpty
-                        ? " No saved powers yet."
-                        : " Saved powers: \(customNames)\(custom.count > 8 ? ", and \(custom.count - 8) more" : "").")
-                    + (installed.isEmpty
-                        ? ""
-                        : " Installed workflows: \(installedNames)\(installed.count > 8 ? ", and \(installed.count - 8) more" : "").")
-                    + " Say show power followed by an exact name for its steps and controls."
+                let snapshot = PaceChatPowerCatalog(entries: powers.map(PaceChatPowerCatalog.Entry.init(power:)))
+                powerCatalog = snapshot
+                feedback = snapshot.plainTextSummary
+                spokenSummary = snapshot.countSummary
             case .show(let target):
-                let power = try store.resolve(target, catalog: discovered.catalog)
+                let power = try catalogPower ?? store.resolve(target, catalog: discovered.catalog)
                 let stateSummary =
                     power.managementStateError
                     ?? "\(power.name) is \(power.isEnabled ? "enabled" : "disabled"); its steps are in chat."
@@ -292,12 +287,14 @@ extension CompanionManager {
                 _ = try store.archive(power)
                 feedback = "Archived \(power.name). Its history and assets are preserved."
             case .run(let target):
-                let power = try store.resolve(target, catalog: discovered.catalog)
+                let power = try catalogPower ?? store.resolve(target, catalog: discovered.catalog)
                 if let expectedPower {
                     guard power == expectedPower, power.isEnabled, power.managementStateError == nil else {
                         throw PaceManagedPowerError.changed
                     }
                     _ = try store.validateCurrent(expectedPower)
+                } else if let catalogPower, catalogPower.isUserOwned {
+                    _ = try store.validateCurrent(catalogPower)
                 }
                 guard let reference = power.reference,
                     let entry = discovered.catalog.entries.first(where: { $0.reference == reference })
@@ -313,8 +310,15 @@ extension CompanionManager {
             }
             handleImmediateLocalModeResponse(
                 transcript: transcript, spokenText: feedback, shouldRecordConversationTurn: true,
-                spokenSummary: spokenSummary)
+                spokenSummary: spokenSummary, powerCatalog: powerCatalog)
         } catch {
+            if catalogSelection != nil, let powerError = error as? PaceManagedPowerError, case .changed = powerError {
+                handleImmediateLocalModeResponse(
+                    transcript: transcript,
+                    spokenText: "This item has changed or is unavailable. List powers again to see the current catalog."
+                )
+                return
+            }
             if expectedPower == nil, activeConversationUserEvent?.origin == .voice,
                 case .run(let target) = command, let powerError = error as? PaceManagedPowerError,
                 case .missing = powerError
