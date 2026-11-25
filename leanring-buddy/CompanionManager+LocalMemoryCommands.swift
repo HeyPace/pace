@@ -633,12 +633,12 @@ extension CompanionManager {
                 let tools = try await actionExecutor.mcpClient.playwrightToolCatalog()
                 computerUseContext += """
 
-                    The local playwright MCP server owns a separate browser session. Use it for standalone navigation, page reading, and forms. When the request refers to an existing tab, signed-in session, or window, keep that target throughout the task. If it is unavailable, report the blocker. Never open a substitute session or change tools to circumvent an access restriction. Inspect the current page with browser_snapshot. Use browser_navigate if navigation is needed, then take a fresh snapshot. Act, then verify the resulting page. Never replay a completed submission. Do not claim access to another browser's signed-in state. Its exact tool schemas follow:
+                    The local playwright MCP server owns a separate browser session. Use it for standalone navigation, page reading, and forms. When the request refers to an existing tab, signed-in session, or window, keep that target throughout the task. If it is unavailable, report the blocker. Never open a substitute session or change tools to circumvent an access restriction. For a new standalone browsing task with a specified URL, navigate there and take a fresh snapshot. For a follow-up in the same session, inspect the current page first. Act, then verify the resulting page. Never replay a completed submission. Do not claim access to another browser's signed-in state. Its exact tool schemas follow:
                     \(tools)
                     """
             } catch {
                 computerUseContext +=
-                    "\nPlaywright is unavailable: \(error.localizedDescription). Standalone browsing is blocked. Do not substitute a personal browser session. For an explicitly requested existing tab, use only available tools scoped to that tab."
+                    "\nPlaywright is unavailable: \(error.localizedDescription). If the task requires this isolated session, report the blocker and leave personal browser windows alone. An ordinary request to open a URL can still use the native open action. For a request about an existing page, report the blocker if you cannot identify and observe the requested page."
             }
         }
         let normalizedRequest = userPrompt.lowercased()
