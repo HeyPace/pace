@@ -415,12 +415,17 @@ nonisolated enum PaceActionTagParser {
                 return ["ax.press", "click", "mouse.click", "ax.doublepress", "double.click", "mouse.doubleclick"]
                     .contains(normalizedParameterizedActionName(name))
             }
-            if !clickCalls.isEmpty,
-                !envelopeValidationIssues.isEmpty || clickCalls.contains(where: { parsePlannerActionCall($0) == nil })
-            {
+            let invalidClick = clickCalls.contains { parsePlannerActionCall($0) == nil }
+            if !clickCalls.isEmpty, !envelopeValidationIssues.isEmpty || invalidClick {
+                let hasMixedClickFields =
+                    plannerResponseObject["clickElementId"] != nil
+                    || plannerResponseObject["pointAtElementId"] != nil
+                let message =
+                    invalidClick || hasMixedClickFields
+                    ? "I couldn’t use those click instructions. Bring the control into view and ask me to click it again."
+                    : "I couldn’t read the action plan. Ask me to try the action again."
                 return PaceActionTagParseResult(
-                    spokenText:
-                        "I couldn’t verify the click target. Bring the control into view and ask me to click it again.",
+                    spokenText: message,
                     actions: [], executionPlan: .serial(actions: []), firstClickVisualisationLocation: nil,
                     rejectedScreenClick: true)
             }

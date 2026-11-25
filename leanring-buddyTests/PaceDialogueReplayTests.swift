@@ -38,6 +38,25 @@ struct PaceDialogueReplayTests {
         func recordExpectedStopReason(_ reason: PaceTTSStopReason) { lastStopReason = reason }
     }
 
+    @Test func aRejectedClickCompletesTheOriginalRequestWithOneFailureReply() async throws {
+        let (root, manager, persister, _) = try PacePowerManagerTests().fixture()
+        defer {
+            manager.cancelActiveTurnTasks()
+            try? FileManager.default.removeItem(at: root)
+        }
+        let transcript = "Click the sample button"
+        PacePowerManagerTests().begin(transcript, manager: manager)
+        let user = try #require(manager.activeConversationUserEvent)
+        let feedback = "I couldn’t use those click instructions."
+        #expect(
+            await manager.deliverPostActionFeedbackIfCurrentTurn(
+                feedback, turnLease: manager.turnLeaseRegistry.currentLease, userTranscript: transcript,
+                userEventIdentifier: user.eventID))
+        #expect(persister.events[user.eventID]?.deliveryState == .completed)
+        let replies = persister.events.values.filter { $0.role == .pace && $0.turnID == user.eventID }
+        #expect(replies.map(\.text) == [feedback])
+    }
+
     @Test func englishReplayStaysRespondingUntilCompletionAndStopAfterOnsetPreservesHistoryAndDraft() async throws {
         let (root, manager, persister, _) = try PacePowerManagerTests().fixture()
         defer {

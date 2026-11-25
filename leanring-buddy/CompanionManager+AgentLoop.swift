@@ -516,18 +516,11 @@ extension CompanionManager {
         for (observationIndex, observation) in observations.enumerated() {
             guard let recoveryRequest = observation.setOfMarkRecovery else { continue }
 
-            // Pick the capture the failed click targeted: its screen number,
-            // else the cursor screen, else the first capture.
-            let targetCapture: CompanionScreenCapture
-            if let screenNumber = recoveryRequest.screenNumber,
-                screenNumber >= 1, screenNumber <= screenCaptures.count
-            {
-                targetCapture = screenCaptures[screenNumber - 1]
-            } else if let cursorCapture = screenCaptures.first(where: { $0.isCursorScreen }) {
-                targetCapture = cursorCapture
-            } else {
-                targetCapture = screenCaptures[0]
-            }
+            guard
+                let targetIndex = CompanionScreenCapture.clickScreenIndex(
+                    recoveryRequest.screenNumber, in: screenCaptures)
+            else { continue }
+            let targetCapture = screenCaptures[targetIndex]
 
             // Reuse the element map built for the failed click; if it has aged
             // out, skip recovery and let the original failure stand.
@@ -549,7 +542,7 @@ extension CompanionManager {
                     screenshotImageData: targetCapture.imageData,
                     elements: cachedAnalysis.elements,
                     targetDescription: targetDescription,
-                    screenNumber: recoveryRequest.screenNumber
+                    screenNumber: targetIndex + 1
                 ),
                 renderMarks: { imageData, boxes in
                     PaceSetOfMarkRenderer.drawMarks(onJPEG: imageData, boxes: boxes)
@@ -1563,9 +1556,12 @@ extension CompanionManager {
         currentTurnHUDState = .idle
     }
 
-    func deliverPostActionFeedbackIfCurrentTurn(_ feedback: String, turnLease: PaceTurnLease) async -> Bool {
+    func deliverPostActionFeedbackIfCurrentTurn(
+        _ feedback: String, turnLease: PaceTurnLease, userTranscript: String = "", userEventIdentifier: String? = nil
+    ) async -> Bool {
         guard isActiveTurn(turnLease) else { return false }
-        recordConversationTurn(userTranscript: "", assistantResponse: feedback)
+        recordConversationTurn(
+            userTranscript: userTranscript, assistantResponse: feedback, userEventIdentifier: userEventIdentifier)
         if activeConversationLanguageMode == .standard { noteLastSpokenReply(feedback) }
         responseOverlayManager.updateStreamingText(feedback)
         return await beginFinalSpeechIfCurrentTurn(
@@ -2870,8 +2866,15 @@ extension CompanionManager {
                                 userPrompt: userPromptForPlannerForDebug),
                             systemPromptForExport: isResearchTurn ? nil : systemPromptForTurn)
 
-                        pendingPostActionFeedbackText = rawActionParseResult.spokenText
-                        currentTurnHUDState = .failed("Click target unverified")
+                        actionExecutor.cancelActiveStreamingMailDraftTracking()
+                        currentTurnHUDState = .failed("Action plan rejected")
+                        guard
+                            await deliverPostActionFeedbackIfCurrentTurn(
+                                rawActionParseResult.spokenText, turnLease: turnLease,
+                                userTranscript: isFirstStep ? transcript : "",
+                                userEventIdentifier: isFirstStep ? acceptedTurnIdentifier : nil)
+                        else { return }
+                        pendingPostActionFeedbackText = nil
                         plannerLoopFinished = true
                         break agentStepLoop
                     }

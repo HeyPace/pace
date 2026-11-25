@@ -24,9 +24,13 @@ extension PaceActionExecutor {
     func convertScreenshotPixelToDisplayGlobalPoint(
         screenshotPixelLocation: ScreenshotPixelLocation,
         screenCaptures: [CompanionScreenCapture],
-        requiresExactLocation: Bool = false
+        requiresExactLocation: Bool = false, resolvesClickScreen: Bool = false
     ) -> CGPoint? {
         let targetCapture: CompanionScreenCapture? = {
+            if resolvesClickScreen {
+                return CompanionScreenCapture.clickScreenIndex(screenshotPixelLocation.screenNumber, in: screenCaptures)
+                    .map { screenCaptures[$0] }
+            }
             if let screenNumber = screenshotPixelLocation.screenNumber,
                screenNumber >= 1 && screenNumber <= screenCaptures.count {
                 return screenCaptures[screenNumber - 1]

@@ -19,14 +19,11 @@ struct PacePlannerClickFingerprint: Equatable {
     init?(plan: PaceActionExecutionPlan, captures: [CompanionScreenCapture]) {
         let actions = plan.flattenedActions
         guard actions.count == 1, case .click(let location) = actions[0] else { return nil }
-        let capture: CompanionScreenCapture?
-        if let screen = location.screenNumber {
-            guard screen >= 1, screen <= captures.count else { return nil }
-            capture = captures[screen - 1]
-        } else {
-            capture = captures.first(where: { $0.isCursorScreen }) ?? captures.first
+        guard let index = CompanionScreenCapture.clickScreenIndex(location.screenNumber, in: captures) else {
+            return nil
         }
-        guard let capture, !capture.imageData.isEmpty else { return nil }
+        let capture = captures[index]
+        guard !capture.imageData.isEmpty else { return nil }
         x = location.xInScreenshotPixels
         y = location.yInScreenshotPixels
         displayIdentifier = capture.displayIdentifier

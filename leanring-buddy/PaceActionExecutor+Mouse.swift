@@ -29,7 +29,7 @@ extension PaceActionExecutor {
             coordinateConverter: { [weak self] location, captures in
                 self?.convertScreenshotPixelToDisplayGlobalPoint(
                     screenshotPixelLocation: location,
-                    screenCaptures: captures, requiresExactLocation: true
+                    screenCaptures: captures, requiresExactLocation: true, resolvesClickScreen: true
                 )
             }
         )
@@ -38,7 +38,8 @@ extension PaceActionExecutor {
             print("⚠️ PaceActionExecutor: no click candidates available — skipping")
             return PaceActionExecutionObservation(
                 toolName: "click_candidates",
-                summary: "Click failed: no click candidates were available."
+                summary: "Click failed: no click candidates were available.",
+                userFacingSummary: "No matching control was available.", terminalReason: .inspectionInterrupted
             )
         }
 
@@ -80,7 +81,7 @@ extension PaceActionExecutor {
             case .cancelled:
                 return PaceActionExecutionObservation(
                     toolName: "click_candidates",
-                    summary: "Click failed: verification was cancelled."
+                    summary: "Click failed: verification was cancelled.", terminalReason: .inspectionInterrupted
                 )
             case .timedOut:
                 // Preserve the old full-tree verification at the edge of the
@@ -120,7 +121,8 @@ extension PaceActionExecutor {
         return PaceActionExecutionObservation(
             toolName: "click_candidates",
             summary: "Click failed after trying \(attemptedCandidates.count) of \(orderedCandidates.count) candidate\(orderedCandidates.count == 1 ? "" : "s"): \(attemptedCandidateSummary).\(skippedCandidateText)",
-            setOfMarkRecovery: recoveryRequest
+            userFacingSummary: "I couldn’t verify the click. Check the control before continuing.",
+            terminalReason: .inspectionInterrupted, setOfMarkRecovery: recoveryRequest
         )
     }
 
@@ -214,7 +216,7 @@ extension PaceActionExecutor {
         guard
             let displayGlobalPoint = convertScreenshotPixelToDisplayGlobalPoint(
                 screenshotPixelLocation: screenshotPixelLocation,
-                screenCaptures: screenCaptures, requiresExactLocation: true
+                screenCaptures: screenCaptures, requiresExactLocation: true, resolvesClickScreen: true
             )
         else {
             print("⚠️ PaceActionExecutor: could not resolve display coordinates for click — skipping")

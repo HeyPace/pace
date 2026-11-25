@@ -22,6 +22,16 @@ struct CompanionScreenCapture {
     let screenshotHeightInPixels: Int
     var cursorPixelLocation: CGPoint? = nil
 
+    static func clickScreenIndex(_ screenNumber: Int?, in captures: [Self]) -> Int? {
+        if let screenNumber {
+            guard screenNumber >= 1, screenNumber <= captures.count else { return nil }
+            return screenNumber - 1
+        }
+        if captures.count == 1 { return 0 }
+        let cursorScreens = captures.indices.filter { captures[$0].isCursorScreen }
+        return cursorScreens.count == 1 ? cursorScreens.first : nil
+    }
+
     var plannerImage: (data: Data, label: String) {
         var imageLabel = label
         if let cursorPixelLocation {

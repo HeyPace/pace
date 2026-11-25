@@ -1180,7 +1180,7 @@ struct PaceActionTagParserTests {
     @Test func rejectedScreenClicksExplainTheFailureWithoutExecutingAnotherAction() {
         let rejectedResponses = [
             #"{"spokenText":"","intent":"action","payload":{"name":"AX.press","args":{"x":103,"y":687,"screen":1}},"pointAtElementId":1,"clickElementId":1}"#,
-            #"{"spokenText":"Clicked.","intent":"action","payload":{"calls":[{"name":"AX.press","args":{}},{"name":"Key.press","args":{"key":"return"}}]}}"#,
+            #"{"spokenText":"Clicked.","intent":" action ","payload":{"calls":[{"name":"AX.press","args":{}},{"name":"Key.press","args":{"key":"return"}}]}}"#,
         ]
         for response in rejectedResponses {
             let result = PaceActionTagParser.parseActions(from: response)
@@ -1190,6 +1190,16 @@ struct PaceActionTagParserTests {
             #expect(result.executionPlan.flattenedActions.isEmpty)
             #expect(result.firstClickVisualisationLocation == nil)
         }
+    }
+
+    @Test func unrelatedEnvelopeErrorDoesNotBlameTheClickTarget() {
+        let result = PaceActionTagParser.parseActions(
+            from:
+                #"{"spokenText":"Clicked.","intent":"action","extra":true,"payload":{"name":"AX.press","args":{"x":103,"y":687,"screen":1}}}"#
+        )
+        #expect(result.actions.isEmpty)
+        #expect(result.rejectedScreenClick)
+        #expect(result.spokenText.contains("read the action plan"))
     }
 
     @Test func v10SchemaInvalidPlannerCallsEmitNoActions() async throws {

@@ -71,6 +71,19 @@ struct PaceActionExecutorDryRunTests {
         #expect(!(await resolves(x: 50, screen: nil, count: 2)))
     }
 
+    @Test func missedClickCandidateStopsTheRemainingKeyboardPlan() async throws {
+        let executor = PaceActionExecutor(actionsAreEnabledOverride: true, accessibilityPermissionCheck: { true })
+        let candidate = PaceClickCandidate(
+            location: .init(xInScreenshotPixels: 7, yInScreenshotPixels: 7, screenNumber: 1),
+            label: nil, confidence: 1, expectStateChange: false)
+        let click = PaceParsedAction.clickCandidates(.init(candidates: [candidate], clickCount: 1))
+        let receipt = await executor.executeActionPlanWithReceipt(
+            .serial(actions: [click, .pressKey("invalid-fixture-key", modifiers: [])]), screenCaptures: [])
+        #expect(receipt.executedPlan.flattenedActions.isEmpty)
+        #expect(receipt.observations.count == 1)
+        #expect(receipt.observations.first?.stopsActionPlan == true)
+    }
+
     @Test func targetedScrollUsesTheSelectedDisplayAndRejectsItsEdges() throws {
         let screenHeight = try #require(NSScreen.screens.first).frame.height
         let primary = CompanionScreenCapture(
@@ -85,6 +98,9 @@ struct PaceActionExecutorDryRunTests {
             screenshotWidthInPixels: 1600, screenshotHeightInPixels: 1200)
         let executor = PaceActionExecutor(actionsAreEnabledOverride: false)
         let captures = [primary, secondary]
+        #expect(CompanionScreenCapture.clickScreenIndex(nil, in: [secondary, primary]) == 1)
+        #expect(CompanionScreenCapture.clickScreenIndex(nil, in: [secondary, secondary]) == nil)
+        #expect(CompanionScreenCapture.clickScreenIndex(nil, in: [primary, primary]) == nil)
         let location = ScreenshotPixelLocation(xInScreenshotPixels: 640, yInScreenshotPixels: 280, screenNumber: 2)
         let edge = ScreenshotPixelLocation(xInScreenshotPixels: 1600, yInScreenshotPixels: 280, screenNumber: 2)
         let globalPoint = executor.convertScreenshotPixelToDisplayGlobalPoint(

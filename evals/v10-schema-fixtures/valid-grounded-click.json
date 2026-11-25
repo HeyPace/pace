@@ -1,0 +1,16 @@
+{
+  "name": "valid-grounded-click",
+  "valid": true,
+  "response": {
+    "spokenText": "",
+    "intent": "action",
+    "payload": {
+      "name": "AX.press",
+      "args": {
+        "x": 103,
+        "y": 687,
+        "screen": 1
+      }
+    }
+  }
+}
