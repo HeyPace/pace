@@ -13,7 +13,7 @@ Run the locally built Release app (not a dev build) on real hardware.
 
 ## Voice core (every release)
 
-- [ ] Hold ctrl+option, say "what time is it" — reply speaks within ~1 s.
+- [ ] Hold the configured push-to-talk shortcut (Right Option by default), say "what time is it" — reply speaks within ~1 s.
 - [ ] Say "open Music" — app opens once (watch for double-execution).
 - [ ] Press PTT twice back-to-back — second turn starts cleanly.
 - [ ] After releasing PTT, the macOS orange mic indicator goes away
