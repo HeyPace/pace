@@ -536,7 +536,9 @@ struct PaceCurrentPowerBrowser: View {
         .task {
             let needsShortcuts = PaceShortcutsAutomationProvider.shared.cachedCatalogIfFresh() == nil
             loadingShortcuts = needsShortcuts
-            await loadCatalog(refreshShortcuts: false)
+            if location.catalog == nil || !needsShortcuts {
+                await loadCatalog(refreshShortcuts: false)
+            }
             if needsShortcuts && !Task.isCancelled { await loadCatalog(refreshShortcuts: true) }
             loadingShortcuts = false
         }

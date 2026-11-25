@@ -37,6 +37,11 @@ struct PaceChatSessionTests {
             id: "other", name: "Other", summary: "", searchTerms: [], suggestedRequest: "Use other.")
         session.prepareDraft(using: second)
         #expect(session.draftMessageText == "Use other: Read the page title")
+        session.draftMessageText = ""
+        session.prepareDraft(using: connection)
+        session.draftMessageText += " Briefly."
+        session.prepareDraft(using: second)
+        #expect(session.draftMessageText == "Use other: read the active tab title. Briefly.")
         session.returnToMainChat()
         #expect(session.draftMessageText == "Main draft")
         #expect(submitter.submittedTranscripts.isEmpty)

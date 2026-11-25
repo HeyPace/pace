@@ -419,8 +419,8 @@ final class PaceChatSession: ObservableObject {
             if content == previous.suggestedRequest {
                 content = ""
             } else {
-                let previousPrefix = "Use " + previous.id + ": "
-                if content.hasPrefix(previousPrefix) { content.removeFirst(previousPrefix.count) }
+                let previousPrefixes = ["Use " + previous.id + ": ", "Use " + previous.id + " to "]
+                if let prefix = previousPrefixes.first(where: content.hasPrefix) { content.removeFirst(prefix.count) }
             }
         }
         draftConnections[activeThreadRootID] = connection

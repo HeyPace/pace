@@ -123,16 +123,27 @@ struct PaceSkillsView: View {
             connections = PacePowerConnection.configured()
         }
         .task(id: catalogRevision) {
-            let discovered = await companionManager.discoverAutomationCatalog()
-            guard !Task.isCancelled else { return }
-            let byIdentifier = Dictionary(
-                discovered.catalog.entries.map { (PaceManagedPowerStore.identifier(for: $0), $0) },
-                uniquingKeysWith: { first, _ in first })
-            let skills = Dictionary(discovered.skills.map { ($0.slug, $0) }, uniquingKeysWith: { first, _ in first })
-            let programs = Dictionary(
-                discovered.programs.map { ($0.identifier, $0) }, uniquingKeysWith: { first, _ in first })
-            var seen = Set<String>()
-            workflows = companionManager.managedPowerStore.list(catalog: discovered.catalog).compactMap { power in
+            let needsShortcuts = PaceShortcutsAutomationProvider.shared.cachedCatalogIfFresh() == nil
+            await updateWorkflows(refreshShortcuts: false, keepPriorShortcuts: needsShortcuts)
+            if needsShortcuts && !Task.isCancelled {
+                await updateWorkflows(refreshShortcuts: true, keepPriorShortcuts: false)
+            }
+        }
+    }
+
+    private func updateWorkflows(refreshShortcuts: Bool, keepPriorShortcuts: Bool) async {
+        let discovered = await companionManager.discoverAutomationCatalog(
+            refreshShortcutCatalog: refreshShortcuts, warmShortcutCache: false)
+        guard !Task.isCancelled else { return }
+        let byIdentifier = Dictionary(
+            discovered.catalog.entries.map { (PaceManagedPowerStore.identifier(for: $0), $0) },
+            uniquingKeysWith: { first, _ in first })
+        let skills = Dictionary(discovered.skills.map { ($0.slug, $0) }, uniquingKeysWith: { first, _ in first })
+        let programs = Dictionary(
+            discovered.programs.map { ($0.identifier, $0) }, uniquingKeysWith: { first, _ in first })
+        var seen = Set<String>()
+        let discoveredRows: [WorkflowRow] = companionManager.managedPowerStore.list(catalog: discovered.catalog)
+            .compactMap { power in
                 guard let reference = power.reference, let catalogEntry = byIdentifier[power.identifier],
                     seen.insert(power.identifier).inserted
                 else { return nil }
@@ -146,8 +157,14 @@ struct PaceSkillsView: View {
                 return WorkflowRow(
                     entry: .init(power: power), catalogEntry: catalogEntry, program: program, skill: skill)
             }
-            catalogLoaded = true
-        }
+        let priorShortcuts =
+            keepPriorShortcuts
+            ? workflows.filter { row in
+                if case .shortcut = row.catalogEntry.reference { return !seen.contains(row.id) }
+                return false
+            } : []
+        workflows = discoveredRows + priorShortcuts
+        catalogLoaded = true
     }
 
     // MARK: - Header + search
