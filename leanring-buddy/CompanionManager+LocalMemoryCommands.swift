@@ -633,12 +633,12 @@ extension CompanionManager {
                 let tools = try await actionExecutor.mcpClient.playwrightToolCatalog()
                 computerUseContext += """
 
-                    Use the local playwright MCP server for browser navigation, page reading, and forms. It owns a separate browser session, not the user's work-profile tabs. Use browser_navigate, then browser_snapshot and its current element refs. Act, then verify the resulting page. Never replay a completed submission. Do not claim access to another browser's signed-in state. Its exact tool schemas follow:
+                    The local playwright MCP server owns a separate browser session. Use it for standalone navigation, page reading, and forms. When the request refers to an existing tab, signed-in session, or window, keep that target throughout the task. If it is unavailable, report the blocker. Never open a substitute session or change tools to circumvent an access restriction. Use browser_navigate, then browser_snapshot and its current element refs. Act, then verify the resulting page. Never replay a completed submission. Do not claim access to another browser's signed-in state. Its exact tool schemas follow:
                     \(tools)
                     """
             } catch {
                 computerUseContext +=
-                    "\nPlaywright is unavailable: \(error.localizedDescription). Report this browser blocker."
+                    "\nPlaywright is unavailable: \(error.localizedDescription). Report this if the task requires the separate browser session."
             }
         }
         let normalizedRequest = userPrompt.lowercased()
