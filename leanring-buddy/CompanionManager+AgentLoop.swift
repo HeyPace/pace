@@ -2403,6 +2403,7 @@ extension CompanionManager {
             }
             var pendingPostActionFeedbackText: String?
             var inspectionHistory = PaceAgentInspectionHistory()
+            var inspectionHistoryHadScreenAccess = useLocalVLMForScreenContext
             var plannerLoopFinished = false
             var turnFullResponseText: String = ""
             // The most recent step's cleaned spoken text. Research turns
@@ -3372,9 +3373,10 @@ extension CompanionManager {
                     // Set up the next iteration.
                     // Intermediate inventories must not overwrite the final answer.
                     pendingPostActionFeedbackText = nil
-                    if !useLocalVLMForScreenContext && initialInspectionPlan == nil {
+                    if inspectionHistoryHadScreenAccess && !useLocalVLMForScreenContext {
                         inspectionHistory = PaceAgentInspectionHistory()
                     }
+                    inspectionHistoryHadScreenAccess = useLocalVLMForScreenContext
                     let inspectionHistoryPromptText = inspectionHistory.continuationEvidence(
                         plannerRequest: fullResponseText, observations: toolObservations,
                         needsInspectionAnswer: needsInspectionAnswer)
