@@ -87,6 +87,13 @@ private enum CloudBridgeFixture {
     }
 }
 
+private final class FailingCloudBridgeURLProtocol: URLProtocol, @unchecked Sendable {
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() { client?.urlProtocol(self, didFailWithError: URLError(.networkConnectionLost)) }
+    override func stopLoading() {}
+}
+
 // MARK: - CloudBridgePlannerClient tests
 
 @MainActor
@@ -141,6 +148,34 @@ struct CloudBridgePlannerClientTests {
         #expect(entry.inputCharacterCount == "You are a test assistant.".count + "Hello from test".count)
         #expect(entry.outputCharacterCount == expectedFullText.count)
         #expect(entry.detail == nil)
+    }
+
+    @Test
+    func requestFailureBeforeHeadersRecordsAnUnconfirmedAttempt() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [FailingCloudBridgeURLProtocol.self]
+        let auditURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let auditLog = PaceAPIAuditLog(logFileURL: auditURL)
+        defer { try? FileManager.default.removeItem(at: auditURL) }
+        let bridge = CloudBridgePlannerClient(
+            bridgeBaseURL: URL(string: "http://127.0.0.1:3456")!,
+            upstreamProvider: .claude, modelIdentifier: "fixture",
+            auditLog: auditLog, urlSession: URLSession(configuration: configuration))
+
+        await #expect(throws: URLError.self) {
+            try await bridge.generateResponseStreaming(
+                images: [], systemPrompt: "", conversationHistory: [], userPrompt: "fixture",
+                onTextChunk: { _ in })
+        }
+
+        auditLog.waitForPendingWrites()
+        let entries = auditLog.readAllEntries()
+        #expect(entries.count == 1)
+        let entry = try #require(entries.first)
+        #expect(entry.subsystem == "planner.cloudBridge")
+        #expect(entry.outcome == CloudBridgePlannerClient.unconfirmedTransportOutcome)
+        #expect(entry.inputCharacterCount == nil)
+        #expect(PacePrivacyDashboardAggregator.tier(for: entry) == nil)
     }
 
     // MARK: Error event handling

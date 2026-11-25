@@ -109,7 +109,8 @@ codesign --force --entitlements "$PROJECT_DIR/PacePowerJavaScriptService/PacePow
     --sign "$CERT_HASH" --keychain "$KEYCHAIN" "$POWER_SERVICE"
 codesign --force --entitlements "$PROJECT_DIR/leanring-buddy/leanring-buddy.entitlements" \
     --sign "$CERT_HASH" --keychain "$KEYCHAIN" "$APP_PATH"
-codesign --verify --deep --strict "$APP_PATH" && echo "✅ Codesign verify passed"
+codesign --verify --deep --strict "$APP_PATH"
+echo "✅ Codesign verify passed"
 echo "   designated requirement:"
 codesign -d -r- "$APP_PATH" 2>&1 | grep -i designated | sed 's/^/   /'
 

@@ -98,6 +98,11 @@ struct PacePrivacyDashboardAggregator {
             default: return entry.outcome.hasPrefix("httpFailure=") ? .directAPI : nil
             }
         }
+        if entry.subsystem == "planner.cloudBridge",
+            entry.outcome == CloudBridgePlannerClient.unconfirmedTransportOutcome
+        {
+            return nil
+        }
         return tier(forSubsystem: entry.subsystem, target: entry.target)
     }
 

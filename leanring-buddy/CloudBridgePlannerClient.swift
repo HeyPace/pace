@@ -56,6 +56,8 @@ enum PaceCloudBridgeError: LocalizedError {
 
 @MainActor
 final class CloudBridgePlannerClient: BuddyPlannerClient {
+    nonisolated static let unconfirmedTransportOutcome = "unconfirmed_transport_error"
+
     let displayName: String
 
     /// The bridge has no vision support — it accepts only text.
@@ -72,7 +74,8 @@ final class CloudBridgePlannerClient: BuddyPlannerClient {
         bridgeBaseURL: URL,
         upstreamProvider: PaceCloudBridgeUpstream,
         modelIdentifier: String,
-        auditLog: PaceAPIAuditLog = .shared
+        auditLog: PaceAPIAuditLog = .shared,
+        urlSession: URLSession? = nil
     ) {
         let validatedBridgeBaseURL = PaceLocalEndpointGuard.validatedCloudBridgeURL(
             from: bridgeBaseURL.absoluteString
@@ -91,7 +94,7 @@ final class CloudBridgePlannerClient: BuddyPlannerClient {
         urlSessionConfiguration.waitsForConnectivity = false
         urlSessionConfiguration.urlCache = nil
         urlSessionConfiguration.httpCookieStorage = nil
-        self.urlSession = URLSession(configuration: urlSessionConfiguration)
+        self.urlSession = urlSession ?? URLSession(configuration: urlSessionConfiguration)
     }
 
     /// Convenience constructor from the loaded configuration snapshot.
@@ -156,15 +159,7 @@ final class CloudBridgePlannerClient: BuddyPlannerClient {
 
         let startTime = Date()
 
-        let (byteStream, response) = try await urlSession.bytes(for: urlRequest)
-
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw PaceCloudBridgeError.unexpectedNonHTTPResponse
-        }
-
-        var auditOutcome =
-            (200...299).contains(httpResponse.statusCode)
-            ? "error" : "http_\(httpResponse.statusCode)"
+        var auditOutcome = Self.unconfirmedTransportOutcome
         var accumulatedResponseText = ""
         defer {
             let inputCharacters = systemPrompt.count + messages.reduce(0) { $0 + ($1["content"]?.count ?? 0) }
@@ -172,10 +167,16 @@ final class CloudBridgePlannerClient: BuddyPlannerClient {
                 subsystem: "planner.cloudBridge", operation: "chat.stream",
                 target: "\(upstreamProvider.rawValue)/\(modelIdentifier)",
                 durationMilliseconds: Int(Date().timeIntervalSince(startTime) * 1000),
-                outcome: auditOutcome, inputCharacterCount: inputCharacters,
+                outcome: auditOutcome,
+                inputCharacterCount: auditOutcome == Self.unconfirmedTransportOutcome ? nil : inputCharacters,
                 outputCharacterCount: accumulatedResponseText.count)
         }
 
+        let (byteStream, response) = try await urlSession.bytes(for: urlRequest)
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw PaceCloudBridgeError.unexpectedNonHTTPResponse
+        }
+        auditOutcome = "http_\(httpResponse.statusCode)"
         guard (200...299).contains(httpResponse.statusCode) else {
             var errorBodyLines: [String] = []
             for try await line in byteStream.lines {
@@ -189,6 +190,7 @@ final class CloudBridgePlannerClient: BuddyPlannerClient {
             )
         }
 
+        auditOutcome = "error"
         var hasLoggedTimeToFirstToken = false
 
         for try await line in byteStream.lines {
