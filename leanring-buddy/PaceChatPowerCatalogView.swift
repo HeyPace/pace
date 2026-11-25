@@ -241,7 +241,12 @@ struct PaceChatPowerCatalogBrowser: View {
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .onAppear { focus = .search }
+        .task {
+            // The chat field releases its AppKit field editor as the new content is mounted.
+            await Task.yield()
+            guard !Task.isCancelled else { return }
+            focus = .search
+        }
         .onChange(of: query) { highlightedID = nil }
     }
 

@@ -110,10 +110,10 @@ struct PacePanelChatView: View {
         .onChange(of: chatSession.activeThreadRootID) { powerBrowser = nil }
         .onAppear {
             chatSession.loadHistoryWithoutBlockingInterface()
-            isInputFocused = composerFocusRequestID != nil
+            isInputFocused = powerBrowser == nil && composerFocusRequestID != nil
         }
         .onChange(of: composerFocusRequestID) { _, composerFocusRequestID in
-            isInputFocused = composerFocusRequestID != nil
+            isInputFocused = powerBrowser == nil && composerFocusRequestID != nil
         }
         .onChange(of: isInputFocused) { _, isInputFocused in
             if isInputFocused { companionManager.prewarmFastAnswerCredentialsIfNeeded() }

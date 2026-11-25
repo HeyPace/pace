@@ -104,10 +104,10 @@ struct PaceChatPanelView: View {
             // transcript wholesale from the same `paceHistory` store
             // `recordConversationTurn` writes to.
             chatSession.loadHistory()
-            isChatInputFocused = composerFocusRequestID != nil
+            isChatInputFocused = powerBrowser == nil && composerFocusRequestID != nil
         }
         .onChange(of: composerFocusRequestID) { _, composerFocusRequestID in
-            isChatInputFocused = composerFocusRequestID != nil
+            isChatInputFocused = powerBrowser == nil && composerFocusRequestID != nil
         }
     }
 
