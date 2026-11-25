@@ -211,10 +211,12 @@ struct PaceMCPClientIntegrationTests {
         _ = history.continuationEvidence(
             plannerRequest: "Inspect the document using old-selector",
             observations: [
-                .init(toolName: "mcp.peekaboo.see", summary: #"""
-                    Snapshot ID: old-snapshot
-                    elem_3 - "Edition" - at (1, 2) size 10×20 - value: "Edition 42"
-                    """#)
+                .init(
+                    toolName: "mcp.peekaboo.see",
+                    summary: #"""
+                        Snapshot ID: old-snapshot
+                        elem_3 - "Edition" - at (1, 2) size 10×20 - value: "Edition 42"
+                        """#)
             ],
             needsInspectionAnswer: true)
         let next = history.continuationEvidence(
