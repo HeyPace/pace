@@ -126,15 +126,17 @@ final class PaceOpenAIResponsesEverydayClient: PaceEverydayAnswerClient, PacePas
         try Task.checkCancellation()
         guard isAuthorized() else { throw PaceEverydayAnswerError.consentRevoked }
         let startedAt = Date()
+        var requestWasSubmitted = false
         var outcome = "failed"
         var inputTokenCount: Int?
         var outputTokenCount: Int?
         var outputCharacterCount: Int?
         defer {
             auditLog.record(
-                subsystem: "planner.openai.responses", operation: operation,
+                subsystem: requestWasSubmitted ? "planner.directAPI.responses" : "planner.openai.responses.preflight",
+                operation: operation,
                 target: Self.model, durationMilliseconds: Int(Date().timeIntervalSince(startedAt) * 1000),
-                outcome: outcome, inputCharacterCount: inputCharacterCount,
+                outcome: outcome, inputCharacterCount: requestWasSubmitted ? inputCharacterCount : 0,
                 outputCharacterCount: outputCharacterCount,
                 detail: "route=\(route) model=\(Self.model) reasoning=none store=false imageBytes=\(imageByteCount)",
                 inputTokenCount: inputTokenCount, outputTokenCount: outputTokenCount)
@@ -165,6 +167,7 @@ final class PaceOpenAIResponsesEverydayClient: PaceEverydayAnswerClient, PacePas
             ])
             try Task.checkCancellation()
             guard isAuthorized() else { throw PaceEverydayAnswerError.consentRevoked }
+            requestWasSubmitted = true
             let (bytes, response) = try await session.bytes(for: request)
             guard let response = response as? HTTPURLResponse else { throw PaceEverydayAnswerError.invalidResponse }
             guard response.statusCode == 200 else {

@@ -40,6 +40,6 @@ Run the locally built Release app (not a dev build) on real hardware.
 
 - [ ] With Direct API tier active, run one turn — menu-bar capsule
       tints amber; Privacy dashboard shows bytes/target.
-- [ ] Switch back to Local — dashboard returns to "0 bytes".
+- [ ] Switch back to Local and run a local turn. Verify it adds no off-device calls or bytes and the capsule stays local. Earlier transfers remain in the 24-hour total.
 
 Record date + build + any anomaly in the release PR description.

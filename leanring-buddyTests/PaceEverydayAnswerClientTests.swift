@@ -129,11 +129,18 @@ struct PaceEverydayAnswerClientTests {
             Issue.record("A failed credential fetch must not send")
             return (500, Data())
         }
-        let answerClient = client(loadKey: { throw PrivateCredentialFailure() })
+        let logURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: logURL) }
+        let audit = PaceAPIAuditLog(logFileURL: logURL)
+        let answerClient = client(loadKey: { throw PrivateCredentialFailure() }, auditLog: audit)
         do {
             _ = try await answerClient.answer(.init(currentQuestion: "What is seven times nine?"))
             Issue.record("Expected unavailable credential")
         } catch PaceEverydayAnswerError.missingKey {}
+        let entries = audit.readAllEntries()
+        #expect(entries.count == 1)
+        #expect(entries.first?.inputCharacterCount == 0)
+        #expect(PacePrivacyDashboardAggregator.aggregate(auditEntries: entries).totalOffDeviceCallCount == 0)
     }
 
     @Test func revocationDuringFailedCredentialFetchDoesNotPromoteToCodex() async throws {
@@ -179,6 +186,10 @@ struct PaceEverydayAnswerClientTests {
         #expect(answer == "63")
         #expect(requestCount == 1)
         #expect(entries.count == 1)
+        let snapshot = PacePrivacyDashboardAggregator.aggregate(auditEntries: entries)
+        #expect(snapshot.totalOffDeviceCallCount == 1)
+        #expect(snapshot.totalOffDeviceBytesSent > 0)
+        #expect(snapshot.perTargetStats.first?.target == PaceOpenAIResponsesEverydayClient.model)
         #expect(entries.first?.inputTokenCount == 157)
         #expect(entries.first?.outputTokenCount == 2)
         #expect(entries.first?.outputCharacterCount == 2)
@@ -411,6 +422,7 @@ struct PaceEverydayAnswerClientTests {
         _ = try await client(auditLog: log).answerScreen(screenQuestion())
         let entries = log.readAllEntries()
         #expect(entries.count == 1)
+        #expect(PacePrivacyDashboardAggregator.aggregate(auditEntries: entries).totalOffDeviceCallCount == 1)
         #expect(entries.first?.operation == "screen.answer")
         #expect(entries.first?.inputTokenCount == 1200)
         #expect(entries.first?.outputTokenCount == 4)

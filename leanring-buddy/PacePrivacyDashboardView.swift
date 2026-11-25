@@ -89,6 +89,18 @@ struct PacePrivacyDashboardAggregator {
         return nil
     }
 
+    static func tier(for entry: PaceAPIAuditEntry) -> PaceOffDeviceTier? {
+        // Older Responses events did not record whether transport started. Only a response
+        // from the provider proves that those requests left the preflight stage.
+        if entry.subsystem == "planner.openai.responses" {
+            switch entry.outcome {
+            case "completed", "refused", "invalidResponse": return .directAPI
+            default: return entry.outcome.hasPrefix("httpFailure=") ? .directAPI : nil
+            }
+        }
+        return tier(forSubsystem: entry.subsystem, target: entry.target)
+    }
+
     struct AggregatedPerTierStats {
         let tier: PaceOffDeviceTier
         let callCount: Int
@@ -135,7 +147,7 @@ struct PacePrivacyDashboardAggregator {
         var appleFoundationModelsEntryCount = 0
 
         for entry in filteredEntries {
-            if let tier = tier(forSubsystem: entry.subsystem, target: entry.target) {
+            if let tier = tier(for: entry) {
                 let bytesForEntry = entry.inputCharacterCount ?? 0
                 perTierByteTotals[tier, default: 0] += bytesForEntry
                 perTierCallCounts[tier, default: 0] += 1
@@ -251,15 +263,16 @@ struct PacePrivacyDashboardView: View {
     private var headlineCardPrimaryText: String {
         let formattedBytes = PacePrivacyByteFormatter.format(bytes: snapshot.totalOffDeviceBytesSent)
         if snapshot.totalOffDeviceBytesSent <= 0 {
-            return "In the last \(lookbackInHours)h, Pace sent 0 bytes off this Mac."
+            return "Recorded off-device payload in the last \(lookbackInHours)h: 0 bytes."
         }
         let topTarget = snapshot.perTargetStats.first?.target ?? "an external API"
-        return "In the last \(lookbackInHours)h, Pace sent \(formattedBytes) off this Mac to \(topTarget)."
+        return
+            "Estimated off-device payload in the last \(lookbackInHours)h: \(formattedBytes). Top target: \(topTarget)."
     }
 
     private var headlineCardSecondaryText: String {
         if snapshot.totalOffDeviceCallCount == 0 {
-            return "Every planner, VLM, OCR, TTS, and MCP call stayed on this device. Numbers update live as Pace works."
+            return "No off-device requests were recorded in this window."
         }
         let perTierFragments = snapshot.perTierStats
             .filter { $0.callCount > 0 }
@@ -275,7 +288,7 @@ struct PacePrivacyDashboardView: View {
                 .font(DS.Typography.sectionTitle)
                 .accessibilityAddTraits(.isHeader)
             Text(
-                "Every byte Pace sent off this Mac in the last \(lookbackInHours)h. Searchable. No message content — only sizes and outcomes."
+                "Recorded off-device requests and estimated payload sizes in the last \(lookbackInHours)h. Search by target or outcome."
             )
             .font(.system(size: 11))
             .foregroundColor(.secondary)
@@ -337,10 +350,7 @@ struct PacePrivacyDashboardView: View {
         // target=composio.*) shows up as `.mcpHosted` instead of
         // falling through to "mcp" as a raw subsystem string. Same
         // overload the aggregation loop uses.
-        let tier = PacePrivacyDashboardAggregator.tier(
-            forSubsystem: entry.subsystem,
-            target: entry.target
-        )
+        let tier = PacePrivacyDashboardAggregator.tier(for: entry)
         let tokenDisplay = PaceProviderCostEstimator.formatTokenCounts(
             inputTokenCount: entry.inputTokenCount,
             outputTokenCount: entry.outputTokenCount
@@ -385,12 +395,12 @@ struct PacePrivacyDashboardView: View {
         // calls would otherwise be filtered OUT of this list because
         // the no-target overload returns nil for `subsystem == "mcp"`.
         let offDeviceEntries = auditEntries.filter {
-            PacePrivacyDashboardAggregator.tier(forSubsystem: $0.subsystem, target: $0.target) != nil
+            PacePrivacyDashboardAggregator.tier(for: $0) != nil
         }
         let tierFiltered: [PaceAPIAuditEntry]
         if let auditTierFilter {
             tierFiltered = offDeviceEntries.filter {
-                PacePrivacyDashboardAggregator.tier(forSubsystem: $0.subsystem, target: $0.target) == auditTierFilter
+                PacePrivacyDashboardAggregator.tier(for: $0) == auditTierFilter
             }
         } else {
             tierFiltered = offDeviceEntries
