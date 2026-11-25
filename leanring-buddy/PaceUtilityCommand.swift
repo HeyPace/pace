@@ -4,6 +4,7 @@ nonisolated enum PaceUtilityCommand: Equatable {
     case speak(text: String, useKokoro: Bool)
     case transcribeAudio(path: String)
     case checkUpdates
+    case localTime
 
     static func updateCheckReply(for result: PaceAutoUpdateController.ManualUpdateCheckResult) -> String {
         switch result {
@@ -19,6 +20,11 @@ nonisolated enum PaceUtilityCommand: Equatable {
     static func parse(_ transcript: String) -> Self? {
         let text = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
         let normalized = text.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: ".!?"))
+        let normalizedQuestion = normalized.replacingOccurrences(of: "’", with: "'")
+            .split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        if ["what time is it", "what's the time", "what is the time", "tell me the time"].contains(normalizedQuestion) {
+            return .localTime
+        }
         if ["check for updates", "check pace for updates", "update check"].contains(normalized) {
             return .checkUpdates
         }
@@ -46,6 +52,9 @@ extension CompanionManager {
         defer { if turnLeaseRegistry.isCurrent(turnLease) { voiceState = .idle } }
 
         switch command {
+        case .localTime:
+            let currentTime = Date.now.formatted(date: .omitted, time: .shortened)
+            await publishCommandFeedback(transcript: transcript, spokenText: "It's \(currentTime).")
         case .checkUpdates:
             let result = PaceAutoUpdateController.shared.checkForUpdatesManually()
             await publishCommandFeedback(

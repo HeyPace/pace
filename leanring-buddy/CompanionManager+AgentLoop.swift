@@ -1814,6 +1814,13 @@ extension CompanionManager {
             return
         }
 
+        let utilityCommand = PaceUtilityCommand.parse(transcript)
+        if utilityCommand == .localTime, activeSkillRun == nil, screenSuggestionContext == nil {
+            guard isActiveTurn(turnLease) else { return }
+            await handleUtilityCommand(.localTime, transcript: transcript, turnLease: turnLease)
+            return
+        }
+
         // Ordinary completed transcript -> conservative local catalog match.
         // Both typed chat and finalized voice recognition use this same seam.
         // Weak/ambiguous outcomes return false and preserve every existing
@@ -1825,7 +1832,7 @@ extension CompanionManager {
         }
         guard isActiveTurn(turnLease) else { return }
 
-        if let utilityCommand = PaceUtilityCommand.parse(transcript) {
+        if let utilityCommand, utilityCommand != .localTime {
             await handleUtilityCommand(utilityCommand, transcript: transcript, turnLease: turnLease)
             return
         }

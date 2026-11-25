@@ -17,6 +17,31 @@ struct PaceUtilityCommandTests {
         #expect(PaceUtilityCommand.parse("research software updates") == nil)
     }
 
+    @Test func timeUtilityOnlyClaimsLocalClockQuestions() {
+        for prompt in [
+            "What time is it?", "What's the time?", "What’s the time?", "What   is the time!", "Tell me the time.",
+        ] {
+            #expect(PaceUtilityCommand.parse(prompt) == .localTime)
+        }
+        for prompt in ["What time is it in Tokyo?", "What time is it on screen?", "Tell me the time of the meeting"] {
+            #expect(PaceUtilityCommand.parse(prompt) == nil)
+        }
+    }
+
+    @Test @MainActor func recognizedClockQuestionRecordsAndSpeaksTheLocalTime() async {
+        let (manager, persister, silentSpeech) = PaceConversationRecorderTests().makeDismissalFixture()
+        manager.responseOverlayManager.setAnnotationsEnabled(false)
+        let before = Date.now.formatted(date: .omitted, time: .shortened)
+        manager.sendTranscriptToPlannerWithScreenshot(transcript: "What time is it?")
+        await manager.currentTurnDispatchTask?.value
+        let after = Date.now.formatted(date: .omitted, time: .shortened)
+        let answers = ["It's \(before).", "It's \(after)."]
+        #expect(persister.events.values.contains { $0.role == .user && $0.origin == .voice })
+        #expect(persister.events.values.contains { $0.role == .pace && answers.contains($0.text) })
+        #expect(silentSpeech.spokenTexts.contains { answers.contains($0) })
+        #expect(manager.voiceState == .idle)
+    }
+
     @Test func updateCheckRepliesDescribeTheUpdaterResult() {
         #expect(PaceUtilityCommand.updateCheckReply(for: .started) == "Checking for Pace updates.")
         #expect(
