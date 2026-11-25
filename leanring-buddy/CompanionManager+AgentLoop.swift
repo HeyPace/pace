@@ -3468,7 +3468,8 @@ extension CompanionManager {
                     upstreamProvider = nil
                 }
                 speakPlainLanguageFailure(
-                    PaceFailureNarrator.kindForPlannerPipelineError(error as NSError, upstreamProvider: upstreamProvider),
+                    PaceFailureNarrator.kindForPlannerPipelineError(
+                        error as NSError, upstreamProvider: upstreamProvider),
                     context: "planner-catch",
                     respondingToUserTranscript: transcript
                 )
