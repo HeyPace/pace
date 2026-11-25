@@ -11,7 +11,6 @@ extension PaceChatPowerCatalog.Category {
         }
     }
 
-
 }
 
 struct PaceChatPowerCatalogAnswer: View {
@@ -199,7 +198,7 @@ struct PaceChatPowerCatalogBrowser: View {
                     systemImage: "chevron.left"
                 )
                 .font(DS.Typography.calloutStrong)
-                    .padding(.vertical, 4)
+                .padding(.vertical, 4)
             }
             .buttonStyle(.plain)
             .focused($focus, equals: .back)
@@ -323,8 +322,8 @@ struct PaceChatPowerCatalogBrowser: View {
                             : "No powers or tools match “\(search)”."
                     )
                     .font(DS.Typography.body)
-                        .foregroundStyle(DS.Colors.textSecondary)
-                        .padding(.vertical, 8)
+                    .foregroundStyle(DS.Colors.textSecondary)
+                    .padding(.vertical, 8)
                 } else {
                     ScrollViewReader { listProxy in
                         List(selection: $highlightedID) {

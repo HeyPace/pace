@@ -66,8 +66,8 @@ struct PaceDialogueMessageView: View {
                             systemImage: "bubble.left.and.bubble.right"
                         )
                         .font(.caption.weight(.medium)).foregroundStyle(DS.Colors.textSecondary)
-                            .padding(.horizontal, 3).padding(.vertical, 3)
-                            .contentShape(Rectangle())
+                        .padding(.horizontal, 3).padding(.vertical, 3)
+                        .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
                     .paceControlHoverHighlight(cornerRadius: DS.Radius.control).pointerCursor()
