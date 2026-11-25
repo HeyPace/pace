@@ -72,10 +72,20 @@ struct PacePanelChatView: View {
                 .allowsHitTesting(powerBrowser == nil)
                 .overlay {
                     if let powerBrowser {
-                        PaceChatPowerCatalogBrowser(
-                            catalog: powerBrowser.catalog, initialCategory: powerBrowser.category,
+                        PaceCurrentPowerBrowser(
+                            location: powerBrowser, companionManager: companionManager,
                             returnTitle: chatSession.activeThreadRootID == nil ? "Main chat" : "Replies",
                             goBack: {
+                                self.powerBrowser = nil
+                                isInputFocused = true
+                            },
+                            useConnection: { connection in
+                                chatSession.prepareDraft(using: connection)
+                                self.powerBrowser = nil
+                                isInputFocused = true
+                            },
+                            useExample: { example in
+                                chatSession.insertPowerExample(example)
                                 self.powerBrowser = nil
                                 isInputFocused = true
                             },
@@ -146,6 +156,12 @@ struct PacePanelChatView: View {
                     .font(.system(size: 10, weight: .medium))
                     .foregroundStyle(DS.Colors.offDeviceSignal)
                     .help(boundaryHelpText)
+            }
+            if powerBrowser == nil {
+                PacePowerSearchButton {
+                    isInputFocused = false
+                    powerBrowser = PacePowerBrowserLocation(catalog: nil, category: nil)
+                }
             }
             PaceChatOptionsMenu(companionManager: companionManager)
             if !isEmbeddedInNotch {
@@ -398,8 +414,11 @@ struct PacePanelChatView: View {
                 powerBrowser = PacePowerBrowserLocation(catalog: catalog, category: category)
             },
             historicalPowerCount: chatSession.historicalPowerCount(for: source),
-            refreshPowers: { chatSession.submitUserMessage("List powers") },
-            threadActionTitle: source.flatMap { chatSession.threadActionTitle(for: $0) },
+            refreshPowers: {
+                isInputFocused = false
+                powerBrowser = PacePowerBrowserLocation(catalog: nil, category: nil)
+            },
+            threadReplyCount: source.flatMap { chatSession.threadReplyCount(for: $0) },
             onThreadAction: {
                 guard let source else { return }
                 chatSession.openThread(for: source)

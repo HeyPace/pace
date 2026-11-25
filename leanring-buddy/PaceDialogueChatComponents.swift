@@ -5,13 +5,15 @@ struct PaceDialogueMessageView: View {
     let message: PaceChatTranscriptMessageRowModel
     let appearance: PaceChatAppearance
     var powerCatalog: PaceChatPowerCatalog?
-    var openPowerCategory: (PaceChatPowerCatalog.Category) -> Void = { _ in }
+    var openPowerCategory: (PaceChatPowerCatalog.Category?) -> Void = { _ in }
     var historicalPowerCount: String?
     var refreshPowers: () -> Void = {}
-    var threadActionTitle: String? = nil
+    var threadReplyCount: Int? = nil
     var onThreadAction: () -> Void = {}
     var canReplay = false
     var onReplay: (PaceSpeechRequest) -> Void = { _ in }
+    @State private var isMessageHovered = false
+    @FocusState private var isFirstReplyFocused: Bool
     @State private var showsJapaneseOriginal = false
     @State private var showsOriginalResponse = false
     @State private var generatedImagePreview: NSImage?
@@ -20,7 +22,10 @@ struct PaceDialogueMessageView: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 0) {
-            if isFromUser { Spacer(minLength: 36) }
+            if isFromUser {
+                Spacer(minLength: threadReplyCount == 0 ? 10 : 36)
+                if threadReplyCount == 0 { firstReplyButton }
+            }
             VStack(alignment: .leading, spacing: 8) {
                 if !isFromUser {
                     Text("Pace")
@@ -54,10 +59,13 @@ struct PaceDialogueMessageView: View {
                         .clipShape(RoundedRectangle(cornerRadius: 10))
                         .accessibilityLabel("Generated image: " + message.bodyText)
                 }
-                if let threadActionTitle {
+                if let threadReplyCount, threadReplyCount > 0 {
                     Button(action: onThreadAction) {
-                        Label(threadActionTitle, systemImage: "arrowshape.turn.up.left")
-                            .font(.caption).foregroundStyle(DS.Colors.textSecondary)
+                        Label(
+                            threadReplyCount == 1 ? "1 reply" : "\(threadReplyCount) replies",
+                            systemImage: "bubble.left.and.bubble.right"
+                        )
+                        .font(.caption.weight(.medium)).foregroundStyle(DS.Colors.textSecondary)
                             .padding(.horizontal, 3).padding(.vertical, 3)
                             .contentShape(Rectangle())
                     }
@@ -107,10 +115,20 @@ struct PaceDialogueMessageView: View {
                 isFromUser ? DS.Colors.controlFill : Color.clear,
                 in: RoundedRectangle(cornerRadius: DS.Radius.surface, style: .continuous)
             )
-            .contextMenu { ShareAndCopyContextMenuItems(messageBody: message.bodyText) }
-            if !isFromUser { Spacer(minLength: 0) }
+            .contextMenu {
+                if let threadReplyCount {
+                    Button(threadReplyCount == 0 ? "Reply in thread" : "Open thread", action: onThreadAction)
+                    Divider()
+                }
+                ShareAndCopyContextMenuItems(messageBody: message.bodyText)
+            }
+            if !isFromUser {
+                if threadReplyCount == 0 { firstReplyButton }
+                Spacer(minLength: 0)
+            }
         }
         .frame(maxWidth: .infinity, alignment: isFromUser ? .trailing : .leading)
+        .onHover { isMessageHovered = $0 }
         .accessibilityElement(children: .contain)
         .accessibilityLabel(isFromUser ? "You" : "Pace")
         .task(id: message.generatedImagePreviewID) {
@@ -122,6 +140,23 @@ struct PaceDialogueMessageView: View {
             guard !Task.isCancelled, let previewData else { return }
             generatedImagePreview = NSImage(data: previewData)
         }
+    }
+
+    private var firstReplyButton: some View {
+        Button(action: onThreadAction) {
+            Image(systemName: "arrowshape.turn.up.left")
+                .font(.caption)
+                .foregroundStyle(DS.Colors.textSecondary)
+                .opacity(isMessageHovered || isFirstReplyFocused ? 1 : 0)
+                .frame(width: 26, height: 24)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .focused($isFirstReplyFocused)
+        .paceControlHoverHighlight(cornerRadius: DS.Radius.control)
+        .pointerCursor()
+        .accessibilityLabel("Reply in thread")
+        .help("Reply in thread")
     }
 
     private func speechControls(_ speechRequest: PaceSpeechRequest) -> some View {
@@ -589,11 +624,8 @@ extension CompanionManager {
 }
 
 extension PaceChatSession {
-    func threadActionTitle(for message: PaceChatMessage) -> String? {
-        guard activeThreadRootID == nil else { return nil }
-        let count = replyCount(for: message)
-        if count == 0 { return "Reply in thread" }
-        return count == 1 ? "1 reply" : "\(count) replies"
+    func threadReplyCount(for message: PaceChatMessage) -> Int? {
+        activeThreadRootID == nil ? replyCount(for: message) : nil
     }
 }
 

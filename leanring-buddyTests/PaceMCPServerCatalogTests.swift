@@ -15,6 +15,32 @@ import Testing
 @testable import Pace
 
 struct PaceMCPServerCatalogTests {
+    @Test func powerConnectionMatchesTheConfiguredExecutableAndKeepsArbitraryArgumentsPrivate() {
+        let rows = PacePowerConnection.configured(servers: [
+            "my-browser": .init(command: "/opt/bin/browse", args: ["mcp"]),
+            "browse": .init(command: "/custom/provider", args: ["do-not-display-this"], env: ["TOKEN": "private"]),
+        ])
+        let browser = rows.first { $0.id == "my-browser" }
+        #expect(browser?.name == "Browse")
+        #expect(browser?.searchTerms.contains("Chrome") == true)
+        #expect(browser?.suggestedRequest.contains("my-browser") == true)
+        #expect(browser?.status == "Configured")
+        let custom = rows.first { $0.id == "browse" }
+        #expect(custom?.searchTerms.contains("Chrome") == false)
+        #expect(custom?.searchTerms.contains("do-not-display-this") == false)
+        #expect(custom?.suggestedRequest == "What can I do with browse?")
+    }
+
+    @MainActor @Test func connectionSearchUsesAliasesAndWordsAcrossFields() throws {
+        let connection = try #require(
+            PacePowerConnection.configured(servers: [
+                "my-browser": .init(command: "/opt/bin/browse", args: ["mcp"])
+            ]).first)
+        let result = PacePowerBrowserResult.connection(connection)
+        #expect(result.searchRank(for: "chrome") == 0)
+        #expect(result.searchRank(for: "chrome extension") == 2)
+        #expect(result.searchRank(for: "unrelated text") == nil)
+    }
 
     @Test func shippedPresetUpdatesKeepEnvironmentAndPreserveCustomLaunches() throws {
         let previous = PaceMCPServerConfiguration(

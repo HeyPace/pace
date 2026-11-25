@@ -17,6 +17,41 @@ import Testing
 @MainActor
 struct PaceChatSessionTests {
 
+    @Test func choosingAConnectionPreparesOnlyTheOpenThreadDraft() throws {
+        let submitter = FakeTranscriptSubmitter()
+        let session = makeSession(historySource: FakeHistorySource(), submitter: submitter)
+        let connection = PacePowerConnection(
+            id: "browse", name: "Browse", summary: "Browser", searchTerms: ["Chrome"],
+            suggestedRequest: "Use browse to read the active tab title.")
+        let root = ConversationEvent(turnID: "test", role: .pace, origin: .assistant, text: "A question")
+        session.upsertConversationEvent(root)
+        session.draftMessageText = "Main draft"
+        session.openThread(for: try #require(session.messages.first))
+        session.prepareDraft(using: connection)
+        #expect(session.draftMessageText == connection.suggestedRequest)
+        session.draftMessageText = "Read the page title"
+        session.prepareDraft(using: connection)
+        session.prepareDraft(using: connection)
+        #expect(session.draftMessageText == "Use browse: Read the page title")
+        let second = PacePowerConnection(
+            id: "other", name: "Other", summary: "", searchTerms: [], suggestedRequest: "Use other.")
+        session.prepareDraft(using: second)
+        #expect(session.draftMessageText == "Use other: Read the page title")
+        session.returnToMainChat()
+        #expect(session.draftMessageText == "Main draft")
+        #expect(submitter.submittedTranscripts.isEmpty)
+    }
+
+    @Test func preparingAnActionExamplePreservesTheDraftAndWaitsForSend() {
+        let submitter = FakeTranscriptSubmitter()
+        let session = makeSession(historySource: FakeHistorySource(), submitter: submitter)
+        session.draftMessageText = "When I finish this task:"
+        session.insertPowerExample("Start a timer.")
+        session.insertPowerExample("Start a timer.")
+        #expect(session.draftMessageText == "When I finish this task:\nStart a timer.")
+        #expect(submitter.submittedTranscripts.isEmpty)
+    }
+
     @Test func legacyListAnswerShowsRecordedCountsOnlyForItsOwnPowerRequest() {
         let session = makeSession(historySource: FakeHistorySource(), submitter: FakeTranscriptSubmitter())
         let counts = "12 built-in powers, 3 saved powers, 4 installed workflows."

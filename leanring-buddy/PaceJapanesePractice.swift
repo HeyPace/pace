@@ -246,6 +246,11 @@ struct PaceChatOptionsMenu: View {
                 }
             }
             Button {
+                PaceSettingsWindowManager.shared.show(companionManager: companionManager, destination: .usage)
+            } label: {
+                Label("Usage", systemImage: "chart.bar")
+            }
+            Button {
                 PaceSettingsWindowManager.shared.show(companionManager: companionManager)
             } label: {
                 Label("Settings…", systemImage: "gearshape")

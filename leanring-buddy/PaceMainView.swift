@@ -98,7 +98,9 @@ struct PaceMainView: View {
     private func detail(for destination: PaceCommandCenterDestination) -> some View {
         switch destination {
         case .skills:
-            PaceSkillsView(onManageConnections: { showDestination(.mcp) })
+            PaceSkillsView(
+                companionManager: companionManager, openConnection: { router.select(.mcp, focusedMCPServer: $0.id) },
+                onManageConnections: { showDestination(.mcp) })
         case .usage:
             PaceUsageAnalyticsView()
         case .privacy:
@@ -126,7 +128,14 @@ struct PaceMainView: View {
                 PaceCompanionSettingsTab(controlCenter: companionManager.companionControlCenter)
             }
         case .mcp:
-            settingsDetail(for: destination) { PaceMCPSettingsTab(companionManager: companionManager) }
+            ScrollViewReader { proxy in
+                settingsDetail(for: destination) {
+                    PaceMCPSettingsTab(companionManager: companionManager, connectionFocus: router.connectionFocus)
+                }
+                .onChange(of: router.connectionFocus, initial: true) { _, focus in
+                    if focus != nil { proxy.scrollTo("pace.mcp.configured", anchor: .top) }
+                }
+            }
         case .voice:
             settingsDetail(for: destination) { PaceVoiceSettingsTab(companionManager: companionManager) }
         case .cloudBridge:

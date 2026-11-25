@@ -232,7 +232,7 @@ extension CompanionManager {
     }
 
     func discoverAutomationCatalog(
-        refreshShortcutCatalog: Bool = true
+        refreshShortcutCatalog: Bool = true, warmShortcutCache: Bool = true
     ) async -> PaceDiscoveredAutomationCatalog {
         if let powerCatalogDiscoveryOverride { return await powerCatalogDiscoveryOverride() }
         let bundledDefinitions = PaceAutomationDefinitionLibrary.loadBundledDefinitions()
@@ -260,8 +260,10 @@ extension CompanionManager {
             shortcutNames = []
             // Warm discovery for a later turn without adding up to the CLI's
             // ten-second timeout to this latency-sensitive transcript.
-            Task { @MainActor in
-                _ = await PaceShortcutsAutomationProvider.shared.catalog()
+            if warmShortcutCache {
+                Task { @MainActor in
+                    _ = await PaceShortcutsAutomationProvider.shared.catalog()
+                }
             }
         }
 

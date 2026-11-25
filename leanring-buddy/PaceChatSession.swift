@@ -92,6 +92,7 @@ final class PaceChatSession: ObservableObject {
     @Published private(set) var activeThreadRootID: String?
     private var cachedTurnRoots: [String: String]?
     private var cachedReplyCounts: [String: Int]?
+    private var draftConnections: [String?: PacePowerConnection] = [:]
     private var inactiveDrafts: [String?: String] = [:]
     @Published private(set) var hasLoadedHistory: Bool = false
     @Published private(set) var latestScreenSuggestionEvent: ConversationEvent?
@@ -355,6 +356,7 @@ final class PaceChatSession: ObservableObject {
         activeThreadRootID = nil
         draftMessageText = ""
         inactiveDrafts.removeAll()
+        draftConnections.removeAll()
         latestScreenSuggestionEvent = nil
         messages.removeAll()
     }
@@ -411,9 +413,35 @@ final class PaceChatSession: ObservableObject {
     /// submitter. The matching assistant message is appended later by
     /// `appendCompletedTurn` from `recordConversationTurn` — that's
     /// where we get the final cleaned spoken text.
+    func prepareDraft(using connection: PacePowerConnection) {
+        var content = draftMessageText
+        if let previous = draftConnections[activeThreadRootID] {
+            if content == previous.suggestedRequest {
+                content = ""
+            } else {
+                let previousPrefix = "Use " + previous.id + ": "
+                if content.hasPrefix(previousPrefix) { content.removeFirst(previousPrefix.count) }
+            }
+        }
+        draftConnections[activeThreadRootID] = connection
+        draftMessageText =
+            content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? connection.suggestedRequest : "Use " + connection.id + ": " + content
+    }
+
+    func insertPowerExample(_ example: String) {
+        let existing = draftMessageText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if existing.isEmpty {
+            draftMessageText = example
+        } else if existing != example && !existing.hasSuffix("\n" + example) {
+            draftMessageText += "\n" + example
+        }
+    }
+
     func submitUserMessage(_ rawTranscript: String) {
         let trimmedTranscript = rawTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedTranscript.isEmpty else { return }
+        draftConnections[activeThreadRootID] = nil
         acknowledgeScreenSuggestions()
         let now = Date()
         let pendingMessageId =

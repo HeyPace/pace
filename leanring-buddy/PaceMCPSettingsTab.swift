@@ -17,14 +17,13 @@ import SwiftUI
 
 struct PaceMCPSettingsTab: View {
     @ObservedObject var companionManager: CompanionManager
+    var connectionFocus: PaceCommandCenterRouter.ConnectionFocus? = nil
 
     @State private var configuredMCPServerNames: [String] = PaceMCPServerRegistry.loadConfiguredServers().keys.sorted()
     /// Last per-catalog-slug operation feedback so the install card can
     /// show "Installed ✓" / "Removed" / "Failed: …" after each tap.
     /// Resets to nil on a fresh refresh so stale outcomes don't linger.
     @State private var lastCatalogActionBySlug: [String: String] = [:]
-    @State private var connectionStatusByServer: [String: String] = [:]
-    @State private var testingServerNames: Set<String> = []
     /// In-memory editing state for the Composio API key SecureField.
     /// Never persisted in @State — Save commits it to Keychain via
     /// `PaceMCPSecretStore`; the field clears after save so the SwiftUI
@@ -44,7 +43,13 @@ struct PaceMCPSettingsTab: View {
                     .font(DS.Typography.sectionTitle)
                     .foregroundColor(DS.Colors.textPrimary)
                     .accessibilityAddTraits(.isHeader)
+                    .id("pace.mcp.configured")
 
+                if let name = connectionFocus?.serverName, !configuredMCPServerNames.contains(name) {
+                    Text("“\(name)” is no longer configured. Open the configuration file to review your connections.")
+                        .font(DS.Typography.callout)
+                        .foregroundStyle(DS.Colors.textSecondary)
+                }
                 if configuredMCPServerNames.isEmpty {
                     Text(
                         "Choose an MCP server below or open the configuration file to add a connection."
@@ -53,37 +58,8 @@ struct PaceMCPSettingsTab: View {
                     .foregroundColor(DS.Colors.textTertiary)
                     .fixedSize(horizontal: false, vertical: true)
                 } else {
-                    ForEach(configuredMCPServerNames, id: \.self) { serverName in
-                        HStack(spacing: 8) {
-                            Circle()
-                                .fill(
-                                    connectionStatusByServer[serverName]?.hasPrefix("Connected") == true
-                                        ? DS.Colors.success : DS.Colors.textTertiary
-                                )
-                                .frame(width: 7, height: 7)
-                                .accessibilityHidden(true)
-                            Text(serverName)
-                                .font(.system(size: 13, weight: .medium))
-                                .foregroundColor(DS.Colors.textPrimary)
-                            Spacer()
-                            paceSettingsButton(
-                                testingServerNames.contains(serverName) ? "Connecting…" : "Test Connection",
-                                systemName: "bolt.horizontal.circle"
-                            ) {
-                                testConnection(serverName: serverName)
-                            }
-                            .disabled(testingServerNames.contains(serverName))
-                            .accessibilityLabel("Test connection to \(serverName)")
-                        }
-                        .padding(.vertical, 4)
-                        if let status = connectionStatusByServer[serverName] {
-                            Text(status)
-                                .font(.system(size: 11))
-                                .foregroundColor(
-                                    status.hasPrefix("Connected") ? DS.Colors.success : DS.Colors.textSecondary
-                                )
-                                .fixedSize(horizontal: false, vertical: true)
-                        }
+                    ForEach(focusedServerNames, id: \.self) { serverName in
+                        PaceConnectionTestView(serverName: serverName, showsServerName: true)
                     }
                 }
             }
@@ -122,6 +98,7 @@ struct PaceMCPSettingsTab: View {
 
             mcpCatalogSection
         }
+        .onChange(of: connectionFocus) { _, _ in refreshMCPServerNames() }
         .onAppear {
             refreshMCPServerNames()
             refreshComposioKeyState()
@@ -351,31 +328,16 @@ struct PaceMCPSettingsTab: View {
         }
     }
 
-    private func testConnection(serverName: String) {
-        testingServerNames.insert(serverName)
-        connectionStatusByServer[serverName] = "Connecting. Complete any provider sign-in in your browser."
-        Task { @MainActor in
-            defer { testingServerNames.remove(serverName) }
-            do {
-                let client = PaceMCPStdioClient(requestTimeoutInSeconds: 90)
-                let catalog = try await client.toolCatalog(serverName: serverName)
-                guard let data = catalog.data(using: .utf8),
-                    let tools = try JSONSerialization.jsonObject(with: data) as? [[String: Any]]
-                else {
-                    connectionStatusByServer[serverName] = "The server returned an invalid tool catalog."
-                    return
-                }
-                connectionStatusByServer[serverName] =
-                    "Connected · \(tools.count) \(tools.count == 1 ? "tool" : "tools") available. Account access is verified when a read succeeds."
-            } catch {
-                connectionStatusByServer[serverName] =
-                    "Unavailable: \(error.localizedDescription). Check the server setup, complete sign-in, then retry."
-            }
+    private var focusedServerNames: [String] {
+        guard let focused = connectionFocus?.serverName, configuredMCPServerNames.contains(focused) else {
+            return configuredMCPServerNames
         }
+        return [focused] + configuredMCPServerNames.filter { $0 != focused }
     }
 
     private func refreshMCPServerNames() {
         configuredMCPServerNames = PaceMCPServerRegistry.loadConfiguredServers().keys.sorted()
+        NotificationCenter.default.post(name: .paceMCPConfigurationRefreshed, object: nil)
     }
 
     private func createMCPConfigIfNeeded() {
@@ -398,4 +360,154 @@ struct PaceMCPSettingsTab: View {
     }
 
     private static let defaultMCPConfigText = PaceMCPServerRegistry.starterConfigurationJSON
+}
+
+extension Notification.Name {
+    fileprivate static let paceMCPConfigurationRefreshed = Notification.Name("pace.mcp.configurationRefreshed")
+}
+
+struct PaceConnectionTestView: View {
+    let serverName: String
+    var showsServerName = false
+
+    var body: some View {
+        ConnectionCheck(serverName: serverName, showsServerName: showsServerName)
+            .id(serverName)
+    }
+
+    private struct ConnectionCheck: View {
+        let serverName: String
+        let showsServerName: Bool
+        @State private var requestID: UUID?
+        @State private var testedRevision: Int?
+        @State private var status: String?
+        @State private var advertisedTools: [String]?
+
+        var body: some View {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 8) {
+                    if showsServerName {
+                        Circle().fill(advertisedTools == nil ? DS.Colors.textTertiary : DS.Colors.success)
+                            .frame(width: 7, height: 7)
+                            .accessibilityHidden(true)
+                        Text(serverName).font(DS.Typography.bodyStrong)
+                        Spacer()
+                    }
+                    paceSettingsButton(
+                        requestID == nil ? "Test Connection" : "Connecting…", systemName: "bolt.horizontal.circle"
+                    ) {
+                        advertisedTools = nil
+                        status = "Connecting. Complete any provider sign-in in your browser."
+                        requestID = UUID()
+                    }
+                    .disabled(requestID != nil)
+                    .accessibilityLabel("Test connection to \(serverName)")
+                }
+                if let status {
+                    Text(status)
+                        .font(DS.Typography.caption)
+                        .foregroundStyle(advertisedTools == nil ? DS.Colors.textSecondary : DS.Colors.success)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                if let advertisedTools, !advertisedTools.isEmpty {
+                    MCPAdvertisedToolsView(names: advertisedTools)
+                }
+            }
+            .padding(.vertical, showsServerName ? 4 : 0)
+            .accessibilityIdentifier("pace.mcp.connection.\(serverName)")
+            .task(id: requestID) {
+                guard let requestID else { return }
+                await test(requestID)
+            }
+            .onDisappear { requestID = nil }
+            .onReceive(NotificationCenter.default.publisher(for: .paceMCPConfigurationRefreshed)) { _ in
+                invalidateIfConfigurationChanged()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+                invalidateIfConfigurationChanged()
+            }
+        }
+
+        private func invalidateIfConfigurationChanged() {
+            guard let testedRevision,
+                PaceMCPServerRegistry.loadConfiguredServers()[serverName].map(revision) != testedRevision
+            else { return }
+            self.testedRevision = nil
+            requestID = nil
+            advertisedTools = nil
+            status = "Configuration changed. Test the connection again."
+        }
+
+        // Keep only a process-local comparison token between explicit tests.
+        private func revision(_ config: PaceMCPServerConfiguration) -> Int {
+            var hasher = Hasher()
+            hasher.combine(config.command)
+            hasher.combine(config.args)
+            hasher.combine(config.workingDirectory)
+            hasher.combine(config.env)
+            return hasher.finalize()
+        }
+
+        @MainActor private func test(_ id: UUID) async {
+            defer { if requestID == id { requestID = nil } }
+            guard let configuration = PaceMCPServerRegistry.loadConfiguredServers()[serverName] else {
+                testedRevision = nil
+                status = "This connection is no longer configured."
+                return
+            }
+            testedRevision = revision(configuration)
+            do {
+                let client = PaceMCPStdioClient(
+                    serverConfigurations: [serverName: configuration], requestTimeoutInSeconds: 90)
+                let catalog = try await client.toolCatalog(serverName: serverName)
+                guard !Task.isCancelled && requestID == id else { return }
+                invalidateIfConfigurationChanged()
+                guard requestID == id else { return }
+                struct AdvertisedTool: Decodable { let name: String }
+                let tools = try JSONDecoder().decode([AdvertisedTool].self, from: Data(catalog.utf8))
+                let names = tools.map(\.name).sorted()
+                guard !names.contains("") else {
+                    status = "The server returned an invalid tool catalog."
+                    return
+                }
+                advertisedTools = names
+                status = "Server connected · \(names.count) \(names.count == 1 ? "tool" : "tools") available."
+            } catch {
+                guard !Task.isCancelled && requestID == id else { return }
+                invalidateIfConfigurationChanged()
+                guard requestID == id else { return }
+                status =
+                    "Unavailable: \(error.localizedDescription). Check the server setup, complete sign-in, then retry."
+            }
+        }
+    }
+}
+
+private struct MCPAdvertisedToolsView: View {
+    let names: [String]
+    @State private var query = ""
+
+    var body: some View {
+        DisclosureGroup("Available tools (\(names.count))") {
+            VStack(alignment: .leading, spacing: 8) {
+                if names.count > 8 {
+                    TextField("Find a tool", text: $query)
+                        .textFieldStyle(.roundedBorder)
+                        .accessibilityLabel("Find a tool")
+                }
+                let matches = names.filter { query.isEmpty || $0.localizedCaseInsensitiveContains(query) }
+                if matches.isEmpty {
+                    Text("No matching tools").foregroundStyle(DS.Colors.textSecondary)
+                } else {
+                    Text(matches.joined(separator: "\n"))
+                        .font(DS.Typography.metadata)
+                        .textSelection(.enabled)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .padding(.vertical, 5)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .font(DS.Typography.callout)
+    }
 }
