@@ -71,6 +71,23 @@ nonisolated struct PaceFlowStore {
         try writeAtomically(data: encodedFlowJSON, to: destinationFileURL, replacingExisting: replacingExisting)
     }
 
+    /// Keep interrupted captures alongside any previously saved workflow with the same slug.
+    func saveRecoveredRecording(_ flow: PaceRecordedFlow) throws -> String {
+        var candidate = flow
+        var recoveryNumber = 1
+        while true {
+            do {
+                try save(candidate, replacingExisting: false)
+                return candidate.name
+            } catch PaceFlowStoreError.destinationFlowAlreadyExists {
+                // Prefix the number so even long names remain distinct after slug truncation.
+                candidate = PaceRecordedFlow(
+                    name: "Recovery \(recoveryNumber) of \(flow.name)", createdAt: flow.createdAt, steps: flow.steps)
+                recoveryNumber += 1
+            }
+        }
+    }
+
     func load(named name: String) -> PaceRecordedFlow? {
         guard let flowFileData = try? Data(contentsOf: fileURL(for: name)) else {
             return nil

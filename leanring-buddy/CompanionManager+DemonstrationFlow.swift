@@ -91,7 +91,8 @@ extension CompanionManager {
     }
 
     static func stopFlowRecording(_ recorder: PaceFlowRecorder, savingTo store: PaceFlowStore) -> String {
-        let flow = recorder.isRecording ? recorder.stop(reason: .userCommand) : recorder.unsavedRecording
+        let wasRecording = recorder.isRecording
+        let flow = wasRecording ? recorder.stop(reason: .userCommand) : recorder.unsavedRecording
         guard let flow else {
             if let summary = recorder.lastAutomaticStopSummary {
                 recorder.lastAutomaticStopSummary = nil
@@ -100,7 +101,7 @@ extension CompanionManager {
             return "no recording was in progress."
         }
         recorder.lastAutomaticStopSummary = nil
-        return saveFlowRecording(flow, recorder: recorder, savingTo: store)
+        return saveFlowRecording(flow, recorder: recorder, savingTo: store, replacingExisting: wasRecording)
     }
 
     static func finishAutomaticRecording(
@@ -116,18 +117,21 @@ extension CompanionManager {
 
     private static func saveFlowRecording(
         _ flow: PaceRecordedFlow, recorder: PaceFlowRecorder, savingTo store: PaceFlowStore,
-        replacingExisting: Bool = true
+        replacingExisting: Bool
     ) -> String {
         guard !flow.steps.isEmpty else {
             return "No steps were captured, so \(flow.name) wasn’t saved. Start recording again and perform the steps."
         }
         do {
-            try store.save(flow, replacingExisting: replacingExisting)
+            let savedName: String
+            if replacingExisting {
+                try store.save(flow)
+                savedName = flow.name
+            } else {
+                savedName = try store.saveRecoveredRecording(flow)
+            }
             recorder.markSaved(flow)
-            return "saved \(flow.name) with \(flow.steps.count) step\(flow.steps.count == 1 ? "" : "s")."
-        } catch PaceFlowStoreError.destinationFlowAlreadyExists {
-            return
-                "Captured \(flow.steps.count) steps. Say stop recording to replace the saved workflow \(flow.name) with these steps."
+            return "saved \(savedName) with \(flow.steps.count) step\(flow.steps.count == 1 ? "" : "s")."
         } catch {
             return "Could not save \(flow.name). Its captured steps are still in Pace. Say stop recording to retry."
         }

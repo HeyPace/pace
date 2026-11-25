@@ -201,26 +201,28 @@ final class PaceFlowRecorderTests: XCTestCase {
         XCTAssertEqual(stopReasons, [.idleTimeout, .captureInterrupted])
     }
 
-    func testAutomaticStopPreservesExistingFileAndRetainsPendingCaptureForExplicitSave() throws {
+    func testAutomaticStopRecoversCaptureUnderUnusedNameAndLaterStopPreservesAllCopies() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }
         let store = PaceFlowStore(directoryURL: directory)
         let previous = PaceRecordedFlow(
             name: "Fixture", createdAt: Date(timeIntervalSince1970: 1), steps: [.keyShortcut(key: "tab")])
         try store.save(previous)
+        let previousRecovery = PaceRecordedFlow(
+            name: "Recovery 1 of Fixture", createdAt: previous.createdAt, steps: previous.steps)
+        try store.save(previousRecovery)
         let recorder = PaceFlowRecorder(idleTimeoutSeconds: 0, startCaptureOverride: {})
         recorder.start(flowName: "Fixture")
         recorder.recordAppActivationForTesting(bundleIdentifier: "local.fixture", at: Date())
         let pending = try XCTUnwrap(recorder.stop(reason: .captureInterrupted))
         let result = CompanionManager.finishAutomaticRecording(
             .captureInterrupted, flow: pending, recorder: recorder, savingTo: store)
-        XCTAssertTrue(result.contains("replace the saved workflow"))
+        XCTAssertTrue(result.contains("saved Recovery 2 of Fixture"))
+        XCTAssertEqual(CompanionManager.stopFlowRecording(recorder, savingTo: store), result)
+        XCTAssertEqual(CompanionManager.stopFlowRecording(recorder, savingTo: store), "no recording was in progress.")
         XCTAssertEqual(store.load(named: "Fixture"), previous)
-        guard case .failure(.unsavedRecording("Fixture")) = recorder.start(flowName: "Other") else {
-            return XCTFail("Unsaved steps must survive attempted restart")
-        }
-        XCTAssertTrue(CompanionManager.stopFlowRecording(recorder, savingTo: store).contains("saved"))
-        XCTAssertEqual(store.load(named: "Fixture")?.steps, pending.steps)
+        XCTAssertEqual(store.load(named: previousRecovery.name), previousRecovery)
+        XCTAssertEqual(store.load(named: "Recovery 2 of Fixture")?.steps, pending.steps)
         XCTAssertNil(recorder.unsavedRecording)
     }
 
@@ -238,8 +240,13 @@ final class PaceFlowRecorderTests: XCTestCase {
         XCTAssertTrue(result.contains("Could not save"))
         XCTAssertEqual(recorder.unsavedRecording, pending)
         try FileManager.default.removeItem(at: directory)
-        XCTAssertTrue(CompanionManager.stopFlowRecording(recorder, savingTo: store).contains("saved"))
-        XCTAssertEqual(store.load(named: "Recoverable")?.steps, pending.steps)
+        let original = PaceRecordedFlow(
+            name: "Recoverable", createdAt: Date(timeIntervalSince1970: 1), steps: [.keyShortcut(key: "tab")])
+        try store.save(original)
+        let retryResult = CompanionManager.stopFlowRecording(recorder, savingTo: store)
+        XCTAssertTrue(retryResult.contains("saved Recovery 1 of Recoverable"))
+        XCTAssertEqual(store.load(named: "Recoverable"), original)
+        XCTAssertEqual(store.load(named: "Recovery 1 of Recoverable")?.steps, pending.steps)
         XCTAssertNil(recorder.unsavedRecording)
     }
 
