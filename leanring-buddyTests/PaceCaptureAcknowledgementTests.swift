@@ -35,9 +35,18 @@ struct PaceCaptureAcknowledgementTests {
         manager.useLocalVLMForScreenContext = false
         let monitor = manager.globalPushToTalkShortcutMonitor
         monitor.handleRightOptionEvent(.flagsChanged, keyCode: 61, flags: [.maskAlternate, .init(rawValue: 0x40)])
-        try await Task.sleep(for: .milliseconds(240))
+        let deadline = ContinuousClock.now + .seconds(2)
+        while !monitor.isShortcutCurrentlyPressed && ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        manager.beginConversationRequest("First voice request")
+        let firstEventID = try #require(manager.activeConversationUserEvent?.eventID)
         manager.deferredKeyboardPress = .init(threadRootID: "original-thread")
-        #expect(manager.resumeDeferredKeyboardPressIfHeld())
+        #expect(!manager.resumeDeferredKeyboardPressIfHeld())
+        #expect(manager.conversationRecorder.event(withIdentifier: firstEventID)?.deliveryState == .accepted)
+        manager.recordConversationTurn(userTranscript: "First voice request", assistantResponse: "First response")
+        manager.drainNextQueuedChatTurnIfPossible()
+        #expect(manager.conversationRecorder.event(withIdentifier: firstEventID)?.deliveryState == .completed)
         #expect(manager.captureThreadRootID == "original-thread")
         #expect(!manager.resumeDeferredKeyboardPressIfHeld())
         monitor.handleRightOptionEvent(.flagsChanged, keyCode: 61, flags: [])

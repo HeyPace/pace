@@ -544,6 +544,13 @@ extension CompanionManager {
     @discardableResult
     func resumeDeferredKeyboardPressIfHeld() -> Bool {
         guard !buddyDictationManager.isDictationInProgress, let press = deferredKeyboardPress else { return false }
+        // Finalization submits the preceding voice request before the queued idle observation runs.
+        // Its accepted turn must finish before the normal press path can interrupt playback.
+        if let event = activeConversationUserEvent,
+            conversationRecorder.event(withIdentifier: event.eventID)?.deliveryState == .accepted
+        {
+            return false
+        }
         deferredKeyboardPress = nil
         guard globalPushToTalkShortcutMonitor.isShortcutCurrentlyPressed,
             !globalPushToTalkShortcutMonitor.isSimulatedPressActive, currentDictationTrigger == .keyboard

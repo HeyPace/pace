@@ -259,6 +259,7 @@ extension CompanionManager {
     }
 
     func drainNextQueuedChatTurnIfPossible() {
+        if voiceState == .idle, resumeDeferredKeyboardPressIfHeld() { return }
         while voiceState == .idle,
             !buddyDictationManager.isRecordingFromKeyboardShortcut,
             !buddyDictationManager.isRecordingFromMicrophoneButton,
