@@ -400,7 +400,7 @@ extension CompanionManager {
                         self.currentDictationTrigger = .keyboard
                     }
                 }
-                if !observedDictationInProgress, self.resumeDeferredKeyboardPressIfHeld() { return }
+                if !observedDictationInProgress { self.waitForPreviousVoiceTurnIfNeeded() }
                 // Don't override .responding — the AI response pipeline
                 // manages that state directly until streaming finishes.
                 guard self.voiceState != .responding else { return }
@@ -541,22 +541,70 @@ extension CompanionManager {
         }
     }
 
-    @discardableResult
-    func resumeDeferredKeyboardPressIfHeld() -> Bool {
-        guard !buddyDictationManager.isDictationInProgress, let press = deferredKeyboardPress else { return false }
-        // Finalization submits the preceding voice request before the queued idle observation runs.
-        // Its accepted turn must finish before the normal press path can interrupt playback.
-        if let event = activeConversationUserEvent,
-            conversationRecorder.event(withIdentifier: event.eventID)?.deliveryState == .accepted
-        {
-            return false
+    func deferKeyboardPress(threadRootID: String?, maximumWait: Duration = .seconds(2)) {
+        clearDeferredKeyboardPress()
+        let press = DeferredKeyboardPress(threadRootID: threadRootID, deadline: .now + maximumWait)
+        deferredKeyboardPress = press
+        keyboardCaptureHint = "Keep holding. Speak when Pace shows Listening."
+        deferredPressDeadlineTask = Task { @MainActor [weak self] in
+            do { try await Task.sleep(until: press.deadline, clock: .continuous) } catch { return }
+            self?.expireDeferredKeyboardPress(press)
         }
+        waitForPreviousVoiceTurnIfNeeded()
+    }
+
+    private func expireDeferredKeyboardPress(_ press: DeferredKeyboardPress) {
+        guard deferredKeyboardPress?.identifier == press.identifier else { return }
+        clearDeferredKeyboardPress()
+        keyboardCaptureHint = "Microphone was busy. Release and hold again to speak."
+        PaceAPIAuditLog.shared.record(
+            subsystem: "dictation", operation: "deferred_press", target: "keyboard",
+            durationMilliseconds: 0, outcome: "expired")
+    }
+
+    func clearDeferredKeyboardPress() {
         deferredKeyboardPress = nil
-        guard globalPushToTalkShortcutMonitor.isShortcutCurrentlyPressed,
-            !globalPushToTalkShortcutMonitor.isSimulatedPressActive, currentDictationTrigger == .keyboard
-        else { return false }
-        handleShortcutTransition(.pressed, resuming: press)
-        return true
+        deferredPressReadinessTask?.cancel()
+        deferredPressReadinessTask = nil
+        deferredPressDeadlineTask?.cancel()
+        deferredPressDeadlineTask = nil
+        keyboardCaptureHint = nil
+    }
+
+    func waitForPreviousVoiceTurnIfNeeded() {
+        guard !buddyDictationManager.isDictationInProgress, let press = deferredKeyboardPress,
+            deferredPressReadinessTask == nil
+        else { return }
+        deferredPressReadinessTask = Task { @MainActor [weak self] in
+            // Routing may install a response task. Await both, including a speculative
+            // action that has no conversation event or an error that leaves one accepted.
+            let dispatchTask = self?.currentTurnDispatchTask
+            await dispatchTask?.value
+            guard !Task.isCancelled else { return }
+            var responseTask = self?.currentResponseTask
+            while let previousResponse = responseTask {
+                await previousResponse.value
+                guard !Task.isCancelled else { return }
+                responseTask = self?.currentResponseTask
+                if responseTask == previousResponse { break }
+            }
+            while self?.ttsClient.isPlaying == true && ContinuousClock.now < press.deadline {
+                do { try await Task.sleep(for: .milliseconds(25)) } catch { return }
+            }
+            guard let self, deferredKeyboardPress?.identifier == press.identifier else { return }
+            guard ContinuousClock.now < press.deadline, currentTurnDispatchTask == dispatchTask,
+                currentResponseTask == responseTask
+            else {
+                expireDeferredKeyboardPress(press)
+                return
+            }
+            clearDeferredKeyboardPress()
+            guard !buddyDictationManager.isDictationInProgress,
+                globalPushToTalkShortcutMonitor.isShortcutCurrentlyPressed,
+                !globalPushToTalkShortcutMonitor.isSimulatedPressActive, currentDictationTrigger == .keyboard
+            else { return }
+            handleShortcutTransition(.pressed, resuming: press)
+        }
     }
 
     func handleShortcutTransition(
@@ -564,6 +612,7 @@ extension CompanionManager {
     ) {
         switch transition {
         case .pressed:
+            clearDeferredKeyboardPress()
             shortcutPressOwnsCapture = false
             let chatVisible =
                 NSApp.windows.contains { $0 is PaceConversationPanelWindow && $0.isVisible }
@@ -580,7 +629,7 @@ extension CompanionManager {
                 if buddyDictationManager.isFinalizingTranscript, currentDictationTrigger == .keyboard,
                     !globalPushToTalkShortcutMonitor.isSimulatedPressActive
                 {
-                    deferredKeyboardPress = DeferredKeyboardPress(threadRootID: voiceThreadRootID)
+                    deferKeyboardPress(threadRootID: voiceThreadRootID)
                 }
                 return
             }
@@ -798,9 +847,9 @@ extension CompanionManager {
                 )
             }
         case .released:
-            if deferredKeyboardPress != nil {
-                deferredKeyboardPress = nil
-                return
+            if deferredKeyboardPress != nil || keyboardCaptureHint != nil {
+                clearDeferredKeyboardPress()
+                if !shortcutPressOwnsCapture && !buddyDictationManager.isRecordingFromMicrophoneButton { return }
             }
             shortcutPressOwnsCapture = false
             PaceAPIAuditLog.shared.record(
@@ -838,7 +887,7 @@ extension CompanionManager {
             }
             scheduleTranscriptSafetyFallback()
         case .cancelled:
-            deferredKeyboardPress = nil
+            clearDeferredKeyboardPress()
             ignoresRejectedPracticeShortcutRelease = false
             guard shortcutPressOwnsCapture else { return }
             cancelConversationCapture()

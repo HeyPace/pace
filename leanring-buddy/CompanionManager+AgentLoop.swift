@@ -1483,7 +1483,7 @@ extension CompanionManager {
     }
 
     func cancelConversationCapture() {
-        deferredKeyboardPress = nil
+        clearDeferredKeyboardPress()
         shortcutPressOwnsCapture = false
         pendingKeyboardShortcutStartTask?.cancel()
         pendingKeyboardShortcutStartTask = nil

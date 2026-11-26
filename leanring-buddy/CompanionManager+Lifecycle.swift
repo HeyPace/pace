@@ -259,7 +259,6 @@ extension CompanionManager {
     }
 
     func drainNextQueuedChatTurnIfPossible() {
-        if voiceState == .idle, resumeDeferredKeyboardPressIfHeld() { return }
         while voiceState == .idle,
             !buddyDictationManager.isRecordingFromKeyboardShortcut,
             !buddyDictationManager.isRecordingFromMicrophoneButton,
@@ -879,7 +878,7 @@ extension CompanionManager {
         if isPostureWatchEnabled {
             postureMonitor.stop()
         }
-        deferredKeyboardPress = nil
+        clearDeferredKeyboardPress()
         globalPushToTalkShortcutMonitor.stop()
         globalChatShortcutMonitor.stop()
         buddyDictationManager.cancelCurrentDictation()

@@ -11,7 +11,7 @@ This is the per-file reference for Pace's source, scripts, and bundled resources
 | `CompanionManager.swift` | ~1336 | Class declaration and stored properties only — the god-class shell after Phase A decomposition. |
 | `CompanionManager+AgentLoop.swift` | ~4015 | AI response routing and execution, including selected-planner teaching requests, same-lease awaited lessons, remote/mute-safe speech handling and owned replay after host finalization.
 | `PaceTurnLease.swift` | ~30 | Pure generation registry used to reject cancelled or superseded routing results and queued planner speech before they can mutate the active turn. |
-| `CompanionManager+PrivateBindings.swift` | ~755 | Permission polling, LM Studio reachability, barge-in VAD, wake-word, shortcut bindings. |
+| `CompanionManager+PrivateBindings.swift` | ~905 | Permission polling, LM Studio reachability, barge-in VAD, wake-word, shortcut bindings. |
 | `CompanionManager+Lifecycle.swift` | ~1000 | `start()`/`stop()`, permission requests, avatar/deeplink/chat entry points, and FIFO typed-turn queue draining between complete voice-agent turns. |
 | `CompanionManager+LocalRetrieval.swift` | ~570 | Local retrieval context, connector refresh, source management. |
 | `CompanionManager+ConversationMemory.swift` | ~450 | Accepted request and assistant-event recording, interrupted turn finalization, thread memory, episodic facts from genuine user turns. |
@@ -398,7 +398,7 @@ This is the per-file reference for Pace's source, scripts, and bundled resources
 | --- | --- | --- |
 | `PaceJapanesePractice.swift` | ~230 | Session-only Japanese practice mode, bounded bilingual reply contract, one-call teacher instructions and existing chat control. |
 | `leanring-buddyTests/PaceJapanesePracticeTests.swift` | ~580 | Practice/parser/history/profile/default-language checks and opt-in local Japanese/English WAV transcription qualification. |
-| `leanring-buddyTests/PaceCaptureAcknowledgementTests.swift` | ~435 | Post-tap receipt ordering, mute and history preservation, empty/cancel/stale capture safety and old-finalization timer cancellation. |
+| `leanring-buddyTests/PaceCaptureAcknowledgementTests.swift` | ~590 | Post-tap receipt ordering, mute and history preservation, empty/cancel/stale capture safety and old-finalization timer cancellation. |
 | `leanring-buddyTests/PaceDialogueTranscriptModelTests.swift` | ~100 | Exact-turn activity grouping, retained receipt bodies, unlinked records, visible failure/approval, caption metadata and streaming identity checks. |
 | `leanring-buddyTests/PaceDialogueReplayTests.swift` | ~265 | Per-message replay, both mute boundaries, immediate mute and Stop, canonical history and draft preservation through the manager fixture. |
 | `leanring-buddyTests/StreamingSentenceTTSPipelineProfileOnsetTests.swift` | ~75 | Controlled Japanese utterance onset/completion and stale-onset rejection for latency and spoken-character accounting. |

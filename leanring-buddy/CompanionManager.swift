@@ -897,9 +897,14 @@ final class CompanionManager: ObservableObject {
     @Published var currentRequestStartedAt: Date?
     var ignoresRejectedPracticeShortcutRelease = false
     struct DeferredKeyboardPress {
+        let identifier = UUID()
         let threadRootID: String?
+        let deadline: ContinuousClock.Instant
     }
     var deferredKeyboardPress: DeferredKeyboardPress?
+    var deferredPressReadinessTask: Task<Void, Never>?
+    var deferredPressDeadlineTask: Task<Void, Never>?
+    @Published var keyboardCaptureHint: String?
     var pendingKeyboardShortcutStartTask: Task<Void, Never>?
     var lastCalendarRetrievalRefreshAt: Date?
     var lastCalendarRetrievalAuthorizationStatus: EKAuthorizationStatus?

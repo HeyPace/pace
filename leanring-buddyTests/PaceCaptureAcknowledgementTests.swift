@@ -23,7 +23,7 @@ struct PaceCaptureAcknowledgementTests {
         }
     }
 
-    @Test func idleObservationConsumesOneHeldKeyboardPressInItsOriginalThread() async throws {
+    @Test func heldPressWaitsForRoutingAndResponseEvenAfterFirstNarration() async throws {
         let (root, manager, _, _) = try PacePowerManagerTests().fixture()
         defer {
             manager.cancelActiveTurnTasks()
@@ -39,44 +39,58 @@ struct PaceCaptureAcknowledgementTests {
         while !monitor.isShortcutCurrentlyPressed && ContinuousClock.now < deadline {
             try await Task.sleep(for: .milliseconds(10))
         }
-        manager.beginConversationRequest("First voice request")
+        manager.beginConversationRequest("First request")
         let firstEventID = try #require(manager.activeConversationUserEvent?.eventID)
-        manager.deferredKeyboardPress = .init(threadRootID: "original-thread")
-        #expect(!manager.resumeDeferredKeyboardPressIfHeld())
-        #expect(manager.conversationRecorder.event(withIdentifier: firstEventID)?.deliveryState == .accepted)
-        manager.recordConversationTurn(userTranscript: "First voice request", assistantResponse: "First response")
-        manager.drainNextQueuedChatTurnIfPossible()
+        manager.recordConversationTurn(userTranscript: "First request", assistantResponse: "Checking")
+        var firstActionCompleted = false
+        manager.currentTurnDispatchTask = Task { @MainActor in
+            await Task.yield()
+            manager.currentResponseTask = Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(50))
+                if !Task.isCancelled { firstActionCompleted = true }
+            }
+        }
+        manager.deferKeyboardPress(threadRootID: "original-thread")
+        #expect(manager.keyboardCaptureHint?.contains("Keep holding") == true)
+        manager.waitForPreviousVoiceTurnIfNeeded()
+        let readinessTask = try #require(manager.deferredPressReadinessTask)
+        await readinessTask.value
+        #expect(firstActionCompleted)
         #expect(manager.conversationRecorder.event(withIdentifier: firstEventID)?.deliveryState == .completed)
         #expect(manager.captureThreadRootID == "original-thread")
-        #expect(!manager.resumeDeferredKeyboardPressIfHeld())
+        #expect(manager.deferredKeyboardPress == nil)
+        #expect(manager.keyboardCaptureHint == nil)
         monitor.handleRightOptionEvent(.flagsChanged, keyCode: 61, flags: [])
     }
 
-    @Test func releaseOrCancellationDiscardsDeferredKeyboardPress() throws {
+    @Test func overduePressRequestsANewHoldWithoutInterruptingSlowAction() async throws {
+        let (root, manager, _, _) = try PacePowerManagerTests().fixture()
+        defer { try? FileManager.default.removeItem(at: root) }
+        manager.currentResponseTask = Task { try? await Task.sleep(for: .milliseconds(100)) }
+        manager.deferKeyboardPress(threadRootID: "expired-thread", maximumWait: .milliseconds(5))
+        await manager.deferredPressDeadlineTask?.value
+        #expect(manager.deferredKeyboardPress == nil)
+        #expect(manager.keyboardCaptureHint?.contains("hold again") == true)
+        #expect(manager.currentResponseTask?.isCancelled == false)
+        await manager.currentResponseTask?.value
+        #expect(manager.captureThreadRootID == nil)
+        manager.handleShortcutTransition(.released)
+        #expect(manager.keyboardCaptureHint == nil)
+    }
+
+    @Test func releaseCancellationAndStopDiscardDeferredKeyboardPress() async throws {
         let (root, manager, _, _) = try PacePowerManagerTests().fixture()
         defer { try? FileManager.default.removeItem(at: root) }
         for transition in [BuddyPushToTalkShortcut.ShortcutTransition.released, .cancelled] {
-            manager.deferredKeyboardPress = .init(threadRootID: "original-thread")
+            manager.deferKeyboardPress(threadRootID: "original-thread")
+            let readinessTask = manager.deferredPressReadinessTask
             manager.handleShortcutTransition(transition)
+            await readinessTask?.value
             #expect(manager.deferredKeyboardPress == nil)
-            #expect(!manager.resumeDeferredKeyboardPressIfHeld())
+            #expect(manager.keyboardCaptureHint == nil)
             #expect(manager.pendingKeyboardShortcutStartTask == nil)
         }
-    }
-
-    @Test func idleObservationCannotStartAReleasedOrSimulatedDeferredPress() throws {
-        let (root, manager, _, _) = try PacePowerManagerTests().fixture()
-        defer { try? FileManager.default.removeItem(at: root) }
-        let monitor = manager.globalPushToTalkShortcutMonitor
-        for simulated in [false, true] {
-            if simulated { monitor.simulateShortcutPressed() }
-            manager.deferredKeyboardPress = .init(threadRootID: nil)
-            #expect(!manager.resumeDeferredKeyboardPressIfHeld())
-            #expect(manager.deferredKeyboardPress == nil)
-            #expect(manager.pendingKeyboardShortcutStartTask == nil)
-            monitor.discardSimulatedPress()
-        }
-        manager.deferredKeyboardPress = .init(threadRootID: nil)
+        manager.deferKeyboardPress(threadRootID: nil)
         manager.cancelConversationCapture()
         #expect(manager.deferredKeyboardPress == nil)
     }
