@@ -14,6 +14,7 @@
 
 import Accelerate
 import Foundation
+import SileroVAD
 
 /// Which track a turn belongs to. `.mic` is "you", `.system` is "them"
 /// for v1 attribution.
@@ -134,6 +135,13 @@ nonisolated enum PaceMeetingTurnSegmenter {
             }
         }
 
+        if let mic, micPadWindows < micWindows.count, mic.sampleRate == Double(SileroVAD.sampleRate) {
+            recoverQuietMicSpeech(
+                activeTracks: &activeTrackPerWindow, mic: mic, micWindows: micWindows, micPad: micPadWindows,
+                systemWindows: system == nil ? nil : systemWindows, systemPad: systemPadWindows,
+                windowSize: windowSize)
+        }
+
         // Build turns with hysteresis. Walk windows, group consecutive
         // active windows of the same track into runs. A nil window
         // (between thresholds) extends the current run if the gap so
@@ -224,6 +232,61 @@ nonisolated enum PaceMeetingTurnSegmenter {
         return turns.filter { turn in
             turn.sampleRange.count >= minimumSamples
         }
+    }
+
+    /// Only fill quiet gaps. Existing attributions and the brief pauses inside a remote turn stay intact.
+    private static func recoverQuietMicSpeech(
+        activeTracks: inout [PaceMeetingAudioTrackKind?], mic: PaceMeetingAudioTrack, micWindows: [Float],
+        micPad: Int, systemWindows: [Float]?, systemPad: Int, windowSize: Int
+    ) {
+        let sensitivity = PaceUtteranceEndpointConfiguration()
+        let windowsPerSecond = mic.sampleRate / Double(windowSize)
+        let minimumRun = Int(ceil(minimumTurnDurationSeconds * windowsPerSecond))
+        let silenceGap = Int(ceil(maximumSilenceGapSeconds * windowsPerSecond))
+        var detector: SileroVAD?
+        var firstAudibleWindow: Int?
+        var lastAudibleWindow = 0
+
+        func confirmRun() {
+            defer { firstAudibleWindow = nil }
+            guard let first = firstAudibleWindow, lastAudibleWindow - first + 1 >= minimumRun else { return }
+            let levels = micWindows[first...lastAudibleWindow]
+            guard let quietest = levels.min(), let loudest = levels.max(), loudest > 1.5 * quietest else { return }
+            if detector == nil { detector = try? SileroVAD() }
+            guard let detector else { return }
+            detector.reset()
+            let firstSample = (first - micPad) * windowSize
+            let endSample = min(mic.samples.count, (lastAudibleWindow - micPad + 1) * windowSize)
+            var consecutiveFrames = 0
+            for start in stride(from: firstSample, to: endSample, by: SileroVAD.chunkSize) {
+                let end = min(start + SileroVAD.chunkSize, endSample)
+                var frame = Array(mic.samples[start..<end])
+                frame.append(contentsOf: repeatElement(0, count: SileroVAD.chunkSize - frame.count))
+                guard let probability = try? detector.process(frame) else { return }
+                consecutiveFrames = probability >= 0.35 ? consecutiveFrames + 1 : 0
+                guard consecutiveFrames >= 2 else { continue }
+                // Keep the onset and trailing consonants around a confirmed pair of speech frames.
+                let from = max(first, micPad + (start - SileroVAD.chunkSize) / windowSize - 4)
+                let through = min(lastAudibleWindow, micPad + (end - 1) / windowSize + 4)
+                for window in from...through { activeTracks[window] = .mic }
+            }
+        }
+
+        for index in micPad..<micWindows.count {
+            let remoteIsQuiet =
+                systemWindows.map {
+                    index >= systemPad && index < $0.count && $0[index] < sensitivity.minimumSilenceRMS
+                } ?? true
+            if activeTracks[index] != nil || !remoteIsQuiet {
+                confirmRun()
+            } else if micWindows[index] >= sensitivity.minimumSpeechRMS {
+                if firstAudibleWindow == nil { firstAudibleWindow = index }
+                lastAudibleWindow = index
+            } else if firstAudibleWindow != nil, index - lastAudibleWindow >= silenceGap {
+                confirmRun()
+            }
+        }
+        confirmRun()
     }
 
     // MARK: - RMS windowing

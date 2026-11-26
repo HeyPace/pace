@@ -1483,6 +1483,7 @@ extension CompanionManager {
     }
 
     func cancelConversationCapture() {
+        clearDeferredKeyboardPress()
         shortcutPressOwnsCapture = false
         pendingKeyboardShortcutStartTask?.cancel()
         pendingKeyboardShortcutStartTask = nil
@@ -3936,13 +3937,11 @@ extension CompanionManager {
         controller.plannerClient = BuddyPlannerClientFactory.makeLocalOnlyTextPlannerForPrivacyPinnedFeatures()
         switch command {
         case .start(let profileSlug):
-            PaceUserPreferencesStore.setBool(true, for: .isMeetingModeEnabled)
-            controller.isEnabled = true
             // Resolve the named profile (if any) up front so we can both
             // pin it for this meeting and confirm it by name aloud.
             let namedProfile = profileSlug.map { PaceMeetingNoteProfileLibrary.profile(forSlug: $0) }
             Task {
-                await controller.start()
+                await controller.start(profileSlug: namedProfile?.slug)
                 guard controller.state == .active else {
                     let failureMessage: String
                     if case .failed(let reason) = controller.state {
@@ -3954,10 +3953,7 @@ extension CompanionManager {
                     voiceState = .idle
                     return
                 }
-                // start() clears any stale per-meeting choice, so set the
-                // explicit profile AFTER start.
                 if let namedProfile {
-                    controller.selectedProfileSlug = namedProfile.slug
                     await publishMeetingFeedback(
                         "Recording your \(namedProfile.name) — I'll write \(namedProfile.name)-style notes when you stop."
                     )
@@ -3967,15 +3963,17 @@ extension CompanionManager {
                 voiceState = .idle
             }
         case .stop:
-            PaceUserPreferencesStore.setBool(false, for: .isMeetingModeEnabled)
-            controller.isEnabled = false
             Task {
                 await controller.stop()
                 if let notes = controller.lastMeetingNotes, !notes.summary.isEmpty {
-                    let brief =
-                        notes.synthesisFailed
-                        ? "Meeting stopped. Notes synthesis failed, but the transcript is saved."
-                        : "Meeting stopped. Your notes are saved."
+                    let brief: String
+                    if notes.transcriptHighlights != nil {
+                        brief = "Meeting stopped. Your transcript and highlights are saved."
+                    } else if notes.synthesisFailed {
+                        brief = "Meeting stopped. Your transcript is saved. Structured notes are unavailable."
+                    } else {
+                        brief = "Meeting stopped. Your notes are saved."
+                    }
                     await publishMeetingFeedback(brief)
                 } else {
                     await publishMeetingFeedback("Meeting stopped. No speech detected.")

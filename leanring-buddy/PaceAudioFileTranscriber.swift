@@ -251,43 +251,41 @@ enum PaceAudioFileTranscriber {
     // MARK: - WhisperKit backend
 
     #if canImport(WhisperKit)
-    nonisolated private static func transcribeWithWhisperKit(pcmSamples: [Float]) async throws -> String {
-        let pipeline = try await PaceWhisperKitFilePipelineCache.shared.pipeline()
-        var decodingOptions = DecodingOptions()
-        // language: nil → auto-detect. Long-form files may not be
-        // English (a podcast, a Spanish-language meeting recording);
-            // The small installed base.en model recognises English.
-        decodingOptions.language = nil
-        decodingOptions.temperature = 0
-        let results = try await pipeline.transcribe(audioArray: pcmSamples, decodeOptions: decodingOptions)
-        return results.map(\.text)
-            .joined(separator: " ")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    nonisolated private static func transcribeWithWhisperKitSegmented(pcmSamples: [Float]) async throws -> [PaceTranscriptionSegment] {
-        let pipeline = try await PaceWhisperKitFilePipelineCache.shared.pipeline()
-        var decodingOptions = DecodingOptions()
-        decodingOptions.language = nil
-        decodingOptions.temperature = 0
-        let results = try await pipeline.transcribe(audioArray: pcmSamples, decodeOptions: decodingOptions)
-        // WhisperKit returns one TranscriptionResult per chunk; each
-        // carries its own segments with start/end timestamps in
-        // seconds. Flatten across chunks.
-        var segments: [PaceTranscriptionSegment] = []
-        for result in results {
-            for segment in result.segments {
-                let text = segment.text.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !text.isEmpty else { continue }
-                segments.append(PaceTranscriptionSegment(
-                    start: TimeInterval(segment.start),
-                    end: TimeInterval(segment.end),
-                    text: text
-                ))
-            }
+        nonisolated private static func whisperKitResults(for samples: [Float]) async throws -> [TranscriptionResult] {
+            let pipeline = try await PaceWhisperKitFilePipelineCache.shared.pipeline()
+            return try await pipeline.transcribe(
+                audioArray: samples, decodeOptions: DecodingOptions(skipSpecialTokens: true))
         }
-        return segments
-    }
+
+        nonisolated private static func transcribeWithWhisperKit(pcmSamples: [Float]) async throws -> String {
+            let results = try await whisperKitResults(for: pcmSamples)
+            return results.map(\.text)
+                .joined(separator: " ")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        nonisolated private static func transcribeWithWhisperKitSegmented(pcmSamples: [Float]) async throws
+            -> [PaceTranscriptionSegment]
+        {
+            let results = try await whisperKitResults(for: pcmSamples)
+            // WhisperKit returns one TranscriptionResult per chunk; each
+            // carries its own segments with start/end timestamps in
+            // seconds. Flatten across chunks.
+            var segments: [PaceTranscriptionSegment] = []
+            for result in results {
+                for segment in result.segments {
+                    let text = segment.text.trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard !text.isEmpty else { continue }
+                    segments.append(
+                        PaceTranscriptionSegment(
+                            start: TimeInterval(segment.start),
+                            end: TimeInterval(segment.end),
+                            text: text
+                        ))
+                }
+            }
+            return segments
+        }
     #endif
 
     // MARK: - Apple Speech backend

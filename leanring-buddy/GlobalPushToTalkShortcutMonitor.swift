@@ -15,6 +15,7 @@ final class GlobalPushToTalkShortcutMonitor: ObservableObject {
     let shortcutTransitionPublisher = PassthroughSubject<BuddyPushToTalkShortcut.ShortcutTransition, Never>()
 
     private let shortcutOption: BuddyPushToTalkShortcut.ShortcutOption
+    var currentModifierFlags: () -> CGEventFlags = { CGEventSource.flagsState(.combinedSessionState) }
     private var rightOptionHoldTask: Task<Void, Never>?
     private var functionPThread: Thread?
     private var functionPTapGeneration = UUID()
@@ -76,8 +77,7 @@ final class GlobalPushToTalkShortcutMonitor: ObservableObject {
             if !CGEvent.tapIsEnabled(tap: globalEventTap) {
                 CGEvent.tapEnable(tap: globalEventTap, enable: true)
             }
-            recoverMissedModifierRelease(
-                modifierFlagsRawValue: CGEventSource.flagsState(.combinedSessionState).rawValue)
+            recoverMissedModifierRelease()
             return
         }
 
@@ -283,6 +283,10 @@ final class GlobalPushToTalkShortcutMonitor: ObservableObject {
                 target: "push-to-talk", durationMilliseconds: 0, outcome: "received",
                 detail: "pid=\(ProcessInfo.processInfo.processIdentifier)")
         }
+    }
+
+    func recoverMissedModifierRelease() {
+        recoverMissedModifierRelease(modifierFlagsRawValue: currentModifierFlags().rawValue)
     }
 
     func recoverMissedModifierRelease(modifierFlagsRawValue: UInt64) {

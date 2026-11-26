@@ -30,6 +30,14 @@ enum PaceMeetingModeState: Equatable {
     case transcribing
     case synthesizing
     case failed(String)
+
+    func noteProfileForStart(requested: String?, current: String?) -> String? {
+        switch self {
+        case .inactive, .failed: return requested
+        case .active: return requested ?? current
+        case .starting, .transcribing, .synthesizing: return current
+        }
+    }
 }
 
 /// Meeting mode controller. Manages an SCStream that captures system
@@ -58,9 +66,7 @@ final class PaceMeetingModeController: ObservableObject {
     /// can subscribe to detect speech activity in system audio.
     let audioLevelPublisher = PassthroughSubject<Float, Never>()
 
-    /// Whether meeting mode is enabled (persisted preference).
-    @Published var isEnabled: Bool = PaceUserPreferencesStore
-        .bool(.isMeetingModeEnabled, default: false)
+    var isCapturing: Bool { state == .starting || state == .active }
 
     /// Injected retriever for journaling meeting notes. Set from
     /// `CompanionManager` before `start()` to avoid a singleton init
@@ -91,7 +97,20 @@ final class PaceMeetingModeController: ObservableObject {
     /// superseded it, instead of clobbering the newer session's state.
     private var lifecycleGeneration: Int = 0
 
-    private init() {}
+    private let loadShareableContent: @MainActor () async throws -> SCShareableContent
+    private let makeRecorder: @MainActor (UUID) -> PaceMeetingAudioRecorder
+
+    init(
+        loadShareableContent: @escaping @MainActor () async throws -> SCShareableContent = {
+            try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
+        },
+        makeRecorder: @escaping @MainActor (UUID) -> PaceMeetingAudioRecorder = {
+            PaceMeetingAudioRecorder(meetingID: $0)
+        }
+    ) {
+        self.loadShareableContent = loadShareableContent
+        self.makeRecorder = makeRecorder
+    }
 
     // MARK: - Lifecycle
 
@@ -101,7 +120,9 @@ final class PaceMeetingModeController: ObservableObject {
     /// `PaceMeetingAudioRecorder` that owns the mic track and the
     /// two-track disk writer; the SCStream delegate appends system
     /// samples to the recorder as they arrive.
-    func start() async {
+    func start(profileSlug: String? = nil) async {
+        let profileForMeeting = state.noteProfileForStart(requested: profileSlug, current: selectedProfileSlug)
+        if profileForMeeting != selectedProfileSlug { selectedProfileSlug = profileForMeeting }
         // Reject while a previous meeting is anywhere in its lifecycle —
         // including .transcribing/.synthesizing, where a new capture
         // would race the old stop() pipeline for `state` and
@@ -117,36 +138,9 @@ final class PaceMeetingModeController: ObservableObject {
         state = .starting
         lastMeetingNotes = nil
         systemAudioDroppedMidMeeting = false
-        // Clear any stale per-meeting profile choice; the user picks for
-        // THIS meeting via the panel after start.
-        selectedProfileSlug = nil
-
-        // Create the recorder + meeting ID up front so both tracks
-        // share one identifier even if the SCStream fails to start.
-        let meetingID = UUID()
-        let newRecorder = PaceMeetingAudioRecorder(meetingID: meetingID)
-        recorder = newRecorder
 
         do {
-            // Start mic capture first — a failure here is recoverable
-            // (the system track can still record).
-            try await newRecorder.startMicCapture { [weak self] in
-                self?.lifecycleGeneration == thisStartGeneration
-            }
-        } catch {
-            // Mic permission denied or engine failure — continue with
-            // system-only capture. The recorder's mic track will be
-            // empty/nil at stop, which the segmenter handles.
-        }
-        // A stop() (or newer start) interleaved during the mic await —
-        // it already owns the recorder teardown; abort quietly.
-        guard lifecycleGeneration == thisStartGeneration else { return }
-
-        do {
-            let content = try await SCShareableContent.excludingDesktopWindows(
-                false,
-                onScreenWindowsOnly: true
-            )
+            let content = try await loadShareableContent()
             guard lifecycleGeneration == thisStartGeneration else { return }
 
             // Capture the primary display's audio. We use the display
@@ -156,6 +150,9 @@ final class PaceMeetingModeController: ObservableObject {
                 state = .failed("No display found for audio capture")
                 return
             }
+
+            let newRecorder = makeRecorder(UUID())
+            recorder = newRecorder
 
             // Exclude Pace's own windows to avoid capturing TTS output.
             let ownPID = ProcessInfo.processInfo.processIdentifier
@@ -190,12 +187,14 @@ final class PaceMeetingModeController: ObservableObject {
                     // cheap UI level update hops to the main actor.
                     systemSampleSink(samples)
                     Task { @MainActor [weak self] in
+                        guard self?.lifecycleGeneration == thisStartGeneration else { return }
                         self?.updateSystemAudioLevel(level)
                     }
                 },
                 onStreamStopped: { [weak self] errorDescription in
                     Task { @MainActor [weak self] in
-                        self?.handleSystemAudioStreamStopped(errorDescription: errorDescription)
+                        guard self?.lifecycleGeneration == thisStartGeneration else { return }
+                        await self?.handleSystemAudioStreamStopped(errorDescription: errorDescription)
                     }
                 }
             )
@@ -229,12 +228,42 @@ final class PaceMeetingModeController: ObservableObject {
                 try? await scStream.stopCapture()
                 return
             }
+            // Capture the microphone only after system capture succeeds. If microphone access is
+            // unavailable, the successfully started system stream can still record the far side.
+            try? await newRecorder.startMicCapture { [weak self] in
+                self?.lifecycleGeneration == thisStartGeneration
+            }
+            guard lifecycleGeneration == thisStartGeneration else { return }
             state = .active
             captureStartedAt = Date()
         } catch {
             guard lifecycleGeneration == thisStartGeneration else { return }
-            state = .failed(error.localizedDescription)
+            await failStart(error.localizedDescription)
         }
+    }
+
+    private func failStart(_ message: String) async {
+        lifecycleGeneration += 1
+        let failureGeneration = lifecycleGeneration
+        stopSystemCapture()
+        let failedRecorder = recorder
+        recorder = nil
+        _ = await failedRecorder?.stop()
+        guard lifecycleGeneration == failureGeneration else { return }
+        detectedSpeechLevel = 0
+        captureStartedAt = nil
+        state = .failed(message)
+    }
+
+    private func stopSystemCapture() {
+        if let stream, let streamDelegate {
+            try? stream.removeStreamOutput(streamDelegate, type: .audio)
+        }
+        // ScreenCaptureKit acknowledges shutdown asynchronously. Detach its sample sink and
+        // release the microphone immediately, even when that acknowledgement is delayed.
+        stream?.stopCapture(completionHandler: { _ in })
+        stream = nil
+        streamDelegate = nil
     }
 
     /// Stop capturing system + mic audio, then run the full pipeline:
@@ -257,11 +286,7 @@ final class PaceMeetingModeController: ObservableObject {
         lifecycleGeneration += 1
         state = .transcribing
 
-        if let stream {
-            try? await stream.stopCapture()
-            self.stream = nil
-        }
-        streamDelegate = nil
+        stopSystemCapture()
         captureStartedAt = nil
         detectedSpeechLevel = 0.0
 
@@ -282,11 +307,12 @@ final class PaceMeetingModeController: ObservableObject {
         // Segment the two tracks into attributed turns. The timeline
         // anchor is the earliest captured sample, not the start() call —
         // each track's startOffsetSeconds is relative to it.
-        let turns = PaceMeetingTurnSegmenter.segment(
-            mic: recording.micTrack,
-            system: recording.systemTrack,
-            now: recording.earliestSampleAnchor ?? recording.startedAt
-        )
+        let turns = await Task.detached(priority: .userInitiated) {
+            PaceMeetingTurnSegmenter.segment(
+                mic: recording.micTrack,
+                system: recording.systemTrack,
+                now: recording.earliestSampleAnchor ?? recording.startedAt)
+        }.value
 
         // Transcribe each turn's audio slice. When segmentation yields
         // zero turns (pure silence), skip transcription entirely.
@@ -378,6 +404,7 @@ final class PaceMeetingModeController: ObservableObject {
         // only the user spoke.
         let finalNotes: PaceMeetingNotes
         if systemAudioDroppedMidMeeting {
+            let missingAudioWarning = "(System audio dropped partway through — notes may only cover your side.) "
             finalNotes = PaceMeetingNotes(
                 meetingID: notes.meetingID,
                 startedAt: notes.startedAt,
@@ -385,10 +412,11 @@ final class PaceMeetingModeController: ObservableObject {
                 title: notes.title,
                 transcript: notes.transcript,
                 turns: notes.turns,
-                summary: "(System audio dropped partway through — notes may only cover your side.) " + notes.summary,
+                summary: missingAudioWarning + notes.summary,
                 actionItems: notes.actionItems,
                 decisions: notes.decisions,
-                synthesisFailed: notes.synthesisFailed
+                synthesisFailed: notes.synthesisFailed,
+                transcriptHighlights: notes.transcriptHighlights.map { missingAudioWarning + $0 }
             )
         } else {
             finalNotes = notes
@@ -498,8 +526,12 @@ final class PaceMeetingModeController: ObservableObject {
     /// a meeting than none), the panel state reflects the drop, and the
     /// eventual notes carry a caveat instead of silently reading as a
     /// one-sided meeting.
-    private func handleSystemAudioStreamStopped(errorDescription: String) {
-        guard state == .active || state == .starting else { return }
+    private func handleSystemAudioStreamStopped(errorDescription: String) async {
+        if state == .starting {
+            await failStart(errorDescription)
+            return
+        }
+        guard state == .active else { return }
         systemAudioDroppedMidMeeting = true
         detectedSpeechLevel = 0.0
         print("⚠️ Meeting mode: system audio stream stopped mid-meeting — \(errorDescription). Mic track continues.")

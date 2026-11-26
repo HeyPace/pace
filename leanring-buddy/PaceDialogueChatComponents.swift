@@ -289,6 +289,11 @@ struct PaceDialogueCurrentStatusView: View {
         let showsStatus = PaceDialogueTranscriptModel.showsCurrentTurnStatus(state: signalState, hasFailure: hasFailure)
         let owner = companionManager.liveRequestLocation
         let showsLocalStatus = showsStatus && owner.showsDetails(in: session.activeThreadRootID, hasFailure: hasFailure)
+        if let hint = companionManager.keyboardCaptureHint {
+            Label(hint.detail, systemImage: "keyboard")
+                .font(.callout).foregroundStyle(DS.Colors.textSecondary)
+                .accessibilityAddTraits(.updatesFrequently)
+        }
         if showsLocalStatus {
             if tracksElapsedTime {
                 TimelineView(.periodic(from: .now, by: 1)) { context in status(at: context.date) }

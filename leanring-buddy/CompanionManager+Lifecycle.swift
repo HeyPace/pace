@@ -374,6 +374,8 @@ extension CompanionManager {
         // recording directories past the retention window — continuous
         // room audio must not accumulate forever on a privacy-first
         // product.
+        // Older builds persisted an active meeting as a setting. Recovery repairs files only.
+        PaceUserPreferencesStore.clearLegacyMeetingCaptureSetting()
         let meetingRecordingRetentionDays = PaceUserPreferencesStore.meetingNotesRetentionDays()
         Task.detached(priority: .utility) {
             PaceMeetingAudioRecorder.crashRepairAllMeetingRecordings()
@@ -784,19 +786,6 @@ extension CompanionManager {
             }
         }
 
-        // 4. Meeting mode: resume across launches when the user left it on.
-        if PaceUserPreferencesStore.bool(for: .isMeetingModeEnabled) {
-            let controller = PaceMeetingModeController.shared
-            controller.isEnabled = true
-            controller.localRetriever = localRetriever
-            // Privacy-pinned: meeting synthesis never uses the active
-            // (possibly off-device) tier.
-            controller.plannerClient = BuddyPlannerClientFactory.makeLocalOnlyPlannerForPrivacyPinnedFeatures()
-            Task { @MainActor in
-                await controller.start()
-            }
-        }
-
         // Daily morning brief — opt-in. The scheduler stays inert
         // (no timer, no fire) until the user enables it in Settings.
         if isMorningTriageEnabled {
@@ -878,6 +867,7 @@ extension CompanionManager {
         if isPostureWatchEnabled {
             postureMonitor.stop()
         }
+        clearDeferredKeyboardPress()
         globalPushToTalkShortcutMonitor.stop()
         globalChatShortcutMonitor.stop()
         buddyDictationManager.cancelCurrentDictation()

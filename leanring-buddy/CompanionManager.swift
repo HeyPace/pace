@@ -896,6 +896,32 @@ final class CompanionManager: ObservableObject {
     var hasAnnouncedCurrentCaptureReady = false
     @Published var currentRequestStartedAt: Date?
     var ignoresRejectedPracticeShortcutRelease = false
+    struct DeferredKeyboardPress {
+        let identifier = UUID()
+        let threadRootID: String?
+        let deadline: ContinuousClock.Instant
+    }
+    var deferredKeyboardPress: DeferredKeyboardPress?
+    var deferredPressReadinessTask: Task<Void, Never>?
+    var deferredPressDeadlineTask: Task<Void, Never>?
+    enum KeyboardCaptureHint {
+        case waiting, expired
+
+        var detail: String {
+            switch self {
+            case .waiting: return "Keep holding. Speak when Pace shows Listening."
+            case .expired: return "Release the key. When Pace finishes its reply, hold again to speak."
+            }
+        }
+
+        var compactLabel: String {
+            switch self {
+            case .waiting: return "Hold until Listening"
+            case .expired: return "Try again after the reply"
+            }
+        }
+    }
+    @Published var keyboardCaptureHint: KeyboardCaptureHint?
     var pendingKeyboardShortcutStartTask: Task<Void, Never>?
     var lastCalendarRetrievalRefreshAt: Date?
     var lastCalendarRetrievalAuthorizationStatus: EKAuthorizationStatus?

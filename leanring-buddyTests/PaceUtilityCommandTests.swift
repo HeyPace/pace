@@ -63,6 +63,10 @@ struct PaceUtilityCommandTests {
     func installedWhisperKitTranscribesTheCommandFixture() async throws {
         let transcript = try await PaceAudioFileTranscriber.transcribeAudioFile(at: speechFixtureURL)
         #expect(transcript.lowercased().contains("next command"))
+        #expect(!transcript.contains("<|"))
+        let segments = try await PaceAudioFileTranscriber.transcribeAudioFileSegmented(at: speechFixtureURL)
+        #expect(segments.map(\.text).joined(separator: " ").lowercased().contains("next command"))
+        #expect(segments.allSatisfy { !$0.text.contains("<|") && $0.end > $0.start })
     }
 
     @Test func bundledSileroRejectsSilenceWithoutModelDownloads() throws {

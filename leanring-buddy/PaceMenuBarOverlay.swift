@@ -300,7 +300,7 @@ final class PaceMenuBarOverlayManager {
             isHovering: isHovering,
             showsPersistentRuntimeIndicator:
                 !companionManager.companionControlCenter.activeSources.isEmpty
-                || companionManager.isOffDeviceTurnInFlight
+                || companionManager.isOffDeviceTurnInFlight || companionManager.keyboardCaptureHint != nil
         )
 
         let geometry = PaceLivingNotchScreenGeometryResolver.ambientTargetScreen(
@@ -386,9 +386,11 @@ final class PaceMenuBarOverlayManager {
         fallbackMenuBarStatusItem?.isVisible = shouldShowStatusItem
         fallbackMenuBarStatusItem?.button?.contentTintColor =
             companionManager?.isOffDeviceTurnInFlight == true ? .systemOrange : nil
-        fallbackMenuBarStatusItem?.button?.toolTip =
+        let requestStatus =
             companionManager?.isOffDeviceTurnInFlight == true
             ? "Pace — off-device request in progress" : "Open Pace conversations"
+        fallbackMenuBarStatusItem?.button?.toolTip = [requestStatus, companionManager?.keyboardCaptureHint?.detail]
+            .compactMap { $0 }.joined(separator: ". ")
     }
 
     private func createFallbackMenuBarStatusItemIfNeeded() {
@@ -500,7 +502,7 @@ private struct PaceMenuBarOverlayView: View {
             physicalHousingWidth: surfaceModel.physicalHousingWidth,
             physicalHousingHeight: surfaceModel.physicalHousingHeight,
             signalState: signalState,
-            activityLabel: compactActivityLabel,
+            activityLabel: companionManager.keyboardCaptureHint?.compactLabel ?? compactActivityLabel,
             isOffDeviceTurn: companionManager.isOffDeviceTurnInFlight,
             plannerLabel: offDevicePlannerLabel,
             audioPowerLevel: companionManager.currentAudioPowerLevel,
@@ -509,8 +511,9 @@ private struct PaceMenuBarOverlayView: View {
             isScreenActive: companionManager.isWatchModeEnabled
                 || companionControlCenter.activeSources.contains(.screen),
             hasUnreadScreenSuggestion: chatSession.hasUnreadScreenSuggestion,
-            persistentStatus: companionControlCenter.preferences.isCompanionModeEnabled
-                ? companionControlCenter.runtimeStatusText : nil,
+            persistentStatus: companionManager.keyboardCaptureHint?.compactLabel
+                ?? (companionControlCenter.preferences.isCompanionModeEnabled
+                    ? companionControlCenter.runtimeStatusText : nil),
             companionStatusColor: companionStatusColor,
             onBrandTap: { companionManager.handleMicrophoneButtonTapped() },
             onChatTap: openConversation
@@ -518,14 +521,15 @@ private struct PaceMenuBarOverlayView: View {
         .contentShape(Rectangle())
         .pointerCursor()
         .help(
-            companionControlCenter.preferences.isCompanionModeEnabled
-                ? companionControlCenter.runtimeStatusText
-                : statusText
+            companionManager.keyboardCaptureHint?.detail
+                ?? (companionControlCenter.preferences.isCompanionModeEnabled
+                    ? companionControlCenter.runtimeStatusText : statusText)
         )
         .modifier(
             PaceLivingNotchAccessibilityModifier(
                 accessibilityValue:
                     "\(signalPresentation.accessibilityValue)"
+                    + (companionManager.keyboardCaptureHint.map { ". " + $0.detail } ?? "")
                     + "\(captureAccessibilityDescription) Press "
                     + "\(PaceNotchChatShortcut.currentShortcutAccessibilityLabel) to open Pace."
             )

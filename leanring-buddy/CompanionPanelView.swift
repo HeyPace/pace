@@ -487,14 +487,14 @@ struct CompanionPanelView: View {
             }
 
             if notes.synthesisFailed {
-                Text("Notes synthesis failed — transcript saved.")
+                Text(notes.fallbackDescription)
                     .font(.system(size: 11))
                     .foregroundColor(DS.Colors.textTertiary)
                     .fixedSize(horizontal: false, vertical: true)
             }
 
             if !notes.summary.isEmpty {
-                Text(notes.summary)
+                Text(notes.summaryForDisplay)
                     .font(.system(size: 11))
                     .foregroundColor(DS.Colors.textPrimary)
                     .fixedSize(horizontal: false, vertical: true)

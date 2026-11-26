@@ -518,14 +518,14 @@ struct PaceChatPanelView: View {
             }
 
             if meetingNotes.synthesisFailed {
-                Text("Notes synthesis failed — transcript saved.")
+                Text(meetingNotes.fallbackDescription)
                     .font(.system(size: 11))
                     .foregroundColor(DS.Colors.textTertiary)
                     .fixedSize(horizontal: false, vertical: true)
             }
 
             if !meetingNotes.summary.isEmpty {
-                Text(meetingNotes.summary)
+                Text(meetingNotes.summaryForDisplay)
                     .font(.system(size: 11))
                     .foregroundColor(DS.Colors.textPrimary)
                     .fixedSize(horizontal: false, vertical: true)

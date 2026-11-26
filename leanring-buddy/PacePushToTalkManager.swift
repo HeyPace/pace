@@ -944,11 +944,9 @@ final class PacePushToTalkManager: NSObject, ObservableObject {
         // the session that just ended, not the freshly reset nil.
         let speculativeTranscriptExecutedThisSession = speculativeExecutedTranscript
 
-        // Lazy stream close: remove tap + cancel session, but defer
-        // the engine stop so a quick follow-up PTT is faster.
-        audioEngine.inputNode.removeTap(onBus: 0)
+        // Release already removed the tap and scheduled the engine close. A slow
+        // transcript must not extend microphone use beyond the original deadline.
         activeTranscriptionSession?.cancel()
-        scheduleLazyEngineClose()
 
         resetSessionState()
 

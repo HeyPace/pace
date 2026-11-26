@@ -89,11 +89,24 @@ struct PaceMeetingNotesBuilderTests {
         ]
     }
 
+    @Test func lengthySentencesProduceABoundedVerbatimExcerpt() throws {
+        let sentence = String(repeating: "The team discussed the lighthouse ", count: 30) + "today."
+        let transcript = Array(repeating: sentence, count: 5).joined(separator: " ")
+        let notes = PaceMeetingNotes(
+            meetingID: meetingID, startedAt: startedAt, endedAt: endedAt, title: "Harbor",
+            transcript: transcript, turns: [], summary: transcript, actionItems: [], decisions: [],
+            synthesisFailed: true)
+        let highlights = try #require(notes.transcriptHighlights)
+        #expect(highlights.count <= 601 && highlights.hasSuffix("…"))
+        #expect(transcript.contains(String(highlights.dropLast())))
+        #expect(notes.transcript == transcript)
+    }
+
     private let sampleTranscript: String = """
-    you: Let's ship the feature by Friday.
-    them: Agreed. I'll review the PR tomorrow.
-    you: We decided to use the new API design.
-    """
+        you: Let's ship the feature by Friday.
+        them: Agreed. I'll review the PR tomorrow.
+        you: We decided to use the new API design.
+        """
 
     @Test func localMLXModelSynthesizesMeetingNotesWhenExplicitlyEnabled() async throws {
         guard ProcessInfo.processInfo.environment["PACE_RUN_LOCAL_NOTES"] == "1" else { return }

@@ -285,11 +285,8 @@ extension PaceActionExecutor {
         let controller = PaceMeetingModeController.shared
         switch command {
         case .start(let profileSlug):
-            controller.isEnabled = true
-            if let profileSlug { controller.selectedProfileSlug = profileSlug }
-            await controller.start()
+            await controller.start(profileSlug: profileSlug)
         case .stop:
-            controller.isEnabled = false
             await controller.stop()
         case .status: break
         }
