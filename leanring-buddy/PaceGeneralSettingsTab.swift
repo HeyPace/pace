@@ -11,6 +11,7 @@ import SwiftUI
 
 struct PaceGeneralSettingsTab: View {
     @ObservedObject var companionManager: CompanionManager
+    @ObservedObject var meetingController = PaceMeetingModeController.shared
     var showsCoreBehavior = true
     @State private var showsAdvancedWorkflowSettings = false
 
@@ -103,21 +104,18 @@ struct PaceGeneralSettingsTab: View {
                 title: "Meeting mode",
                 subtitle: "Capture system audio (excluding Pace) so Pace can listen during calls. Say \"start meeting mode\" or toggle here.",
                 isOn: Binding(
-                    get: { PaceUserPreferencesStore.bool(for: .isMeetingModeEnabled) },
+                    get: { meetingController.isCapturing },
                     set: { newValue in
-                        PaceUserPreferencesStore.setBool(newValue, for: .isMeetingModeEnabled)
                         Task { @MainActor in
-                            let controller = PaceMeetingModeController.shared
                             if newValue {
-                                controller.isEnabled = true
-                                controller.localRetriever = companionManager.localRetriever
+                                meetingController.localRetriever = companionManager.localRetriever
                                 // Privacy-pinned: meeting synthesis never
                                 // uses the active (possibly off-device) tier.
-                                controller.plannerClient = BuddyPlannerClientFactory.makeLocalOnlyPlannerForPrivacyPinnedFeatures()
-                                await controller.start()
+                                meetingController.plannerClient =
+                                    BuddyPlannerClientFactory.makeLocalOnlyPlannerForPrivacyPinnedFeatures()
+                                await meetingController.start()
                             } else {
-                                controller.isEnabled = false
-                                await controller.stop()
+                                await meetingController.stop()
                             }
                         }
                     }

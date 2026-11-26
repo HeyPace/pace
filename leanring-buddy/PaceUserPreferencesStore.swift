@@ -152,6 +152,10 @@ enum PaceUserPreferenceKey: String {
 }
 
 enum PaceUserPreferencesStore {
+    static func clearLegacyMeetingCaptureSetting(defaults: UserDefaults = .standard) {
+        defaults.removeObject(forKey: PaceUserPreferenceKey.isMeetingModeEnabled.rawValue)
+    }
+
     /// Read a boolean preference. Returns `defaultValue` if the key has
     /// never been written.
     static func bool(_ key: PaceUserPreferenceKey, default defaultValue: Bool, defaults: UserDefaults = .standard)

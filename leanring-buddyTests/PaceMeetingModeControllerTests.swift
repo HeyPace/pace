@@ -45,12 +45,14 @@ struct PaceMeetingModeControllerTests {
 
     // MARK: - Preference
 
-    /// The meeting mode preference key exists.
-    @Test
-    func meetingModePreferenceKeyExists() {
-        // A hardware smoke may have enabled recording in the debug app.
-        // Verify the key without assuming the owner's persisted preference.
-        #expect(PaceUserPreferenceKey(rawValue: "isMeetingModeEnabled") == .isMeetingModeEnabled)
+    @Test func staleMeetingPreferenceIsClearedWithoutStartingCapture() throws {
+        let suiteName = "PaceMeetingLaunchTests-" + UUID().uuidString
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        PaceUserPreferencesStore.setBool(true, for: .isMeetingModeEnabled, defaults: defaults)
+        PaceUserPreferencesStore.clearLegacyMeetingCaptureSetting(defaults: defaults)
+        #expect(defaults.object(forKey: PaceUserPreferenceKey.isMeetingModeEnabled.rawValue) == nil)
+        #expect(!PaceMeetingModeController.shared.isCapturing)
     }
 
     /// The cron scheduler preference key exists.
