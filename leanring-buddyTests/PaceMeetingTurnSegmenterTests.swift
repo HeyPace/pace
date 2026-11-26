@@ -68,6 +68,31 @@ struct PaceMeetingTurnSegmenterTests {
         #expect(turns.allSatisfy { $0.attributedSpeaker == "them" })
     }
 
+    @Test func quietMicSpeechIsDetectedOnlyAfterSystemPlaybackEnds() throws {
+        let fixture = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .appendingPathComponent("Fixtures/pace-command-speech.wav")
+        let speech = try PaceAudioFileTranscriber.decodeAudioToMonoFloatSamplesAt16kHz(fileURL: fixture)
+        let peak = try #require(speech.map(abs).max())
+        let quietSpeech = speech.map { $0 * 0.038 / peak }
+        let remoteSpeech = speech.map { $0 * 0.4 / peak }
+        let pause = silence(durationSeconds: 0.5)
+        let system = makeTrack(remoteSpeech + pause + Array(repeating: 0, count: quietSpeech.count))
+        let mic = makeTrack(quietSpeech + pause + quietSpeech)
+        let start = Date()
+        let turns = PaceMeetingTurnSegmenter.segment(mic: mic, system: system, now: start)
+        #expect(turns.contains { $0.track == .system })
+        let localTurns = turns.filter { $0.track == .mic }
+        #expect(!localTurns.isEmpty)
+        #expect(localTurns.allSatisfy { $0.start.timeIntervalSince(start) >= Double(remoteSpeech.count) / sampleRate })
+    }
+
+    @Test func steadyLowMicrophoneHumDoesNotStartATurn() {
+        let pause = silence(durationSeconds: 0.5)
+        let hum = sineWave(amplitude: 0.025, durationSeconds: 4, frequency: 60)
+        let turns = PaceMeetingTurnSegmenter.segment(mic: makeTrack(pause + hum + pause), system: nil, now: Date())
+        #expect(turns.isEmpty)
+    }
+
     // MARK: - Single long utterance
 
     @Test func singleLongUtteranceProducesOneTurn() async throws {
