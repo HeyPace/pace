@@ -386,7 +386,8 @@ final class PaceMenuBarOverlayManager {
         fallbackMenuBarStatusItem?.isVisible = shouldShowStatusItem
         fallbackMenuBarStatusItem?.button?.contentTintColor =
             companionManager?.isOffDeviceTurnInFlight == true ? .systemOrange : nil
-        let requestStatus = companionManager?.isOffDeviceTurnInFlight == true
+        let requestStatus =
+            companionManager?.isOffDeviceTurnInFlight == true
             ? "Pace — off-device request in progress" : "Open Pace conversations"
         fallbackMenuBarStatusItem?.button?.toolTip = [requestStatus, companionManager?.keyboardCaptureHint?.detail]
             .compactMap { $0 }.joined(separator: ". ")
@@ -511,7 +512,8 @@ private struct PaceMenuBarOverlayView: View {
                 || companionControlCenter.activeSources.contains(.screen),
             hasUnreadScreenSuggestion: chatSession.hasUnreadScreenSuggestion,
             persistentStatus: companionManager.keyboardCaptureHint?.compactLabel
-                ?? (companionControlCenter.preferences.isCompanionModeEnabled ? companionControlCenter.runtimeStatusText : nil),
+                ?? (companionControlCenter.preferences.isCompanionModeEnabled
+                    ? companionControlCenter.runtimeStatusText : nil),
             companionStatusColor: companionStatusColor,
             onBrandTap: { companionManager.handleMicrophoneButtonTapped() },
             onChatTap: openConversation
