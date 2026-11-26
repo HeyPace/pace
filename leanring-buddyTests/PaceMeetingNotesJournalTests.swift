@@ -104,6 +104,31 @@ struct PaceMeetingNotesJournalTests {
         #expect(text.contains("Summary: raw transcript fallback"))
     }
 
+    @Test func offlineHighlightsSurviveRestartAlongsideTheFullTranscript() throws {
+        let sentences = [
+            "The boats leave on Monday.", "Morgan will bring the harbor map.", "The blue lighthouse needs paint.",
+            "Painting starts on Friday.", "Sam agreed to bring the paint.", "The harbor map identifies the lighthouse.",
+        ]
+        let transcript = sentences.joined(separator: "\n\n")
+        let now = Date()
+        let notes = PaceMeetingNotes(
+            meetingID: UUID(), startedAt: now, endedAt: now, title: "Harbor meeting",
+            transcript: transcript, turns: [], summary: transcript, actionItems: [], decisions: [],
+            synthesisFailed: true)
+        let highlights = try #require(notes.transcriptHighlights)
+        #expect(highlights == notes.summaryForDisplay)
+        #expect(sentences.filter { highlights.contains($0) }.count == 3)
+        #expect(notes.summary == transcript)
+
+        var journal = PaceMeetingNotesJournal(rehydratingFrom: [], now: now)
+        let recorded = journal.record(notes)
+        let document = try #require(recorded)
+        var rehydrated = PaceMeetingNotesJournal(rehydratingFrom: [document], now: now)
+        #expect(rehydrated.allDocuments(now: now).first?.text == document.text)
+        #expect(document.text.contains("Transcript highlights: " + highlights))
+        #expect(document.text.contains("Summary: " + transcript))
+    }
+
     @Test func rehydrationPreservesNotesAcrossRestart() async throws {
         let now = Date()
         let meetingID = UUID()

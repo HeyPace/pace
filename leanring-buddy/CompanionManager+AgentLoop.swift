@@ -3973,10 +3973,14 @@ extension CompanionManager {
             Task {
                 await controller.stop()
                 if let notes = controller.lastMeetingNotes, !notes.summary.isEmpty {
-                    let brief =
-                        notes.synthesisFailed
-                        ? "Meeting stopped. Notes synthesis failed, but the transcript is saved."
-                        : "Meeting stopped. Your notes are saved."
+                    let brief: String
+                    if notes.transcriptHighlights != nil {
+                        brief = "Meeting stopped. Your transcript and highlights are saved."
+                    } else if notes.synthesisFailed {
+                        brief = "Meeting stopped. Your transcript is saved. Structured notes are unavailable."
+                    } else {
+                        brief = "Meeting stopped. Your notes are saved."
+                    }
                     await publishMeetingFeedback(brief)
                 } else {
                     await publishMeetingFeedback("Meeting stopped. No speech detected.")

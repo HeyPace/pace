@@ -32,6 +32,7 @@ nonisolated struct PaceMeetingNotesJournal {
         let endedAt: Date
         let title: String
         let summary: String
+        let transcriptHighlights: String?
         let actionItems: [PaceMeetingActionItem]
         let decisions: [String]
         let synthesisFailed: Bool
@@ -64,6 +65,7 @@ nonisolated struct PaceMeetingNotesJournal {
             endedAt: notes.endedAt,
             title: notes.title,
             summary: notes.summary,
+            transcriptHighlights: notes.transcriptHighlights,
             actionItems: notes.actionItems,
             decisions: notes.decisions,
             synthesisFailed: notes.synthesisFailed,
@@ -96,6 +98,7 @@ nonisolated struct PaceMeetingNotesJournal {
         let retrievalText = renderRetrievalText(
             title: entry.title,
             summary: entry.summary,
+            transcriptHighlights: entry.transcriptHighlights,
             actionItems: entry.actionItems,
             decisions: entry.decisions,
             synthesisFailed: entry.synthesisFailed
@@ -117,6 +120,7 @@ nonisolated struct PaceMeetingNotesJournal {
     private static func renderRetrievalText(
         title: String,
         summary: String,
+        transcriptHighlights: String?,
         actionItems: [PaceMeetingActionItem],
         decisions: [String],
         synthesisFailed: Bool
@@ -126,6 +130,10 @@ nonisolated struct PaceMeetingNotesJournal {
 
         if synthesisFailed {
             lines.append("Notes synthesis failed; the raw transcript was saved as the summary.")
+        }
+
+        if let transcriptHighlights {
+            lines.append("Transcript highlights: \(transcriptHighlights)")
         }
 
         let trimmedSummary = summary.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -186,23 +194,33 @@ nonisolated struct PaceMeetingNotesJournal {
         let startedAt = dayFormatter.date(from: dayKey) ?? Date()
 
         // Parse the text body back into summary / action items / decisions.
-        let textLines = document.text.split(separator: "\n").map(String.init)
+        let textLines = document.text.components(separatedBy: "\n")
         var summary = ""
+        var transcriptHighlights: String?
         var actionItems: [PaceMeetingActionItem] = []
         var decisions: [String] = []
         var synthesisFailed = false
         var currentSection: Section? = nil
 
-        for line in textLines {
+        for (index, line) in textLines.enumerated() {
             if line.hasPrefix("Meeting notes:") {
                 continue
             }
-            if line.contains("Notes synthesis failed") {
+            if line.hasPrefix("Transcript highlights: ") {
+                transcriptHighlights = String(line.dropFirst("Transcript highlights: ".count))
+                continue
+            }
+            if line.hasPrefix("Notes synthesis failed") {
                 synthesisFailed = true
                 continue
             }
             if line.hasPrefix("Summary:") {
                 summary = String(line.dropFirst("Summary: ".count))
+                // A fallback has no generated decisions or actions. Its last field holds the full transcript.
+                if synthesisFailed, transcriptHighlights != nil {
+                    summary = ([summary] + textLines.dropFirst(index + 1)).joined(separator: "\n")
+                    break
+                }
                 currentSection = nil
                 continue
             }
@@ -233,6 +251,7 @@ nonisolated struct PaceMeetingNotesJournal {
             endedAt: startedAt,
             title: title,
             summary: summary,
+            transcriptHighlights: transcriptHighlights,
             actionItems: actionItems,
             decisions: decisions,
             synthesisFailed: synthesisFailed,

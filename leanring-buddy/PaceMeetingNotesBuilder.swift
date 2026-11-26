@@ -16,6 +16,7 @@
 //  See docs/prds/on-device-meeting-notes.md for the full spec.
 //
 
+import CoreServices
 import Foundation
 
 // MARK: - Notes value types
@@ -90,6 +91,15 @@ nonisolated struct PaceMeetingNotes: Equatable, Codable, Sendable {
     let actionItems: [PaceMeetingActionItem]
     let decisions: [String]
     let synthesisFailed: Bool
+    let transcriptHighlights: String?
+
+    var summaryForDisplay: String { transcriptHighlights ?? summary }
+
+    var fallbackDescription: String {
+        transcriptHighlights == nil
+            ? "Transcript saved. Structured notes unavailable."
+            : "Transcript highlights · Structured notes unavailable"
+    }
 
     init(
         meetingID: UUID,
@@ -101,7 +111,8 @@ nonisolated struct PaceMeetingNotes: Equatable, Codable, Sendable {
         summary: String,
         actionItems: [PaceMeetingActionItem],
         decisions: [String],
-        synthesisFailed: Bool
+        synthesisFailed: Bool,
+        transcriptHighlights: String? = nil
     ) {
         self.meetingID = meetingID
         self.startedAt = startedAt
@@ -113,6 +124,22 @@ nonisolated struct PaceMeetingNotes: Equatable, Codable, Sendable {
         self.actionItems = actionItems
         self.decisions = decisions
         self.synthesisFailed = synthesisFailed
+        self.transcriptHighlights =
+            transcriptHighlights ?? (synthesisFailed && transcript == summary ? Self.highlights(from: transcript) : nil)
+    }
+
+    private static func highlights(from transcript: String) -> String? {
+        guard !transcript.isEmpty,
+            let document = SKSummaryCreateWithString(transcript as CFString)?.takeRetainedValue(),
+            SKSummaryGetSentenceCount(document) > 3,
+            let sentences = SKSummaryCopySentenceSummaryString(document, 3)?.takeRetainedValue()
+        else { return nil }
+        let highlights = (sentences as String).split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        guard !highlights.isEmpty else { return nil }
+        guard highlights.count > 600 else { return highlights }
+        let excerpt = highlights.prefix(600)
+        let end = excerpt.lastIndex(of: " ") ?? excerpt.endIndex
+        return String(excerpt[..<end]) + "…"
     }
 }
 
