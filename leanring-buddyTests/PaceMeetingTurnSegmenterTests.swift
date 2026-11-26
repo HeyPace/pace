@@ -93,6 +93,37 @@ struct PaceMeetingTurnSegmenterTests {
         #expect(turns.isEmpty)
     }
 
+    @Test func aQuietClickDuringARemotePausePreservesTheEntireRemoteTurn() {
+        let remote = sineWave(amplitude: 0.2, durationSeconds: 0.5)
+        let system = makeTrack(remote + silence(durationSeconds: 0.36) + remote)
+        let mic = makeTrack(
+            silence(durationSeconds: 0.76) + sineWave(amplitude: 0.025, durationSeconds: 0.02)
+                + silence(durationSeconds: 0.58))
+        let turns = PaceMeetingTurnSegmenter.segment(mic: mic, system: system, now: Date())
+        #expect(turns.count == 1)
+        #expect(turns.first?.track == .system)
+        #expect(turns.first?.sampleRange == 0..<system.samples.count)
+    }
+
+    @Test func repeatedQuietClicksDoNotBecomeAttributedSpeech() {
+        let click = sineWave(amplitude: 0.025, durationSeconds: 0.02)
+        let cycle = click + silence(durationSeconds: 0.12)
+        let mic = makeTrack(Array(repeating: cycle, count: 15).flatMap { $0 })
+        #expect(PaceMeetingTurnSegmenter.segment(mic: mic, system: nil, now: Date()).isEmpty)
+    }
+
+    @Test func quietMicSpeechIsNotRecoveredFromOutsideTheRecordedSystemTimeline() throws {
+        let fixture = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .appendingPathComponent("Fixtures/pace-command-speech.wav")
+        let samples = try PaceAudioFileTranscriber.decodeAudioToMonoFloatSamplesAt16kHz(fileURL: fixture)
+        let peak = try #require(samples.map(abs).max())
+        let mic = makeTrack(samples.map { $0 * 0.038 / peak })
+        let offsetSystem = PaceMeetingAudioTrack(
+            samples: silence(durationSeconds: 1), sampleRate: sampleRate,
+            startOffsetSeconds: Double(samples.count) / sampleRate)
+        #expect(PaceMeetingTurnSegmenter.segment(mic: mic, system: offsetSystem, now: Date()).isEmpty)
+    }
+
     // MARK: - Single long utterance
 
     @Test func singleLongUtteranceProducesOneTurn() async throws {

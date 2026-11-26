@@ -280,11 +280,12 @@ final class PaceMeetingModeController: ObservableObject {
         // Segment the two tracks into attributed turns. The timeline
         // anchor is the earliest captured sample, not the start() call —
         // each track's startOffsetSeconds is relative to it.
-        let turns = PaceMeetingTurnSegmenter.segment(
-            mic: recording.micTrack,
-            system: recording.systemTrack,
-            now: recording.earliestSampleAnchor ?? recording.startedAt
-        )
+        let turns = await Task.detached(priority: .userInitiated) {
+            PaceMeetingTurnSegmenter.segment(
+                mic: recording.micTrack,
+                system: recording.systemTrack,
+                now: recording.earliestSampleAnchor ?? recording.startedAt)
+        }.value
 
         // Transcribe each turn's audio slice. When segmentation yields
         // zero turns (pure silence), skip transcription entirely.
