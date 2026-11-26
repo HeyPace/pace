@@ -193,11 +193,8 @@ Seven modules that were previously standalone stubs are now fully integrated:
 - **Meeting mode** — `PaceSystemAudioCapture` / `PaceMeetingModeController`
   captures system audio via SCStream (excluding Pace's own TTS). Voice: "start
   meeting mode" / "stop meeting mode". Settings toggle in General → Automation.
-  Resumes on launch if preference is on. **Note:** v1 only publishes RMS levels
-  for VAD — no recording, transcription, or notes. The full on-device
-  meeting-notes assembly (two-track capture → turn segmentation → transcription
-  → structured notes → retrieval) is scoped in
-  [`docs/product/prds/on-device-meeting-notes.md`](prds/on-device-meeting-notes.md).
+  Each recording needs an explicit start. On launch, Pace repairs interrupted
+  recordings and leaves the microphone idle. See the [on-device meeting notes design](prds/on-device-meeting-notes.md).
 - **Apple FM tool-calling** — `PaceFMTurnResponse.toolCalls` array is serialized
   via `serializedToolCallsJSON()` in `AppleFoundationModelsPlannerClient` into
   `<tool_calls>` JSON blocks. Previously the field was silently dropped.
