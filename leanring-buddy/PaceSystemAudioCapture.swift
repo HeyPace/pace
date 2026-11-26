@@ -58,9 +58,7 @@ final class PaceMeetingModeController: ObservableObject {
     /// can subscribe to detect speech activity in system audio.
     let audioLevelPublisher = PassthroughSubject<Float, Never>()
 
-    /// Whether meeting mode is enabled (persisted preference).
-    @Published var isEnabled: Bool = PaceUserPreferencesStore
-        .bool(.isMeetingModeEnabled, default: false)
+    var isCapturing: Bool { state == .starting || state == .active }
 
     /// Injected retriever for journaling meeting notes. Set from
     /// `CompanionManager` before `start()` to avoid a singleton init

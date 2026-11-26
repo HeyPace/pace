@@ -3937,8 +3937,6 @@ extension CompanionManager {
         controller.plannerClient = BuddyPlannerClientFactory.makeLocalOnlyTextPlannerForPrivacyPinnedFeatures()
         switch command {
         case .start(let profileSlug):
-            PaceUserPreferencesStore.setBool(true, for: .isMeetingModeEnabled)
-            controller.isEnabled = true
             // Resolve the named profile (if any) up front so we can both
             // pin it for this meeting and confirm it by name aloud.
             let namedProfile = profileSlug.map { PaceMeetingNoteProfileLibrary.profile(forSlug: $0) }
@@ -3968,8 +3966,6 @@ extension CompanionManager {
                 voiceState = .idle
             }
         case .stop:
-            PaceUserPreferencesStore.setBool(false, for: .isMeetingModeEnabled)
-            controller.isEnabled = false
             Task {
                 await controller.stop()
                 if let notes = controller.lastMeetingNotes, !notes.summary.isEmpty {
