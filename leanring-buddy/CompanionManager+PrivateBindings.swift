@@ -541,7 +541,7 @@ extension CompanionManager {
         }
     }
 
-    func deferKeyboardPress(threadRootID: String?, maximumWait: Duration = .seconds(2)) {
+    func deferKeyboardPress(threadRootID: String?, maximumWait: Duration = .seconds(8)) {
         clearDeferredKeyboardPress()
         let press = DeferredKeyboardPress(threadRootID: threadRootID, deadline: .now + maximumWait)
         deferredKeyboardPress = press
