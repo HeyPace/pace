@@ -378,6 +378,7 @@ final class PaceMeetingModeController: ObservableObject {
         // only the user spoke.
         let finalNotes: PaceMeetingNotes
         if systemAudioDroppedMidMeeting {
+            let missingAudioWarning = "(System audio dropped partway through — notes may only cover your side.) "
             finalNotes = PaceMeetingNotes(
                 meetingID: notes.meetingID,
                 startedAt: notes.startedAt,
@@ -385,10 +386,11 @@ final class PaceMeetingModeController: ObservableObject {
                 title: notes.title,
                 transcript: notes.transcript,
                 turns: notes.turns,
-                summary: "(System audio dropped partway through — notes may only cover your side.) " + notes.summary,
+                summary: missingAudioWarning + notes.summary,
                 actionItems: notes.actionItems,
                 decisions: notes.decisions,
-                synthesisFailed: notes.synthesisFailed
+                synthesisFailed: notes.synthesisFailed,
+                transcriptHighlights: notes.transcriptHighlights.map { missingAudioWarning + $0 }
             )
         } else {
             finalNotes = notes

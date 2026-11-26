@@ -109,7 +109,7 @@ struct PaceMeetingNotesJournalTests {
             "The boats leave on Monday.", "Morgan will bring the harbor map.", "The blue lighthouse needs paint.",
             "Painting starts on Friday.", "Sam agreed to bring the paint.", "The harbor map identifies the lighthouse.",
         ]
-        let transcript = sentences.joined(separator: " ")
+        let transcript = sentences.joined(separator: "\n\n")
         let now = Date()
         let notes = PaceMeetingNotes(
             meetingID: UUID(), startedAt: now, endedAt: now, title: "Harbor meeting",
@@ -121,7 +121,8 @@ struct PaceMeetingNotesJournalTests {
         #expect(notes.summary == transcript)
 
         var journal = PaceMeetingNotesJournal(rehydratingFrom: [], now: now)
-        let document = try #require(journal.record(notes))
+        let recorded = journal.record(notes)
+        let document = try #require(recorded)
         var rehydrated = PaceMeetingNotesJournal(rehydratingFrom: [document], now: now)
         #expect(rehydrated.allDocuments(now: now).first?.text == document.text)
         #expect(document.text.contains("Transcript highlights: " + highlights))

@@ -111,7 +111,8 @@ nonisolated struct PaceMeetingNotes: Equatable, Codable, Sendable {
         summary: String,
         actionItems: [PaceMeetingActionItem],
         decisions: [String],
-        synthesisFailed: Bool
+        synthesisFailed: Bool,
+        transcriptHighlights: String? = nil
     ) {
         self.meetingID = meetingID
         self.startedAt = startedAt
@@ -123,7 +124,8 @@ nonisolated struct PaceMeetingNotes: Equatable, Codable, Sendable {
         self.actionItems = actionItems
         self.decisions = decisions
         self.synthesisFailed = synthesisFailed
-        self.transcriptHighlights = synthesisFailed && transcript == summary ? Self.highlights(from: transcript) : nil
+        self.transcriptHighlights =
+            transcriptHighlights ?? (synthesisFailed && transcript == summary ? Self.highlights(from: transcript) : nil)
     }
 
     private static func highlights(from transcript: String) -> String? {
@@ -133,7 +135,11 @@ nonisolated struct PaceMeetingNotes: Equatable, Codable, Sendable {
             let sentences = SKSummaryCopySentenceSummaryString(document, 3)?.takeRetainedValue()
         else { return nil }
         let highlights = (sentences as String).split(whereSeparator: \.isWhitespace).joined(separator: " ")
-        return highlights.isEmpty ? nil : highlights
+        guard !highlights.isEmpty else { return nil }
+        guard highlights.count > 600 else { return highlights }
+        let excerpt = highlights.prefix(600)
+        let end = excerpt.lastIndex(of: " ") ?? excerpt.endIndex
+        return String(excerpt[..<end]) + "…"
     }
 }
 

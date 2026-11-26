@@ -194,7 +194,7 @@ nonisolated struct PaceMeetingNotesJournal {
         let startedAt = dayFormatter.date(from: dayKey) ?? Date()
 
         // Parse the text body back into summary / action items / decisions.
-        let textLines = document.text.split(separator: "\n").map(String.init)
+        let textLines = document.text.components(separatedBy: "\n")
         var summary = ""
         var transcriptHighlights: String?
         var actionItems: [PaceMeetingActionItem] = []
@@ -202,7 +202,7 @@ nonisolated struct PaceMeetingNotesJournal {
         var synthesisFailed = false
         var currentSection: Section? = nil
 
-        for line in textLines {
+        for (index, line) in textLines.enumerated() {
             if line.hasPrefix("Meeting notes:") {
                 continue
             }
@@ -216,6 +216,11 @@ nonisolated struct PaceMeetingNotesJournal {
             }
             if line.hasPrefix("Summary:") {
                 summary = String(line.dropFirst("Summary: ".count))
+                // A fallback has no generated decisions or actions. Its last field holds the full transcript.
+                if synthesisFailed, transcriptHighlights != nil {
+                    summary = ([summary] + textLines.dropFirst(index + 1)).joined(separator: "\n")
+                    break
+                }
                 currentSection = nil
                 continue
             }
