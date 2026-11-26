@@ -206,6 +206,13 @@ struct PaceMCPClientIntegrationTests {
         }
     }
 
+    @Test func explicitFreshTabReadsAreDistinctFromRecall() {
+        #expect(PaceIntentClassifier.requestsFreshTabInspection("Read both chapters in my current Chrome tab."))
+        #expect(PaceIntentClassifier.requestsFreshTabInspection("Please inspect this tab"))
+        #expect(!PaceIntentClassifier.requestsFreshTabInspection("What did we read in the previous tab?"))
+        #expect(!PaceIntentClassifier.requestsFreshTabInspection("Read my meeting notes"))
+    }
+
     @Test func navigationKeepsEarlierEvidenceAlongsideTheLatestActionResult() {
         var history = PaceAgentInspectionHistory()
         _ = history.continuationEvidence(
