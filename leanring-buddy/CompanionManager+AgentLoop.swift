@@ -3941,7 +3941,7 @@ extension CompanionManager {
             // pin it for this meeting and confirm it by name aloud.
             let namedProfile = profileSlug.map { PaceMeetingNoteProfileLibrary.profile(forSlug: $0) }
             Task {
-                await controller.start()
+                await controller.start(profileSlug: namedProfile?.slug)
                 guard controller.state == .active else {
                     let failureMessage: String
                     if case .failed(let reason) = controller.state {
@@ -3953,10 +3953,7 @@ extension CompanionManager {
                     voiceState = .idle
                     return
                 }
-                // start() clears any stale per-meeting choice, so set the
-                // explicit profile AFTER start.
                 if let namedProfile {
-                    controller.selectedProfileSlug = namedProfile.slug
                     await publishMeetingFeedback(
                         "Recording your \(namedProfile.name) — I'll write \(namedProfile.name)-style notes when you stop."
                     )

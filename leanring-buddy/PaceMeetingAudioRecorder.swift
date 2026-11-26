@@ -150,8 +150,14 @@ final class PaceMeetingAudioRecorder {
             writer.append(samples)
         }
 
-        audioEngine = engine
-        try engine.start()
+        do {
+            try engine.start()
+            audioEngine = engine
+        } catch {
+            inputNode.removeTap(onBus: 0)
+            engine.stop()
+            throw error
+        }
     }
 
     /// Lazily build the mic-track writer, capturing the current recording

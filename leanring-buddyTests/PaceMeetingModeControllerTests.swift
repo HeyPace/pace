@@ -26,6 +26,27 @@ struct PaceMeetingModeControllerTests {
         #expect(controller.state == .inactive || controller.state == .failed(""))
     }
 
+    @Test func systemCaptureDenialFailsBeforeCreatingAMicrophoneRecorder() async {
+        var recorderCount = 0
+        let controller = PaceMeetingModeController(
+            loadShareableContent: {
+                throw NSError(
+                    domain: "PaceMeetingTest", code: 1,
+                    userInfo: [NSLocalizedDescriptionKey: "System capture denied"])
+            },
+            makeRecorder: { identifier in
+                recorderCount += 1
+                return PaceMeetingAudioRecorder(meetingID: identifier)
+            })
+        await controller.start(profileSlug: "standup")
+        #expect(recorderCount == 0)
+        #expect(controller.state == .failed("System capture denied"))
+        #expect(!controller.isCapturing)
+        #expect(controller.selectedProfileSlug == "standup")
+        await controller.start()
+        #expect(recorderCount == 0 && controller.selectedProfileSlug == nil)
+    }
+
     /// The detected speech level starts at zero.
     @Test
     func initialSpeechLevelIsZero() {

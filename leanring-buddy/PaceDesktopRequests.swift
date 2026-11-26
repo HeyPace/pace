@@ -285,8 +285,7 @@ extension PaceActionExecutor {
         let controller = PaceMeetingModeController.shared
         switch command {
         case .start(let profileSlug):
-            if let profileSlug { controller.selectedProfileSlug = profileSlug }
-            await controller.start()
+            await controller.start(profileSlug: profileSlug)
         case .stop:
             await controller.stop()
         case .status: break
