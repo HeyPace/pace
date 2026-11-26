@@ -2505,7 +2505,8 @@ extension CompanionManager {
                         .stringValue(forKey: "EnableActions")?
                         .lowercased() == "true"
                     let threadSummaryInjectionForTurn =
-                        initialInspectionPlan == nil && !requiresFreshTabInspection && activeConversationUserEvent?.threadRootID == nil
+                        initialInspectionPlan == nil && !requiresFreshTabInspection
+                            && activeConversationUserEvent?.threadRootID == nil
                         ? threadMemory.injectionPrefix() : nil
                     // Research turns route through PaceLocalCLIPlannerClient
                     // (claude/codex CLI). The CLI has its own web tools
@@ -2575,7 +2576,8 @@ extension CompanionManager {
                         underRecommendation: thermalStateAdvisor.currentRecommendation
                     )
                     let useSpeculativeRace =
-                        !requiresFreshTabInspection && activeConversationLanguageMode != .japanesePractice && isFirstStep
+                        !requiresFreshTabInspection && activeConversationLanguageMode != .japanesePractice
+                        && isFirstStep
                         && screenSuggestionContext == nil
                         && !isResearchTurn
                         && !activePlannerTierIsOffDevice
@@ -2661,7 +2663,8 @@ extension CompanionManager {
                         }
                         let userPromptForPlanner: String
                         if requiresFreshTabInspection {
-                            userPromptForPlanner = userPromptWithConfiguredTools
+                            userPromptForPlanner =
+                                userPromptWithConfiguredTools
                                 + "\nAnswer from this turn’s observations of the requested tab. If the requested information has not been observed, inspect it within the authorized session or report what remains unverified."
                         } else if initialInspectionPlan != nil {
                             userPromptForPlanner = userPromptWithConfiguredTools
@@ -2698,7 +2701,8 @@ extension CompanionManager {
                         }
 
                         // 4. Build conversation history (already includes prior steps)
-                        let historyForPlanner = requiresFreshTabInspection
+                        let historyForPlanner =
+                            requiresFreshTabInspection
                             ? [] : plannerConversationHistory(initialInspectionPlan: initialInspectionPlan)
 
                         // 5. Run the planner. Text-only planners get an empty
