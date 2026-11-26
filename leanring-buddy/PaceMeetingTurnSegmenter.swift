@@ -112,10 +112,26 @@ nonisolated enum PaceMeetingTurnSegmenter {
         // window.
         var activeTrackPerWindow: [PaceMeetingAudioTrackKind?] = []
         activeTrackPerWindow.reserveCapacity(windowCount)
+        let quietSpeechConfiguration = PaceUtteranceEndpointConfiguration()
+        let envelopeWindowCount = max(1, Int(0.2 / windowDuration))
+        var lastAudibleSystemWindow = -envelopeWindowCount
         for windowIndex in 0..<windowCount {
             let micRMS = windowIndex < micWindows.count ? micWindows[windowIndex] : 0
             let systemRMS = windowIndex < systemWindows.count ? systemWindows[windowIndex] : 0
-            let micIsSpeech = micRMS >= speechThreshold
+            if systemRMS >= quietSpeechConfiguration.minimumSilenceRMS {
+                lastAudibleSystemWindow = windowIndex
+            }
+            var micIsSpeech = micRMS >= speechThreshold
+            if !micIsSpeech, micRMS >= quietSpeechConfiguration.minimumSpeechRMS,
+                windowIndex - lastAudibleSystemWindow >= envelopeWindowCount
+            {
+                // Quiet speech rises above nearby syllable gaps. A steady hum stays at its local floor.
+                // Only open this lower gate after playback and its acoustic tail have gone quiet.
+                let start = max(micPadWindows, windowIndex - envelopeWindowCount + 1)
+                if let localFloor = micWindows[start...windowIndex].min() {
+                    micIsSpeech = micRMS >= localFloor * quietSpeechConfiguration.speechToNoiseRatio
+                }
+            }
             let systemIsSpeech = systemRMS >= speechThreshold
 
             if micIsSpeech && systemIsSpeech {
