@@ -23,6 +23,55 @@ struct PaceCaptureAcknowledgementTests {
         }
     }
 
+    @Test func idleObservationConsumesOneHeldKeyboardPressInItsOriginalThread() async throws {
+        let (root, manager, _, _) = try PacePowerManagerTests().fixture()
+        defer {
+            manager.cancelActiveTurnTasks()
+            try? FileManager.default.removeItem(at: root)
+        }
+        manager.isTranscriptionModelReady = false
+        manager.buddyDictationManager.usesJapanesePracticeTranscription = false
+        manager.fastEverydayAnswersEnabled = false
+        manager.useLocalVLMForScreenContext = false
+        let monitor = manager.globalPushToTalkShortcutMonitor
+        monitor.handleRightOptionEvent(.flagsChanged, keyCode: 61, flags: [.maskAlternate, .init(rawValue: 0x40)])
+        try await Task.sleep(for: .milliseconds(240))
+        manager.deferredKeyboardPress = .init(threadRootID: "original-thread")
+        #expect(manager.resumeDeferredKeyboardPressIfHeld())
+        #expect(manager.captureThreadRootID == "original-thread")
+        #expect(!manager.resumeDeferredKeyboardPressIfHeld())
+        monitor.handleRightOptionEvent(.flagsChanged, keyCode: 61, flags: [])
+    }
+
+    @Test func releaseOrCancellationDiscardsDeferredKeyboardPress() throws {
+        let (root, manager, _, _) = try PacePowerManagerTests().fixture()
+        defer { try? FileManager.default.removeItem(at: root) }
+        for transition in [BuddyPushToTalkShortcut.ShortcutTransition.released, .cancelled] {
+            manager.deferredKeyboardPress = .init(threadRootID: "original-thread")
+            manager.handleShortcutTransition(transition)
+            #expect(manager.deferredKeyboardPress == nil)
+            #expect(!manager.resumeDeferredKeyboardPressIfHeld())
+            #expect(manager.pendingKeyboardShortcutStartTask == nil)
+        }
+    }
+
+    @Test func idleObservationCannotStartAReleasedOrSimulatedDeferredPress() throws {
+        let (root, manager, _, _) = try PacePowerManagerTests().fixture()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let monitor = manager.globalPushToTalkShortcutMonitor
+        for simulated in [false, true] {
+            if simulated { monitor.simulateShortcutPressed() }
+            manager.deferredKeyboardPress = .init(threadRootID: nil)
+            #expect(!manager.resumeDeferredKeyboardPressIfHeld())
+            #expect(manager.deferredKeyboardPress == nil)
+            #expect(manager.pendingKeyboardShortcutStartTask == nil)
+            monitor.discardSimulatedPress()
+        }
+        manager.deferredKeyboardPress = .init(threadRootID: nil)
+        manager.cancelConversationCapture()
+        #expect(manager.deferredKeyboardPress == nil)
+    }
+
     private func buffer(frameCount: AVAudioFrameCount = 128) throws -> AVAudioPCMBuffer {
         let format = try #require(AVAudioFormat(standardFormatWithSampleRate: 16_000, channels: 1))
         let buffer = try #require(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 128))

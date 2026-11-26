@@ -400,6 +400,7 @@ extension CompanionManager {
                         self.currentDictationTrigger = .keyboard
                     }
                 }
+                if !observedDictationInProgress, self.resumeDeferredKeyboardPressIfHeld() { return }
                 // Don't override .responding — the AI response pipeline
                 // manages that state directly until streaming finishes.
                 guard self.voiceState != .responding else { return }
@@ -540,17 +541,42 @@ extension CompanionManager {
         }
     }
 
-    func handleShortcutTransition(_ transition: BuddyPushToTalkShortcut.ShortcutTransition) {
+    @discardableResult
+    func resumeDeferredKeyboardPressIfHeld() -> Bool {
+        guard !buddyDictationManager.isDictationInProgress, let press = deferredKeyboardPress else { return false }
+        deferredKeyboardPress = nil
+        guard globalPushToTalkShortcutMonitor.isShortcutCurrentlyPressed,
+            !globalPushToTalkShortcutMonitor.isSimulatedPressActive, currentDictationTrigger == .keyboard
+        else { return false }
+        handleShortcutTransition(.pressed, resuming: press)
+        return true
+    }
+
+    func handleShortcutTransition(
+        _ transition: BuddyPushToTalkShortcut.ShortcutTransition, resuming deferredPress: DeferredKeyboardPress? = nil
+    ) {
         switch transition {
         case .pressed:
             shortcutPressOwnsCapture = false
             let chatVisible =
                 NSApp.windows.contains { $0 is PaceConversationPanelWindow && $0.isVisible }
             let usesChatLocation = currentDictationTrigger == .microphoneButton || chatVisible
-            let voiceThreadRootID = usesChatLocation ? chatSession.activeThreadRootID : nil
-            if !usesChatLocation { chatSession.returnToMainChat() }
+            let voiceThreadRootID: String?
+            if let deferredPress {
+                voiceThreadRootID = deferredPress.threadRootID
+            } else {
+                voiceThreadRootID = usesChatLocation ? chatSession.activeThreadRootID : nil
+                if !usesChatLocation { chatSession.returnToMainChat() }
+            }
             revealRequestFeedback()
-            guard !buddyDictationManager.isDictationInProgress else { return }
+            if buddyDictationManager.isDictationInProgress {
+                if buddyDictationManager.isFinalizingTranscript, currentDictationTrigger == .keyboard,
+                    !globalPushToTalkShortcutMonitor.isSimulatedPressActive
+                {
+                    deferredKeyboardPress = DeferredKeyboardPress(threadRootID: voiceThreadRootID)
+                }
+                return
+            }
             currentRequestStartedAt = Date()
             hasAnnouncedCurrentCaptureReady = false
             PaceAPIAuditLog.shared.record(
@@ -765,6 +791,10 @@ extension CompanionManager {
                 )
             }
         case .released:
+            if deferredKeyboardPress != nil {
+                deferredKeyboardPress = nil
+                return
+            }
             shortcutPressOwnsCapture = false
             PaceAPIAuditLog.shared.record(
                 subsystem: "dictation", operation: "input_released",
@@ -801,6 +831,7 @@ extension CompanionManager {
             }
             scheduleTranscriptSafetyFallback()
         case .cancelled:
+            deferredKeyboardPress = nil
             ignoresRejectedPracticeShortcutRelease = false
             guard shortcutPressOwnsCapture else { return }
             cancelConversationCapture()

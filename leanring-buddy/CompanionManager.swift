@@ -896,6 +896,10 @@ final class CompanionManager: ObservableObject {
     var hasAnnouncedCurrentCaptureReady = false
     @Published var currentRequestStartedAt: Date?
     var ignoresRejectedPracticeShortcutRelease = false
+    struct DeferredKeyboardPress {
+        let threadRootID: String?
+    }
+    var deferredKeyboardPress: DeferredKeyboardPress?
     var pendingKeyboardShortcutStartTask: Task<Void, Never>?
     var lastCalendarRetrievalRefreshAt: Date?
     var lastCalendarRetrievalAuthorizationStatus: EKAuthorizationStatus?

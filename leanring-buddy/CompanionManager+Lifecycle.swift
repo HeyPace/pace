@@ -878,6 +878,7 @@ extension CompanionManager {
         if isPostureWatchEnabled {
             postureMonitor.stop()
         }
+        deferredKeyboardPress = nil
         globalPushToTalkShortcutMonitor.stop()
         globalChatShortcutMonitor.stop()
         buddyDictationManager.cancelCurrentDictation()
