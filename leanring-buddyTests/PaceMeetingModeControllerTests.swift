@@ -26,6 +26,16 @@ struct PaceMeetingModeControllerTests {
         #expect(controller.state == .inactive || controller.state == .failed(""))
     }
 
+    @Test func repeatedStartChangesOnlyAnExplicitActiveMeetingProfile() {
+        let active = PaceMeetingModeState.active
+        #expect(active.noteProfileForStart(requested: "interview", current: "standup") == "interview")
+        #expect(active.noteProfileForStart(requested: nil, current: "standup") == "standup")
+        for state in [PaceMeetingModeState.starting, .transcribing, .synthesizing] {
+            #expect(state.noteProfileForStart(requested: "interview", current: "standup") == "standup")
+        }
+        #expect(PaceMeetingModeState.inactive.noteProfileForStart(requested: nil, current: "standup") == nil)
+    }
+
     @Test func systemCaptureDenialFailsBeforeCreatingAMicrophoneRecorder() async {
         var recorderCount = 0
         let controller = PaceMeetingModeController(

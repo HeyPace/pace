@@ -30,6 +30,14 @@ enum PaceMeetingModeState: Equatable {
     case transcribing
     case synthesizing
     case failed(String)
+
+    func noteProfileForStart(requested: String?, current: String?) -> String? {
+        switch self {
+        case .inactive, .failed: return requested
+        case .active: return requested ?? current
+        case .starting, .transcribing, .synthesizing: return current
+        }
+    }
 }
 
 /// Meeting mode controller. Manages an SCStream that captures system
@@ -113,6 +121,8 @@ final class PaceMeetingModeController: ObservableObject {
     /// two-track disk writer; the SCStream delegate appends system
     /// samples to the recorder as they arrive.
     func start(profileSlug: String? = nil) async {
+        let profileForMeeting = state.noteProfileForStart(requested: profileSlug, current: selectedProfileSlug)
+        if profileForMeeting != selectedProfileSlug { selectedProfileSlug = profileForMeeting }
         // Reject while a previous meeting is anywhere in its lifecycle —
         // including .transcribing/.synthesizing, where a new capture
         // would race the old stop() pipeline for `state` and
@@ -128,7 +138,6 @@ final class PaceMeetingModeController: ObservableObject {
         state = .starting
         lastMeetingNotes = nil
         systemAudioDroppedMidMeeting = false
-        selectedProfileSlug = profileSlug
 
         do {
             let content = try await loadShareableContent()
