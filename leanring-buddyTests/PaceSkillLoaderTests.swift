@@ -40,6 +40,15 @@ struct PaceSkillLoaderTests {
         }
     }
 
+    @Test func bundledBrowserWorkflowPreservesTheRequestedSession() throws {
+        let directory = try #require(Bundle.main.resourceURL?.appendingPathComponent("skills"))
+        let url = directory.appendingPathComponent("browser-use.skill.md")
+        let skill = try #require(PaceSkillLoader.parse(skillMarkdown: String(contentsOf: url, encoding: .utf8)))
+        let instructions = skill.steps.map(\.instruction).joined(separator: " ")
+        #expect(instructions.contains("preserve that tab and window"))
+        #expect(instructions.contains("leave personal browser windows alone"))
+    }
+
     @Test func userWorkflowWinsWhenBundledSkillsShareItsIdentity() throws {
         let root = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("pace-skill-precedence-\(UUID().uuidString)", isDirectory: true)

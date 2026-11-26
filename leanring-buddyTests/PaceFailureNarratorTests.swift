@@ -69,7 +69,7 @@ final class PaceFailureNarratorTests: XCTestCase {
         )
 
         XCTAssertEqual(
-            PaceFailureNarrator.kindForPlannerPipelineError(screenCaptureDenial),
+            PaceFailureNarrator.kindForPlannerPipelineError(screenCaptureDenial, upstreamProvider: "Codex"),
             .missingPermission(permission: .screenRecording)
         )
     }
@@ -80,6 +80,14 @@ final class PaceFailureNarratorTests: XCTestCase {
         XCTAssertEqual(
             PaceFailureNarrator.kindForPlannerPipelineError(connectionFailure),
             .plannerOffline
+        )
+    }
+
+    func testProviderFailureKeepsTheSelectedUpstream() {
+        let failure = NSError(domain: NSURLErrorDomain, code: -1004)
+        XCTAssertEqual(
+            PaceFailureNarrator.kindForPlannerPipelineError(failure, upstreamProvider: "Codex"),
+            .cloudBridgeUpstreamError(provider: "Codex")
         )
     }
 

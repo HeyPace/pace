@@ -69,6 +69,9 @@ private enum PaceMCPFixture {
                         if name in ["click", "scroll"] and args.get("snapshot") == "unconfirmed-fixture":
                             text = name.capitalize() + " did not return a confirmed outcome. Fixture diagnostic."
                             result = {"isError": True, "content": [{"type": "text", "text": text}]}
+                        elif name == "click" and args.get("snapshot") == "missing-control":
+                            text = "Failed to perform click: Service unavailable: No pressable accessibility element was found"
+                            result = {"isError": True, "content": [{"type": "text", "text": text}]}
                         elif name in ["window", "see"] and target == "Google Chrome":
                             result = {"isError": True, "content": [{"type": "text", "text": "Multiple apps match 'Google Chrome'. Did you mean: Google Chrome (PID:111), Google Chrome (PID:222)?"}]}
                         else:
@@ -203,6 +206,41 @@ struct PaceMCPClientIntegrationTests {
         }
     }
 
+    @Test func explicitFreshTabReadsAreDistinctFromRecall() {
+        #expect(PaceIntentClassifier.requestsFreshTabInspection("Read both chapters in my current Chrome tab."))
+        #expect(PaceIntentClassifier.requestsFreshTabInspection("Please inspect this tab"))
+        #expect(!PaceIntentClassifier.requestsFreshTabInspection("What did we read in the previous tab?"))
+        #expect(!PaceIntentClassifier.requestsFreshTabInspection("Read my meeting notes"))
+    }
+
+    @Test func navigationKeepsEarlierEvidenceAlongsideTheLatestActionResult() {
+        var history = PaceAgentInspectionHistory()
+        _ = history.continuationEvidence(
+            plannerRequest: "Inspect the document using old-selector",
+            observations: [
+                .init(
+                    toolName: "mcp.peekaboo.see",
+                    summary: #"""
+                        Snapshot ID: old-snapshot
+                        elem_3 - "Edition" - at (1, 2) size 10×20 - value: "Edition 42"
+                        """#)
+            ],
+            needsInspectionAnswer: true)
+        let next = history.continuationEvidence(
+            plannerRequest: "Next page", observations: [.init(toolName: "key", summary: "Dispatched; unverified")],
+            needsInspectionAnswer: false)
+        #expect(next.contains("Edition 42"))
+        for stale in ["old-selector", "old-snapshot", "elem_3", "(1, 2)"] {
+            #expect(!next.contains(stale))
+        }
+        #expect(next.hasSuffix("Dispatched; unverified"))
+        let largeResult = String(repeating: "x", count: PaceAgentInspectionHistory.maximumCharacterCount)
+        let observations = [PaceActionExecutionObservation(toolName: "action", summary: largeResult)]
+        #expect(
+            history.continuationEvidence(plannerRequest: "", observations: observations, needsInspectionAnswer: false)
+                == PaceActionExecutionObservation.formatForPlanner(observations))
+    }
+
     @MainActor @Test(.enabled(if: PaceMCPFixture.isFixtureRunnable))
     func timedOutReadOnlyInspectionsStopQueuedClicksWithoutAnAmbiguityGuess() async throws {
         let program = #"""
@@ -260,6 +298,25 @@ struct PaceMCPClientIntegrationTests {
             #expect(!PaceActionRunRecord.completed(observations: observations).showsInConversation)
             #expect(try String(contentsOf: receipt, encoding: .utf8) == toolName + "\n")
         }
+    }
+
+    @MainActor @Test(.enabled(if: PaceMCPFixture.isFixtureRunnable))
+    func missingClickTargetInterruptsTheBatchAndBoundsRecovery() async throws {
+        let client = PaceMCPFixture.makeAmbiguityClient()
+        let executor = PaceActionExecutor(
+            actionsAreEnabledOverride: true, mcpClient: client, readMyScreenIsEnabled: { true })
+        executor.hasAttemptedInspectionRecovery = true
+        let click = PaceMCPToolCall(
+            serverName: "peekaboo", toolName: "click", arguments: ["snapshot": .string("missing-control")])
+        let plan = PaceActionExecutionPlan.serial(actions: [.mcp(click), .mcp(click)])
+        let observations = await executor.executeActionPlan(plan, screenCaptures: [])
+        #expect(observations.count == 1)
+        #expect(observations.first?.requiresFreshInspectionPlan == true)
+        let secondMiss = await executor.callMCPTool(click)
+        #expect(secondMiss.stopsAgentLoop)
+        executor.beginUserTurn()
+        let nextTurn = await executor.callMCPTool(click)
+        #expect(nextTurn.requiresFreshInspectionPlan)
     }
 
     @MainActor @Test(.enabled(if: PaceMCPFixture.isFixtureRunnable))
@@ -360,12 +417,16 @@ struct PaceMCPClientIntegrationTests {
         for diagnostic in [
             "invalid parameter: app", "Application not running", "Invalid params: window_id 14013",
             "Invalid params: window title Sign in", "Missing required argument: accessibility",
+            "Failed to capture UI state: Desktop observation target was not found: window id 44 owned by PID 123",
         ] {
             executor.beginUserTurn()
+            let missingWindow = diagnostic.contains("Desktop observation target was not found")
             let inspection = PaceParsedAction.mcp(
                 .init(
-                    serverName: "peekaboo", toolName: "window",
-                    arguments: ["action": .string("list"), "failure": .string(diagnostic)]))
+                    serverName: "peekaboo", toolName: missingWindow ? "see" : "window",
+                    arguments: missingWindow
+                        ? ["window_id": .string("44"), "failure": .string(diagnostic)]
+                        : ["action": .string("list"), "failure": .string(diagnostic)]))
             let plan = PaceActionExecutionPlan.serial(actions: [inspection, futureWrite])
             let first = await executor.executeActionPlanWithReceipt(plan, screenCaptures: [])
             #expect(first.observations.count == 1)
@@ -390,6 +451,10 @@ struct PaceMCPClientIntegrationTests {
                 "Enable Screen Recording for Peekaboo in System Settings, then try again."
             ),
             ("Accessibility access denied", "Enable Accessibility for Peekaboo in System Settings, then try again."),
+            (
+                "Desktop observation target was not found: window id 44 owned by PID 123; Screen Recording permission denied",
+                "Enable Screen Recording for Peekaboo in System Settings, then try again."
+            ),
             ("Unauthorized: expired token", "Reconnect Peekaboo in Pace settings, then try again."),
             ("HTTP status: 401", "Reconnect Peekaboo in Pace settings, then try again."),
             ("403 Forbidden", "Reconnect Peekaboo in Pace settings, then try again."),

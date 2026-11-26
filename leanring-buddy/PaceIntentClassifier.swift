@@ -383,6 +383,13 @@ final class PaceIntentClassifier {
             #"\A(?:what(?:['’]?s| is)\s+on\s+(?:(?:my|the)\s+)?screen(?:\s+(?:right\s+)?now)?|what am i looking at)[.!?]*\z"#
     )
 
+    nonisolated static func requestsFreshTabInspection(_ transcript: String) -> Bool {
+        let text = strippedOfWakePhrase(transcript.lowercased()).trimmingCharacters(in: .whitespacesAndNewlines)
+        let inspection = #/^(?:please )?(?:read|inspect|check|look at|summarize)\b/#
+        let currentTab = #/\b(?:this|current|active) (?:[a-z]+ )?tab\b/#
+        return text.contains(inspection) && text.contains(currentTab)
+    }
+
     nonisolated static func isCurrentScreenQuestion(_ transcript: String) -> Bool {
         let normalizedTranscript = strippedOfWakePhrase(
             transcript.trimmingCharacters(in: .whitespacesAndNewlines).lowercased())

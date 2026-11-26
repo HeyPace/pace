@@ -2235,6 +2235,7 @@ extension CompanionManager {
                     || requestsGeneratedImage,
                 requestsTeaching: PaceTeachingPower.prefersVisualExplanation(transcript))
         }
+        let requiresFreshTabInspection = PaceIntentClassifier.requestsFreshTabInspection(transcript)
         let initialInspectionPlan = PaceInitialInspectionPlanResolver.resolve(
             transcript: transcript, context: currentInitialInspectionContext())
 
@@ -2403,6 +2404,7 @@ extension CompanionManager {
             }
             var pendingPostActionFeedbackText: String?
             var inspectionHistory = PaceAgentInspectionHistory()
+            var inspectionHistoryHadScreenAccess = useLocalVLMForScreenContext
             var plannerLoopFinished = false
             var turnFullResponseText: String = ""
             // The most recent step's cleaned spoken text. Research turns
@@ -2503,7 +2505,8 @@ extension CompanionManager {
                         .stringValue(forKey: "EnableActions")?
                         .lowercased() == "true"
                     let threadSummaryInjectionForTurn =
-                        initialInspectionPlan == nil && activeConversationUserEvent?.threadRootID == nil
+                        initialInspectionPlan == nil && !requiresFreshTabInspection
+                            && activeConversationUserEvent?.threadRootID == nil
                         ? threadMemory.injectionPrefix() : nil
                     // Research turns route through PaceLocalCLIPlannerClient
                     // (claude/codex CLI). The CLI has its own web tools
@@ -2573,7 +2576,8 @@ extension CompanionManager {
                         underRecommendation: thermalStateAdvisor.currentRecommendation
                     )
                     let useSpeculativeRace =
-                        activeConversationLanguageMode != .japanesePractice && isFirstStep
+                        !requiresFreshTabInspection && activeConversationLanguageMode != .japanesePractice
+                        && isFirstStep
                         && screenSuggestionContext == nil
                         && !isResearchTurn
                         && !activePlannerTierIsOffDevice
@@ -2658,7 +2662,11 @@ extension CompanionManager {
                                 to: screenContextPrompt, initialInspectionPlan: initialInspectionPlan)
                         }
                         let userPromptForPlanner: String
-                        if initialInspectionPlan != nil {
+                        if requiresFreshTabInspection {
+                            userPromptForPlanner =
+                                userPromptWithConfiguredTools
+                                + "\nAnswer from this turn’s observations of the requested tab. If the requested information has not been observed, inspect it within the authorized session or report what remains unverified."
+                        } else if initialInspectionPlan != nil {
                             userPromptForPlanner = userPromptWithConfiguredTools
                         } else {
                             userPromptForPlanner = await appendLocalRetrievalContext(
@@ -2693,7 +2701,9 @@ extension CompanionManager {
                         }
 
                         // 4. Build conversation history (already includes prior steps)
-                        let historyForPlanner = plannerConversationHistory(initialInspectionPlan: initialInspectionPlan)
+                        let historyForPlanner =
+                            requiresFreshTabInspection
+                            ? [] : plannerConversationHistory(initialInspectionPlan: initialInspectionPlan)
 
                         // 5. Run the planner. Text-only planners get an empty
                         //    images list; the VLM element-map text inside
@@ -3372,14 +3382,14 @@ extension CompanionManager {
                     // Set up the next iteration.
                     // Intermediate inventories must not overwrite the final answer.
                     pendingPostActionFeedbackText = nil
-                    let toolObservationPromptText = PaceActionExecutionObservation.formatForPlanner(toolObservations)
-                    if needsInspectionAnswer {
-                        inspectionHistory.append(plannerRequest: fullResponseText, observations: toolObservations)
+                    if inspectionHistoryHadScreenAccess && !useLocalVLMForScreenContext {
+                        inspectionHistory = PaceAgentInspectionHistory()
                     }
-                    let inspectionHistoryPromptText =
-                        needsInspectionAnswer
-                        ? inspectionHistory.formattedForPlanner : toolObservationPromptText
-                    if toolObservationPromptText.isEmpty {
+                    inspectionHistoryHadScreenAccess = useLocalVLMForScreenContext
+                    let inspectionHistoryPromptText = inspectionHistory.continuationEvidence(
+                        plannerRequest: fullResponseText, observations: toolObservations,
+                        needsInspectionAnswer: needsInspectionAnswer)
+                    if inspectionHistoryPromptText.isEmpty {
                         currentTurnUserPrompt =
                             """
                             original request:
@@ -3392,7 +3402,7 @@ extension CompanionManager {
                             original request:
                             \(transcript)
 
-                            completed tool requests and results (most recent inspection steps retained within the prompt budget):
+                            completed tool requests and results, oldest first. Earlier observations are historical evidence. Verify the current target before acting:
                             \(inspectionHistoryPromptText)
                             \(observedUIChange ?? "")
 
@@ -3459,43 +3469,20 @@ extension CompanionManager {
                 responseOverlayManager.finishStreaming()
                 currentTurnHUDState = .failed(error.localizedDescription)
                 speakCreditsErrorFallback()
-                // Plain-language failure narration — see PRD
-                // docs/prds/trust-and-failures.md. The cloud bridge
-                // gets its own kind so the user knows which CLI to
-                // inspect; everything else maps onto plannerOffline.
-                if (error as NSError).domain == "PaceActionScope" {
-                    speakPlainLanguageFailure(
-                        PaceFailureNarrator.kindForPlannerPipelineError(error as NSError),
-                        context: "planner-catch-action-scope",
-                        respondingToUserTranscript: transcript
-                    )
-                } else if plannerClient is CloudBridgePlannerClient {
-                    speakPlainLanguageFailure(
-                        .cloudBridgeUpstreamError(
-                            provider: cloudBridgeUpstream.displayLabel
-                        ),
-                        context: "planner-catch",
-                        respondingToUserTranscript: transcript
-                    )
+                let upstreamProvider: String?
+                if plannerClient is CloudBridgePlannerClient {
+                    upstreamProvider = cloudBridgeUpstream.displayLabel
                 } else if plannerClient is PaceLocalCLIPlannerClient {
-                    // `.cliDirect` tier: the direct-spawned CLI errored /
-                    // is unauthenticated / exited non-zero. Fail loud with
-                    // the upstream named so the user knows which CLI to
-                    // sign in — NO silent local fallback (the moat).
-                    speakPlainLanguageFailure(
-                        .cloudBridgeUpstreamError(
-                            provider: activePlannerTierCLIDirectUpstream.displayLabel
-                        ),
-                        context: "planner-catch-cliDirect",
-                        respondingToUserTranscript: transcript
-                    )
+                    upstreamProvider = activePlannerTierCLIDirectUpstream.displayLabel
                 } else {
-                    speakPlainLanguageFailure(
-                        PaceFailureNarrator.kindForPlannerPipelineError(error as NSError),
-                        context: "planner-catch",
-                        respondingToUserTranscript: transcript
-                    )
+                    upstreamProvider = nil
                 }
+                speakPlainLanguageFailure(
+                    PaceFailureNarrator.kindForPlannerPipelineError(
+                        error as NSError, upstreamProvider: upstreamProvider),
+                    context: "planner-catch",
+                    respondingToUserTranscript: transcript
+                )
             }
 
             if !Task.isCancelled {
@@ -3817,7 +3804,6 @@ extension CompanionManager {
     /// never spoken through NSSpeechSynthesizer. The previous Apple-voice
     /// "Something went wrong" line was rated worse than no audio.
     func speakCreditsErrorFallback() {
-        currentTurnHUDState = .failed("response error")
         PaceAPIAuditLog.shared.record(
             subsystem: "pipeline",
             operation: "error",
