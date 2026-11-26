@@ -290,7 +290,7 @@ struct PaceDialogueCurrentStatusView: View {
         let owner = companionManager.liveRequestLocation
         let showsLocalStatus = showsStatus && owner.showsDetails(in: session.activeThreadRootID, hasFailure: hasFailure)
         if let hint = companionManager.keyboardCaptureHint {
-            Label(hint, systemImage: "mic.slash")
+            Label(hint.detail, systemImage: "keyboard")
                 .font(.callout).foregroundStyle(DS.Colors.textSecondary)
                 .accessibilityAddTraits(.updatesFrequently)
         }

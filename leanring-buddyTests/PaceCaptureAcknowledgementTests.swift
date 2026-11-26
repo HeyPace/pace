@@ -34,7 +34,8 @@ struct PaceCaptureAcknowledgementTests {
         manager.fastEverydayAnswersEnabled = false
         manager.useLocalVLMForScreenContext = false
         let monitor = manager.globalPushToTalkShortcutMonitor
-        monitor.handleRightOptionEvent(.flagsChanged, keyCode: 61, flags: [.maskAlternate, .init(rawValue: 0x40)])
+        monitor.currentModifierFlags = { [.maskAlternate, .init(rawValue: 0x40)] }
+        monitor.handleRightOptionEvent(.flagsChanged, keyCode: 61, flags: monitor.currentModifierFlags())
         let deadline = ContinuousClock.now + .seconds(2)
         while !monitor.isShortcutCurrentlyPressed && ContinuousClock.now < deadline {
             try await Task.sleep(for: .milliseconds(10))
@@ -51,7 +52,7 @@ struct PaceCaptureAcknowledgementTests {
             }
         }
         manager.deferKeyboardPress(threadRootID: "original-thread")
-        #expect(manager.keyboardCaptureHint?.contains("Keep holding") == true)
+        #expect(manager.keyboardCaptureHint == .waiting)
         manager.waitForPreviousVoiceTurnIfNeeded()
         let readinessTask = try #require(manager.deferredPressReadinessTask)
         await readinessTask.value
@@ -70,12 +71,30 @@ struct PaceCaptureAcknowledgementTests {
         manager.deferKeyboardPress(threadRootID: "expired-thread", maximumWait: .milliseconds(5))
         await manager.deferredPressDeadlineTask?.value
         #expect(manager.deferredKeyboardPress == nil)
-        #expect(manager.keyboardCaptureHint?.contains("hold again") == true)
+        #expect(manager.keyboardCaptureHint?.detail.contains("When Pace finishes its reply, hold again") == true)
         #expect(manager.currentResponseTask?.isCancelled == false)
         await manager.currentResponseTask?.value
         #expect(manager.captureThreadRootID == nil)
         manager.handleShortcutTransition(.released)
         #expect(manager.keyboardCaptureHint == nil)
+    }
+
+    @Test func missedKeyUpPreventsDeferredCapture() async throws {
+        let (root, manager, _, _) = try PacePowerManagerTests().fixture()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let monitor = manager.globalPushToTalkShortcutMonitor
+        monitor.handleRightOptionEvent(.flagsChanged, keyCode: 61, flags: [.maskAlternate, .init(rawValue: 0x40)])
+        let deadline = ContinuousClock.now + .seconds(2)
+        while !monitor.isShortcutCurrentlyPressed && ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(monitor.isShortcutCurrentlyPressed)
+        monitor.currentModifierFlags = { [] }
+        manager.deferKeyboardPress(threadRootID: "missed-release")
+        await manager.deferredPressReadinessTask?.value
+        #expect(!monitor.isShortcutCurrentlyPressed)
+        #expect(manager.captureThreadRootID == nil)
+        #expect(manager.pendingKeyboardShortcutStartTask == nil)
     }
 
     @Test func releaseCancellationAndStopDiscardDeferredKeyboardPress() async throws {

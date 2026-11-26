@@ -545,7 +545,7 @@ extension CompanionManager {
         clearDeferredKeyboardPress()
         let press = DeferredKeyboardPress(threadRootID: threadRootID, deadline: .now + maximumWait)
         deferredKeyboardPress = press
-        keyboardCaptureHint = "Keep holding. Speak when Pace shows Listening."
+        keyboardCaptureHint = .waiting
         deferredPressDeadlineTask = Task { @MainActor [weak self] in
             do { try await Task.sleep(until: press.deadline, clock: .continuous) } catch { return }
             self?.expireDeferredKeyboardPress(press)
@@ -556,7 +556,7 @@ extension CompanionManager {
     private func expireDeferredKeyboardPress(_ press: DeferredKeyboardPress) {
         guard deferredKeyboardPress?.identifier == press.identifier else { return }
         clearDeferredKeyboardPress()
-        keyboardCaptureHint = "Microphone was busy. Release and hold again to speak."
+        keyboardCaptureHint = .expired
         PaceAPIAuditLog.shared.record(
             subsystem: "dictation", operation: "deferred_press", target: "keyboard",
             durationMilliseconds: 0, outcome: "expired")
@@ -598,6 +598,7 @@ extension CompanionManager {
                 expireDeferredKeyboardPress(press)
                 return
             }
+            globalPushToTalkShortcutMonitor.recoverMissedModifierRelease()
             clearDeferredKeyboardPress()
             guard !buddyDictationManager.isDictationInProgress,
                 globalPushToTalkShortcutMonitor.isShortcutCurrentlyPressed,
